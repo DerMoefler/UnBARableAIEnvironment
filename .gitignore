@@ -1,0 +1,4 @@
+# Ignore everything that is built inside cpp
+cpp/build/
+
+*/CMakeUserPresets.json

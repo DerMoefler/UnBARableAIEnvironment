@@ -13,3 +13,9 @@ As mentioned already, this project depends on gRPC and thereby [protobuf](https:
 
 - [Conan (v2)](https://conan.io/) for C++
 - [uv](https://docs.astral.sh/uv/) for python
+
+### Installation
+Install conan using
+```console
+uv tool install conan
+```
