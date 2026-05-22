@@ -2,3 +2,6 @@
 cpp/build/
 
 */CMakeUserPresets.json
+
+# Python cache
+__pycache__/
