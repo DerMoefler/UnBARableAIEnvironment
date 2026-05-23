@@ -3,5 +3,8 @@ cpp/build/
 
 */CMakeUserPresets.json
 
+
+*/generated
+
 # Python cache
 __pycache__/
