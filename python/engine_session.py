@@ -44,8 +44,8 @@ class EngineSession:
         self.cwd = Path(cfg.cwd).expanduser()
 
         self.proc: Optional[subprocess.Popen] = None
-        self._stdout_handle = None
-        self._stderr_handle = None
+        self._stdout_handle = cfg.stdout
+        self._stderr_handle = cfg.stderr
 
     def _build_cmd(self) -> List[str]:
         return [
