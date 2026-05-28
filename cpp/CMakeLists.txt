@@ -58,3 +58,12 @@ target_link_libraries(${PROTO_NAME}_proto PUBLIC
     gRPC::grpc++
     protobuf::libprotobuf
 )
+
+add_executable(send_event_client
+    send_event_client.cpp
+)
+
+target_link_libraries(send_event_client
+    PRIVATE
+        ${PROTO_NAME}_proto
+)
