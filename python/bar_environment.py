@@ -39,3 +39,18 @@ class BAR_Environment:
             self.close()
         except Exception:
             pass
+
+    def get_obs_agent(self, agent_id):
+        unit = self.get_unit_by_id(agent_id)
+
+        if unit.health > 0:  # otherwise dead, return all zeros
+            x = unit.pos.x
+            y = unit.pos.y 
+            sight_range = self.unit_sight_range(agent_id)
+        
+        np.append(local_obs)
+        return local_obs
+
+    def get_obs(self):
+        agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
+        return agents_obs 

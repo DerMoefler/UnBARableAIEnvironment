@@ -5,10 +5,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-
+# Dependencies
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
+find_package(GTest CONFIG REQUIRED)
 
+# ------------------------------ (start) gRPC: UnBARableAI proto ------------------------------------
 set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../proto")
 set(GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
@@ -58,7 +60,20 @@ target_link_libraries(${PROTO_NAME}_proto PUBLIC
     gRPC::grpc++
     protobuf::libprotobuf
 )
+# ------------------------------ (end) gRPC: UnBARableAI proto ------------------------------------
 
+add_executable(tests
+    "tests/shared_memory_test.cpp"
+    "src/memory/shared_memory_posix.cpp"
+)
+
+target_include_directories(tests PUBLIC
+    "src/"
+)
+
+target_link_libraries(tests
+    GTest::gtest_main
+)
 add_executable(send_event_client
     send_event_client.cpp
 )
