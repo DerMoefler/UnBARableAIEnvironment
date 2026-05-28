@@ -18,6 +18,10 @@ SharedMemoryPosix::SharedMemoryPosix(std::string_view name)
     }
 }
 
+SharedMemoryPosix::~SharedMemoryPosix(void) {
+    shm_unlink(m_name.c_str());
+}
+
 }; // namespace memory
 
 }; // namespace UnBARableAI

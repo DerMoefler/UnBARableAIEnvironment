@@ -1,7 +1,8 @@
 .vscode
 
-# Ignore everything that is built inside cpp
+# Cpp ignores
 cpp/build/
+doc/cpp
 
 */CMakeUserPresets.json
 

@@ -7,7 +7,7 @@ namespace UnBARableAI {
 using namespace memory;
 
 TEST(SharedMemoryTest, Constructor) {
-    SharedMemory<SharedMemoryPosix>("test");
+    SharedMemory<SharedMemoryPosix>("/test");
 }
 
 } // namespace UnBARableAI
