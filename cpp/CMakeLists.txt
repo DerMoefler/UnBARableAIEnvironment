@@ -64,6 +64,7 @@ target_link_libraries(${PROTO_NAME}_proto PUBLIC
 
 add_executable(tests
     "tests/shared_memory_test.cpp"
+    "src/memory/shared_memory_posix.cpp"
 )
 
 target_include_directories(tests PUBLIC

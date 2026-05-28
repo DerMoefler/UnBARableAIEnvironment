@@ -1,4 +1,6 @@
 #pragma once
+#include <string_view>
+
 #include "shared_memory_impl.h"
 
 namespace UnBARableAI {
@@ -11,8 +13,8 @@ public:
     /**
      * \brief Creates a shared memory region.
      */
-    SharedMemory(void)
-        : m_sharedMemoryImpl()
+    SharedMemory(std::string_view name)
+        : m_sharedMemoryImpl(name)
     {}
 
 private:
