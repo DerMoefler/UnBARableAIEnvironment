@@ -40,7 +40,7 @@ class BAR_Environment:
         except Exception:
             pass
 
-    def get_obs_agent(self, agent_id)
+    def get_obs_agent(self, agent_id):
         unit = self.get_unit_by_id(agent_id)
 
         if unit.health > 0:  # otherwise dead, return all zeros

@@ -9,6 +9,7 @@ class UnBARableAIRecipe(ConanFile):
     def requirements(self):
         self.requires("grpc/1.78.1")
         self.requires("protobuf/6.33.5", override = True)
+        self.requires("gtest/1.17.0")
 
     def build_requirements(self):
         self.tool_requires("protobuf/6.33.5")
