@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <cstdint>
 
 namespace UnBARableAI {
 
@@ -28,11 +29,20 @@ public:
      */
     ~SharedMemoryPosix(void);
 
+    void writeSegment(std::span<const std::byte> data);
+
 private:
+    /// \brief Constant by which the size is increased when needed.
+    inline static constexpr int64_t     c_size_increase = 4096;
+
     /// \brief Name of the shared memory region.
-    std::string m_name;
+    std::string                         m_name;
+
     /// \brief Id returned by shm_open.
-    int m_id;
+    int                                 m_id;
+
+    /// \brief Size of the shared memory region.
+    uint64_t                            m_size;
 };
 
 }; // namespace memory

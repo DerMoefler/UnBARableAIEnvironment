@@ -11,6 +11,7 @@ namespace memory {
 
 SharedMemoryPosix::SharedMemoryPosix(std::string_view name) 
     : m_name(name)
+    , m_size(0)
 {
     m_id = shm_open(m_name.c_str(), O_CREAT | O_RDWR | O_EXCL, 0600);
     if(m_id == -1) {
