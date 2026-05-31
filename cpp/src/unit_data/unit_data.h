@@ -5,9 +5,11 @@ namespace unit {
 
 struct UnitData {
     float health;
-    int allyTeam;
-    float3 position;
-    std::vector<Unit::Command> currentCommands;
+    int team;
+    float xPosition;
+    float yPosition;
+    float zPosition;
+    bool hasCurrentCommand;
 };
 
 }; // namespace unit
