@@ -87,15 +87,34 @@ target_link_libraries(send_event_client
 
 #--------------------pybind11 module--------------------
 
+set(BAR_AI_SHARED_ROOT
+    "/home/projekt/repos/UnBARableAIEnvironment.git"
+    CACHE PATH "Shared project root used by all users to load the native bar_ai module"
+)
+
+set(BAR_AI_ARTIFACT_DIR
+    "${BAR_AI_SHARED_ROOT}/artifacts/${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}/py312"
+)
+
+file(MAKE_DIRECTORY "${BAR_AI_ARTIFACT_DIR}")
+
 pybind11_add_module(bar_ai
     src/bindings/bindings.cpp
     src/unit/pawn.cpp
 )
 
-target_include_directories(bar_ai PRIVATE   
-    ${CMAKE_SOURCE_DIR}
+
+target_include_directories(bar_ai PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-install(TARGETS bar_ai    
-LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/../python/.venv/lib/python3.12/site-packages
+target_link_libraries(bar_ai PRIVATE
+    ${PROTO_NAME}_proto
+)
+
+target_compile_features(bar_ai PRIVATE cxx_std_20)
+
+set_target_properties(bar_ai PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${BAR_AI_ARTIFACT_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${BAR_AI_ARTIFACT_DIR}"
 )
