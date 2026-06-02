@@ -34,6 +34,6 @@ cmake -S . -B build/Release \
 ```
 You can then invoke CMake as you usually would:
 ```console
-cmake --build build/Release -j
+cmake --build build/Release
 ```
 VS Code offers an extension for CMake. VS Code might automatically prompt you to select a preset. It also allows running CMake (autoruns when something changes in CMakeLists.txt for example). 
