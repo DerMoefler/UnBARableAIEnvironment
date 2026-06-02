@@ -89,7 +89,6 @@ target_link_libraries(send_event_client
 
 set(BAR_AI_SHARED_ROOT
     "/home/projekt/repos/UnBARableAIEnvironment.git"
-    CACHE PATH "Shared project root used by all users to load the native bar_ai module"
 )
 
 set(BAR_AI_ARTIFACT_DIR
