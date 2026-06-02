@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 find_package(GTest CONFIG REQUIRED)
+find_package(pybind11 REQUIRED)
 
 # ------------------------------ (start) gRPC: UnBARableAI proto ------------------------------------
 set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../proto")
@@ -81,4 +82,20 @@ add_executable(send_event_client
 target_link_libraries(send_event_client
     PRIVATE
         ${PROTO_NAME}_proto
+)
+
+
+#--------------------pybind11 module--------------------
+
+pybind11_add_module(bar_ai
+    src/bindings/bindings.cpp
+    src/unit/pawn.cpp
+)
+
+target_include_directories(bar_ai PRIVATE   
+    ${CMAKE_SOURCE_DIR}
+)
+
+install(TARGETS bar_ai    
+LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/../python/.venv/lib/python3.12/site-packages
 )
