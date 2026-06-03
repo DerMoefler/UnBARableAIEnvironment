@@ -51,7 +51,7 @@ id_t SharedMemoryPosix::writeSegment(std::span<const std::byte> data) {
 }
 
 void SharedMemoryPosix::increaseSize(uint64_t size) {
-    ftruncate(m_id, size);
+    ftruncate(m_id, m_size + size);
     m_size += size;
     map();
 }

@@ -7,7 +7,7 @@ doc/cpp
 */CMakeUserPresets.json
 
 
-*/generated
+generated/
 
 # Python cache
 __pycache__/

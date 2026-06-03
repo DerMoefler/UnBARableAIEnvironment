@@ -86,6 +86,18 @@ target_link_libraries(send_event_client
         ${PROTO_NAME}_proto
 )
 
+# ------------------------------ generate docs ------------------------------------
+add_custom_target(generate_docs_images
+    COMMAND uv run run_all.py
+            --out-dir generated/
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/../doc/scripts
+)
+
+add_custom_target(docs
+    COMMAND doxygen Doxyfile
+    DEPENDS generate_docs_images
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
 
 #--------------------pybind11 module--------------------
 
