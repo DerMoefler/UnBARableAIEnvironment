@@ -6,8 +6,9 @@ doc/cpp
 
 */CMakeUserPresets.json
 
-
+# Everything that is generated, like gRPC or doc images
 generated/
 
-# Python cache
+# Python artifacts
 __pycache__/
+.venv/

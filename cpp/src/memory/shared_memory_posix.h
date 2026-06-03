@@ -18,7 +18,8 @@ namespace memory {
  * \brief Implements a \ref SharedMemoryImpl using POSIX shared memory.
  * \todo fix use of uint64_t and id_t to refer to an index / size type.
  * 
- * \todo image
+ * \todo document
+ * \image html shared_memory_layout.svg
  * 
  * People seem to prefer POSIX shared memory over system V's, which is used by \ref SharedMemoryUnix.
  */
