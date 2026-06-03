@@ -11,8 +11,8 @@ def u32be(value: int) -> bytes:
 def build_shared_memory_posix_write_segment_test_example(
     *,
     c_contiguous_segment_count: int = 1,
-    magic: bytes = bytes.fromhex("55424152"),
-    version: int = 1,
+    magic: bytes = bytes.fromhex("ba52ab1e"),
+    version: bytes = bytes.fromhex("00000001"),
     segment_data: bytes = bytes.fromhex("ba52ab1e"),
     segment_count: int = 3,
     c_partial_table_link_id: int = 0xFFFFFFFF,
@@ -85,7 +85,7 @@ def build_shared_memory_posix_write_segment_test_example(
 
     chunks: list[bytes] = [
         magic,
-        u32be(version),
+        version,
     ]
 
     # Each element stores:
