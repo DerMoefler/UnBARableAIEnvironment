@@ -100,14 +100,14 @@ void SharedMemoryPosix::extendSegmentTable(void) {
     write(0x00000000u);
 }
 
-void SharedMemoryPosix::setSegmentTableLink(id_t id, uint64_t position) {
+void SharedMemoryPosix::setSegmentTableLink(id_t id, link_t position) {
     size_t partialTableIdx = id / c_contiguous_segment_count;
     id_t partialTableStart = m_segmentTableOffsets[partialTableIdx];
     id_t writeOffset =  partialTableStart 
                       + (id % c_contiguous_segment_count) * 2 * sizeof(id_t) 
                       + sizeof(id_t);
     // TODO fix the cast
-    write(static_cast<uint32_t>(position), writeOffset);
+    write(position, writeOffset);
 }
 
 }; // namespace memory

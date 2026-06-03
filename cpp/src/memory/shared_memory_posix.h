@@ -15,13 +15,24 @@ namespace UnBARableAI {
 namespace memory {
 
 /**
- * \brief Uses POSIX shared memory.
+ * \brief Implements a \ref SharedMemoryImpl using POSIX shared memory.
  * \todo fix use of uint64_t and id_t to refer to an index / size type.
+ * 
+ * \todo image
+ * 
  * People seem to prefer POSIX shared memory over system V's, which is used by \ref SharedMemoryUnix.
  */
 class SharedMemoryPosix {
-public:
     static_assert(sizeof(id_t) == 4, "Invalid size for type 'id_t', has to be 4 bytes.");
+public:
+    /** 
+    * \brief Type alias for a 'link', which is a relative pointer specifically in the segment table.
+    *
+    * \note Raw pointers are not usable in shared memory, which is why this class uses offsets
+    * relative to \ref m_memoryStart.
+    */ 
+    using link_t = id_t;
+
     /**
      * \brief Acquire shared memory using shm_open().
      * \param name The name of the shared memory region.
@@ -48,7 +59,7 @@ public:
     /**
      * \brief Deletes a segment of data from memory.
      * 
-     * \param id The id the memory segment has been assigned internally.
+     * \param id The id the memory segment has been assigned (returned previously by the call to \ref writeSegment).
      */
     // void    deleteSegment(const id_t id);
 
@@ -65,8 +76,8 @@ private:
     /// \brief Extend the segment table in memory by \ref c_contiguous_segment_count.
     void extendSegmentTable(void);
 
-    /// \brief Update the "link" (i.e. offset from \ref m_memoryStart) in the segment table for the given id.
-    void setSegmentTableLink(id_t id, uint64_t position);
+    /// \brief Update the \ref link_t in the segment table for the given id.
+    void setSegmentTableLink(id_t id, link_t link);
 
     /**
      * \brief Helper method to convert a value into big endian.
@@ -172,8 +183,6 @@ private:
      * \todo Document using image
      */ 
     std::vector<uint64_t>               m_segmentTableOffsets = {};
-
-
 };
 
 }; // namespace memory
