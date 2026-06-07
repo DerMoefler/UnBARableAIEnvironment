@@ -24,15 +24,24 @@ namespace memory {
  * People seem to prefer POSIX shared memory over system V's, which is used by \ref SharedMemoryUnix.
  */
 class SharedMemoryPosix {
-    static_assert(sizeof(id_t) == 4, "Invalid size for type 'id_t', has to be 4 bytes.");
+    static_assert(sizeof(size_t) == 8, "Invalid bytelength for type 'size_t'");
 public:
     /** 
-    * \brief Type alias for a 'link', which is a relative pointer specifically in the segment table.
+    * \brief Type alias for a 'link', which is specifically a relative pointer linking objects together, e.g. the segment table or a segment itself.
     *
     * \note Raw pointers are not usable in shared memory, which is why this class uses offsets
     * relative to \ref m_memoryStart.
     */ 
     using link_t = id_t;
+
+    /** 
+    * \brief Type alias for a specific position in the shared memory.
+    *
+    * The position starts at 0 from the \ref m_memoryStart. Conceptually very similar to \ref link_t. The difference is, that
+    * a \ref link_t is specific to linking binary objects like the segment table or segments themselves together. A position is effectively
+    * the general term, while \ref link_t is a semantically special position_t.
+    */ 
+    using position_t = id_t;
 
     /**
      * \brief Acquire shared memory using shm_open().
@@ -66,7 +75,7 @@ public:
 
 private:
     /// \brief Increase the size of the shared memory region by some amount.
-    void increaseSize(uint64_t size = c_size_increase);
+    void increaseSize(size_t size = c_size_increase);
 
     /// \brief Map the shared memory into the virtual address space using mmap().
     void map(void);
@@ -137,10 +146,10 @@ private:
     }
 
     /// \brief Constant by which the shared memory's size is increased when more memory is needed (should be the size of one page).
-    inline static constexpr uint64_t    c_size_increase = 4096;
+    inline static constexpr size_t      c_size_increase = 4096;
 
     /// \brief Size of an extension of the segment table.
-    inline static constexpr uint64_t    c_segment_table_size = 
+    inline static constexpr size_t      c_segment_table_size = 
         (c_contiguous_segment_count + 1) * sizeof(id_t) * 2;
     
     static_assert(
@@ -166,24 +175,24 @@ private:
     std::byte*                          m_memoryStart;
 
     /// \brief Size of the shared memory region.
-    uint64_t                            m_size = 0;
+    size_t                              m_size = 0;
 
     /// \brief Head of the shared memory relative to \ref m_memoryStart.
-    uint64_t                            m_head = 0;
+    position_t                          m_head = 0;
 
     /** 
      * \brief Table storing entries [offset], i.e. the offset from the start of shared memory to the segment identified by id, which corresponds to the index.
      * 
      * This list is stored as a partially linked list directly after the version tag. \todo Document using image
      */ 
-    std::vector<uint64_t>               m_segmentOffsets = {};
+    std::vector<position_t>             m_segmentOffsets = {};
 
     /** 
      * \brief Vector storing the relative position of the partial segment table offsets.
      * 
      * \todo Document using image
      */ 
-    std::vector<uint64_t>               m_segmentTableOffsets = {};
+    std::vector<position_t>             m_segmentTableOffsets = {};
 };
 
 }; // namespace memory

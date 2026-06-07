@@ -29,7 +29,7 @@ inline constexpr uint32_t   c_version =   static_cast<uint32_t>(c_version_major)
                                         | static_cast<uint32_t>(c_version_patch);
 
 /// \brief The id used to signal that the next entry is not an offset for a data segment but rather the offset to the next partial segment table.
-inline constexpr uint32_t   c_partial_table_link_id = 0xFFFFFFFF;
+inline constexpr id_t   c_partial_table_link_id = 0xFE'DC'BA'98;//'76'54'32'10;
 
 /**
  * \brief Number of contiguous segments in the partially linked list.

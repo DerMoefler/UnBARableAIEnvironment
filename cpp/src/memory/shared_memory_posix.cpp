@@ -35,10 +35,10 @@ id_t SharedMemoryPosix::writeSegment(std::span<const std::byte> data) {
         extendSegmentTable();
     }
     // TODO length encoding
-    uint64_t dataSize = data.size();
+    size_t dataSize = data.size();
     if((m_head + dataSize) > m_size) {
         // Increase by n * c_size_increase to fit the data into memory.
-        uint64_t sizeIncrease = (dataSize / c_size_increase + 1) * c_size_increase;
+        size_t sizeIncrease = (dataSize / c_size_increase + 1) * c_size_increase;
         increaseSize(sizeIncrease);
     }
 
@@ -50,7 +50,7 @@ id_t SharedMemoryPosix::writeSegment(std::span<const std::byte> data) {
     return segmentId;
 }
 
-void SharedMemoryPosix::increaseSize(uint64_t size) {
+void SharedMemoryPosix::increaseSize(size_t size) {
     ftruncate(m_id, m_size + size);
     m_size += size;
     map();
@@ -84,8 +84,7 @@ void SharedMemoryPosix::extendSegmentTable(void) {
         id_t previousOffset = m_segmentTableOffsets.back();
         // Write offset for the current head in memory
         id_t writePositionPreviousOffset = previousOffset + c_segment_table_size - sizeof(id_t);
-        // TODO fix the cast
-        write(static_cast<uint32_t>(m_head), writePositionPreviousOffset);
+        write(static_cast<link_t>(m_head), writePositionPreviousOffset);
     }
 
     m_segmentOffsets.reserve(c_contiguous_segment_count + 1);
@@ -93,11 +92,11 @@ void SharedMemoryPosix::extendSegmentTable(void) {
     m_segmentTableOffsets.push_back(m_head);
     for(id_t i = firstId; i < firstId + c_contiguous_segment_count; i++) {
         write(i);
-        write(0x00000000u);
+        write(static_cast<link_t>(0x00));
     }
     // Create last entry as a link, which will be overriden by the next call to this method as per above
     write(c_partial_table_link_id);
-    write(0x00000000u);
+    write(static_cast<link_t>(0x00));
 }
 
 void SharedMemoryPosix::setSegmentTableLink(id_t id, link_t position) {
@@ -106,7 +105,6 @@ void SharedMemoryPosix::setSegmentTableLink(id_t id, link_t position) {
     id_t writeOffset =  partialTableStart 
                       + (id % c_contiguous_segment_count) * 2 * sizeof(id_t) 
                       + sizeof(id_t);
-    // TODO fix the cast
     write(position, writeOffset);
 }
 
