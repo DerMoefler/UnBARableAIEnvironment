@@ -37,3 +37,13 @@ You can then invoke CMake as you usually would:
 cmake --build build/Release
 ```
 VS Code offers an extension for CMake. VS Code might automatically prompt you to select a preset. It also allows running CMake (autoruns when something changes in CMakeLists.txt for example). 
+
+### C++26 & gcc-16
+C++26 is the newest C++ language standard as per this year. One of its primary features is static reflection. To allow experimenting with C++26, you need to use gcc version 16. A gcc-16 compiler built from source can be found under /opt/gcc-16. To configure cmake with this newest compiler, simply run:
+```console
+cmake -S . -B build/Release \
+  -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/opt/gcc-16/bin/gcc \
+  -DCMAKE_CXX_COMPILER=/opt/gcc-16/bin/g++
+```
