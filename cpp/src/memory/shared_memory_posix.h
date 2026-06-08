@@ -24,15 +24,36 @@ namespace memory {
  * People seem to prefer POSIX shared memory over system V's, which is used by \ref SharedMemoryUnix.
  */
 class SharedMemoryPosix {
-    static_assert(sizeof(id_t) == 4, "Invalid size for type 'id_t', has to be 4 bytes.");
+    static_assert(sizeof(size_t) == 8, "Invalid bytelength for type 'size_t'");
 public:
     /** 
-    * \brief Type alias for a 'link', which is a relative pointer specifically in the segment table.
+    * \brief Type alias for a 'link', which is specifically a relative pointer linking objects together, e.g. the segment table or a segment itself.
     *
     * \note Raw pointers are not usable in shared memory, which is why this class uses offsets
     * relative to \ref m_memoryStart.
     */ 
     using link_t = id_t;
+
+    /** 
+    * \brief Type alias for a specific position in the shared memory.
+    *
+    * The position starts at 0 from the \ref m_memoryStart. Conceptually very similar to \ref link_t. The difference is, that
+    * a \ref link_t is specific to linking binary objects like the segment table or segments themselves together. A position is effectively
+    * the general term, while \ref link_t is a semantically special position_t.
+    */ 
+    using position_t = id_t;
+
+    /// \brief The id used to signal that the next entry is not an offset for a data segment but rather the offset to the next partial segment table.
+    inline static constexpr id_t   c_partial_table_link_id = 0xFE'DC'BA'98;//'76'54'32'10;
+
+    /**
+    * \brief Number of contiguous segments in the partially linked list.
+    * The last element is a relative pointer to next array. \todo image
+    */ 
+    inline static constexpr uint32_t    c_contiguous_segment_count = 1;
+
+    /// \brief The id used to signal that the following bytes compose a \ref position_t to where the segment continues.
+    inline static constexpr id_t   c_segment_link_id       = 0xAA'AA'AA'AA;
 
     /**
      * \brief Acquire shared memory using shm_open().
@@ -66,7 +87,7 @@ public:
 
 private:
     /// \brief Increase the size of the shared memory region by some amount.
-    void increaseSize(uint64_t size = c_size_increase);
+    void increaseSize(const size_t size = c_size_increase);
 
     /// \brief Map the shared memory into the virtual address space using mmap().
     void map(void);
@@ -78,7 +99,17 @@ private:
     void extendSegmentTable(void);
 
     /// \brief Update the \ref link_t in the segment table for the given id.
-    void setSegmentTableLink(id_t id, link_t link);
+    void setSegmentTableLink(const id_t id, const link_t link);
+
+    /**
+     * \brief Calculate the size of a segment.
+     * \param dataSize The size of the data the segment contains.
+     * Adds the size of the size_t at the beginning of the segment for length encoding
+     * as well as the id_t marker and link_t to the next part of the segment.
+     */
+    inline static constexpr size_t calcualteSegmentSize(const size_t dataSize) {
+        return dataSize + sizeof(size_t) + sizeof(id_t) + sizeof(link_t);
+    }
 
     /**
      * \brief Helper method to convert a value into big endian.
@@ -137,10 +168,10 @@ private:
     }
 
     /// \brief Constant by which the shared memory's size is increased when more memory is needed (should be the size of one page).
-    inline static constexpr uint64_t    c_size_increase = 4096;
+    inline static constexpr size_t      c_size_increase = 4096;
 
     /// \brief Size of an extension of the segment table.
-    inline static constexpr uint64_t    c_segment_table_size = 
+    inline static constexpr size_t      c_segment_table_size = 
         (c_contiguous_segment_count + 1) * sizeof(id_t) * 2;
     
     static_assert(
@@ -166,24 +197,24 @@ private:
     std::byte*                          m_memoryStart;
 
     /// \brief Size of the shared memory region.
-    uint64_t                            m_size = 0;
+    size_t                              m_size = 0;
 
     /// \brief Head of the shared memory relative to \ref m_memoryStart.
-    uint64_t                            m_head = 0;
+    position_t                          m_head = 0;
 
     /** 
      * \brief Table storing entries [offset], i.e. the offset from the start of shared memory to the segment identified by id, which corresponds to the index.
      * 
      * This list is stored as a partially linked list directly after the version tag. \todo Document using image
      */ 
-    std::vector<uint64_t>               m_segmentOffsets = {};
+    std::vector<position_t>             m_segmentOffsets = {};
 
     /** 
      * \brief Vector storing the relative position of the partial segment table offsets.
      * 
      * \todo Document using image
      */ 
-    std::vector<uint64_t>               m_segmentTableOffsets = {};
+    std::vector<position_t>             m_segmentTableOffsets = {};
 };
 
 }; // namespace memory
