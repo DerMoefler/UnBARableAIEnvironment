@@ -34,23 +34,27 @@ id_t SharedMemoryPosix::writeSegment(std::span<const std::byte> data) {
     if(segmentId >= m_segmentOffsets.capacity() - 1) {
         extendSegmentTable();
     }
-    // TODO length encoding
-    size_t dataSize = data.size();
-    if((m_head + dataSize) > m_size) {
+    // Get size and extend shm if needed
+    const size_t dataSize = data.size();
+    const size_t segmentSize = calcualteSegmentSize(dataSize);
+    if((m_head + segmentSize) > m_size) {
         // Increase by n * c_size_increase to fit the data into memory.
-        size_t sizeIncrease = (dataSize / c_size_increase + 1) * c_size_increase;
+        const size_t sizeIncrease = (segmentSize / c_size_increase + 1) * c_size_increase;
         increaseSize(sizeIncrease);
     }
-
+    // Layout: (segmentSize, data[0], data[1], ..., data[dataSize], segment_link_id, link)
+    write(segmentSize);
     setSegmentTableLink(segmentId, m_head);
     for(size_t i = 0; i < dataSize; i++) {
         write(static_cast<uint8_t>(data[i]));
     }
+    write(c_segment_link_id);
+    write(static_cast<link_t>(0x00));
     
     return segmentId;
 }
 
-void SharedMemoryPosix::increaseSize(size_t size) {
+void SharedMemoryPosix::increaseSize(const size_t size) {
     ftruncate(m_id, m_size + size);
     m_size += size;
     map();
@@ -99,7 +103,7 @@ void SharedMemoryPosix::extendSegmentTable(void) {
     write(static_cast<link_t>(0x00));
 }
 
-void SharedMemoryPosix::setSegmentTableLink(id_t id, link_t position) {
+void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position) {
     size_t partialTableIdx = id / c_contiguous_segment_count;
     id_t partialTableStart = m_segmentTableOffsets[partialTableIdx];
     id_t writeOffset =  partialTableStart 

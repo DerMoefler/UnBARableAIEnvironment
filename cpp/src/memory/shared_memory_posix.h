@@ -43,6 +43,18 @@ public:
     */ 
     using position_t = id_t;
 
+    /// \brief The id used to signal that the next entry is not an offset for a data segment but rather the offset to the next partial segment table.
+    inline static constexpr id_t   c_partial_table_link_id = 0xFE'DC'BA'98;//'76'54'32'10;
+
+    /**
+    * \brief Number of contiguous segments in the partially linked list.
+    * The last element is a relative pointer to next array. \todo image
+    */ 
+    inline static constexpr uint32_t    c_contiguous_segment_count = 1;
+
+    /// \brief The id used to signal that the following bytes compose a \ref position_t to where the segment continues.
+    inline static constexpr id_t   c_segment_link_id       = 0xAA'AA'AA'AA;
+
     /**
      * \brief Acquire shared memory using shm_open().
      * \param name The name of the shared memory region.
@@ -75,7 +87,7 @@ public:
 
 private:
     /// \brief Increase the size of the shared memory region by some amount.
-    void increaseSize(size_t size = c_size_increase);
+    void increaseSize(const size_t size = c_size_increase);
 
     /// \brief Map the shared memory into the virtual address space using mmap().
     void map(void);
@@ -87,7 +99,17 @@ private:
     void extendSegmentTable(void);
 
     /// \brief Update the \ref link_t in the segment table for the given id.
-    void setSegmentTableLink(id_t id, link_t link);
+    void setSegmentTableLink(const id_t id, const link_t link);
+
+    /**
+     * \brief Calculate the size of a segment.
+     * \param dataSize The size of the data the segment contains.
+     * Adds the size of the size_t at the beginning of the segment for length encoding
+     * as well as the id_t marker and link_t to the next part of the segment.
+     */
+    inline static constexpr size_t calcualteSegmentSize(const size_t dataSize) {
+        return dataSize + sizeof(size_t) + sizeof(id_t) + sizeof(link_t);
+    }
 
     /**
      * \brief Helper method to convert a value into big endian.
