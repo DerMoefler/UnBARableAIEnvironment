@@ -16,3 +16,25 @@ uv run python -m grpc_tools.protoc \
   --grpc_python_out=generated \
   ../proto/UnBARableAI.proto
 ```
+
+## Pybind
+If you want to use the bar_ai module just run:
+
+```console
+uv sync
+```
+
+and it should work
+
+if it does not work run:
+
+```console
+uv build --wheel
+uv sync
+```
+
+if you changed something in the cpp files and want to rebuild run:
+
+```console
+uv sync --reinstall
+```
