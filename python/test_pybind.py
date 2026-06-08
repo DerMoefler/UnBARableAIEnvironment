@@ -1,14 +1,14 @@
 print("🚀 Starte unbarableaienvironment Test...")
 
 try:
-    import unbarableaienvironment
+    import bar_ai
     print("✅ import unbarableaienvironment erfolgreich")
 except Exception as e:
     print("❌ import unbarableaienvironment fehlgeschlagen:")
     print(e)
     exit(1)
 
-print("📦 Modul:", unbarableaienvironment)
+print("📦 Modul:", bar_ai)
 
 # ----------------------------------------------------
 # Teste ob Klassen existieren
@@ -17,7 +17,7 @@ print("📦 Modul:", unbarableaienvironment)
 required = ["UnitData", "Pawn"]
 
 for name in required:
-    if not hasattr(unbarableaienvironment, name):
+    if not hasattr(bar_ai, name):
         print(f"❌ Fehlende Klasse: {name}")
         exit(1)
     else:
@@ -28,7 +28,7 @@ for name in required:
 # ----------------------------------------------------
 
 try:
-    data = unbarableaienvironment.UnitData()
+    data = bar_ai.UnitData()
     data.health = 100.0
     data.team = 1
     data.xPosition = 10.0
@@ -38,7 +38,7 @@ try:
 
     print("✅ UnitData erstellt")
 
-    pawn = unbarableaienvironment.Pawn(data)
+    pawn = bar_ai.Pawn(data)
     print("✅ Pawn erstellt")
 
     print("📊 Werte:")
