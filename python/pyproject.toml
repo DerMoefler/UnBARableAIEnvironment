@@ -8,6 +8,7 @@ dependencies = [
     "grpcio>=1.80.0",
     "grpcio-tools>=1.80.0",
     "pybind11>=3.0.4",
+    "numpy"
 ]
 
 [build-system]

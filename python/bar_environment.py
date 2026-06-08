@@ -48,13 +48,13 @@ class BAR_Environment:
 
     def get_obs_agent(self, agent_id):
         # placeholder for all information
-        enemy_feat_size = self.get_enemy_feat_size() #get int number of max enemies in sight * features per enemy
-        ally_feat_size = self.get_ally_feat_size() # get int number of max allies in sight * features per ally
-        own_feat_size = self.get_own_feat_size() # get int number of features for own unit
+        enemy_max, enemy_feat = self.get_enemy_feat_size()  # (max_enemies, features_per_enemy)
+        ally_max, ally_feat = self.get_ally_feat_size()    # (max_allies, features_per_ally)
+        own_feat_size = self.get_own_feat_size()           # number of features for own unit
 
-        own_feats = np.zeros(own_feat_size, dtype=np.float32) # fill 1-D numpy array of size own_feat_size with zeros
-        enemy_features = np.zeros(enemy_feat_size, dtype=np.float32)
-        ally_features = np.zeros(ally_feat_size, dtype=np.float32)
+        own_feats = np.zeros(own_feat_size, dtype=np.float32)
+        enemy_features = np.zeros((enemy_max, enemy_feat), dtype=np.float32)
+        ally_features = np.zeros((ally_max, ally_feat), dtype=np.float32)
         agent_id_feats = np.zeros(self.get_n_agents(), dtype=np.float32)
 
         unit = self.get_unit_by_id(agent_id)
@@ -74,29 +74,36 @@ class BAR_Environment:
 
             enemy_idx = 0
             for enemy_unit in self.get_enemy_units_in_sight(agent_id, sight_radius):
-                enemy_unit_id = enemy_unit.get_unit_id(enemy_unit)
+                # expected to yield unit ids (int) or objects with an id; adapt as needed
+                try:
+                    enemy_unit_id = int(enemy_unit)
+                except Exception:
+                    continue
                 enemy_unit_type = self.get_unit_type(enemy_unit_id)
-                enemy_pos = self.get_relative_pos(agent_id, enemy_unit_id).flatten()
-                enemy_health = enemy_unit_id.get_health(enemy_unit_id)
+                enemy_pos = np.asarray(self.get_relative_pos(agent_id, enemy_unit_id)).flatten()
+                enemy_health = self.get_health(enemy_unit_id)
 
                 enemy_features[enemy_idx, :3] = [
                     float(enemy_unit_type),
-                    float(enemy_pos),
-                    float(enemy_health)
+                    float(enemy_pos[0]) if enemy_pos.size > 0 else 0.0,
+                    float(enemy_health),
                 ]
                 enemy_idx += 1
 
             ally_idx = 0
             for ally_unit in self.get_ally_units_in_sight(agent_id, sight_radius):
-                ally_unit_id = ally_unit.get_unit_by_id(ally_unit)
+                try:
+                    ally_unit_id = int(ally_unit)
+                except Exception:
+                    continue
                 ally_unit_type = self.get_unit_type(ally_unit_id)
-                ally_pos = self.get_relative_pos(agent_id, ally_unit_id).flatten()
-                ally_health = ally_unit_id.get_health(ally_unit_id)
+                ally_pos = np.asarray(self.get_relative_pos(agent_id, ally_unit_id)).flatten()
+                ally_health = self.get_health(ally_unit_id)
 
                 ally_features[ally_idx, :3] = [
                     float(ally_unit_type),
-                    float(ally_pos),
-                    float(ally_health)
+                    float(ally_pos[0]) if ally_pos.size > 0 else 0.0,
+                    float(ally_health),
                 ]
                 ally_idx += 1
 
@@ -111,46 +118,72 @@ class BAR_Environment:
         )
 
         return local_obs
-        
+
+    def get_enemy_feat_size(self):
+        # return (max_enemies, features_per_enemy)
+        return (5, 3)
     
-    def get_health(unit_id):
-        return 0.0
+    def get_ally_feat_size(self):
+        # return (max_allies, features_per_ally)
+        return (5, 3)
     
-    def get_health_max(unit_id):
+    def get_own_feat_size(self):
+        return 7
+
+    def get_n_agents(self):
+        return 1
+    
+    def get_unit_by_id(self, unit_id):
+        return 0
+    
+    def get_unit_type(self, unit_id):
+        return 0 #pawn or commander, check values
+    
+    def get_health(self, unit_id):
+        return 10.0
+    
+    def get_health_max(self, unit_id):
         return 100.0
     
-    def get_health_percentage(health, health_max):
+    def get_health_percentage(self, health, health_max):
         return health / health_max
     
-    def get_pos_x(unit_id):
+    def get_pos_x(self, unit_id):
         return 0 #x
     
-    def get_pos_y(unit_id):
+    def get_pos_y(self, unit_id):
         return 0 #y
     
-    def get_pos_z(unit_id):
+    def get_pos_z(self, unit_id):
         return 0 #z
     
-    def unit_sight_radius(unit_type):
-        type_map = {
-             0: "pawn",
-             1: "commander"
-         }
-        if unit_type == "pawn":
-            return 7 # have to check values
-        elif unit_type == "commander": # bad practice to use elif at end
+    def unit_sight_radius(self, unit_type):
+        # Accept either integer type ids or string names.
+        if isinstance(unit_type, int):
+            if unit_type == 0:
+                u = "pawn"
+            elif unit_type == 1:
+                u = "commander"
+            else:
+                u = None
+        else:
+            u = str(unit_type) if unit_type is not None else None
+
+        if u == "pawn":
+            return 7
+        if u == "commander":
             return 13
+        return 0
         
-    def get_enemy_units_in_sight(unit_id, sight_radius):
-        # for loop?
-        return
+    def get_enemy_units_in_sight(self, unit_id, sight_radius):
+        # default: no enemies in sight
+        return []
     
-    def get_ally_units_in_sight(unit_id, sight_radius):
-        # for loop? computing all ally distances and checking if they are in sight
-        list_of_allies = {1,2,3}
-        return list_of_allies
+    def get_ally_units_in_sight(self, unit_id, sight_radius):
+        # default: no allies in sight
+        return []
     
-    def get_realtive_pos(unit_id, other_unit_id):
+    def get_relative_pos(self, unit_id, other_unit_id):
         #posx1 - posx2
         #posy1 - posy2
         #posz1 - posz2
@@ -172,5 +205,5 @@ class BAR_Environment:
 
 
     def get_obs(self):
-        agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
+        agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]
         return agents_obs 
