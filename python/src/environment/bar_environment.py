@@ -1,6 +1,8 @@
 from typing import Any, Dict, Optional, Tuple
-from engine_session import EngineSession, EngineSessionConfig
+from src.environment.engine_session import EngineSession, EngineSessionConfig
 import numpy as np
+
+import bar_ai
 
 
 class BAR_Environment:
@@ -23,12 +25,12 @@ class BAR_Environment:
         info = self.session.start()
 
         # TODO: Observation aus Engine/Logs/IPC ableiten
-        observation = None
+        observation = get_obs()
         return observation, info
 
     def step(self, action):
         # TODO: action -> Engine input, obs/reward/terminated/truncated ermitteln
-        observation = None
+        observation = get_obs()
         reward = 0.0
         terminated = False
         truncated = False
@@ -47,6 +49,17 @@ class BAR_Environment:
             pass
 
     def get_obs_agent(self, agent_id):
+
+        data = bar_ai.UnitData()
+        data.health = 100.0
+        data.team = 1
+        data.xPosition = 10.0
+        data.yPosition = 20.0
+        data.zPosition = 5.0
+        data.hasCurrentCommand = True
+
+        pawn = bar_ai.Pawn(data)
+
         # placeholder for all information
         enemy_max, enemy_feat = self.get_enemy_feat_size()  # (max_enemies, features_per_enemy)
         ally_max, ally_feat = self.get_ally_feat_size()    # (max_allies, features_per_ally)
@@ -60,7 +73,7 @@ class BAR_Environment:
         unit = self.get_unit_by_id(agent_id)
         unit_type = self.get_unit_type(agent_id)
         # available_actions = self.get_available_actions(unit_type).flatten()
-        health = self.get_health(agent_id)
+        health = pawn.getHealth()  # self.get_health(agent_id)
 
         if health > 0:  # otherwise dead, returns all zeros
             pos_x = self.get_pos_x(agent_id)
@@ -125,13 +138,10 @@ class BAR_Environment:
     
     def get_ally_feat_size(self):
         # return (max_allies, features_per_ally)
-        return (5, 3)
+        return (5, 2)
     
     def get_own_feat_size(self):
         return 7
-
-    def get_n_agents(self):
-        return 1
     
     def get_unit_by_id(self, unit_id):
         return 0
@@ -170,9 +180,9 @@ class BAR_Environment:
             u = str(unit_type) if unit_type is not None else None
 
         if u == "pawn":
-            return 7
+            return 429.0
         if u == "commander":
-            return 13
+            return 450.0
         return 0
         
     def get_enemy_units_in_sight(self, unit_id, sight_radius):
@@ -183,7 +193,7 @@ class BAR_Environment:
         # default: no allies in sight
         return []
     
-    def get_relative_pos(self, unit_id, other_unit_id):
+    def get_relative_pos(self, unit_id, second_unit_id):
         #posx1 - posx2
         #posy1 - posy2
         #posz1 - posz2
@@ -203,6 +213,8 @@ class BAR_Environment:
 
     #     return avail_actions
 
+    def get_n_agents(self):
+        return 1
 
     def get_obs(self):
         agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]

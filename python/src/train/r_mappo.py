@@ -120,6 +120,28 @@ class R_MAPPO():
         return_batch = check(return_batch).to(**self.tpdv)
         active_masks_batch = check(active_masks_batch).to(**self.tpdv)
 
+        # Reshape from (batch_size, num_agents, *) to (batch_size * num_agents, *)
+        # This flattens the agent dimension so networks can process all observations in one pass
+        if share_obs_batch.ndim == 3:  # (batch_size, num_agents, obs_dim)
+            batch_size, num_agents = share_obs_batch.shape[0], share_obs_batch.shape[1]
+            print(f"[DEBUG] Original shapes: share_obs={share_obs_batch.shape}, obs={obs_batch.shape}, value_preds={value_preds_batch.shape}")
+            share_obs_batch = check(share_obs_batch).to(**self.tpdv)
+            share_obs_batch = share_obs_batch.reshape(batch_size * num_agents, -1)
+            obs_batch = check(obs_batch).to(**self.tpdv)
+            obs_batch = obs_batch.reshape(batch_size * num_agents, -1)
+            actions_batch = check(actions_batch).to(**self.tpdv)
+            actions_batch = actions_batch.reshape(batch_size * num_agents, -1)
+            value_preds_batch = value_preds_batch.reshape(batch_size * num_agents, -1)
+            return_batch = return_batch.reshape(batch_size * num_agents, -1)
+            active_masks_batch = active_masks_batch.reshape(batch_size * num_agents, -1)
+            adv_targ = adv_targ.reshape(batch_size * num_agents, -1)
+            old_action_log_probs_batch = old_action_log_probs_batch.reshape(batch_size * num_agents, -1)
+            print(f"[DEBUG] Reshaped shapes: share_obs={share_obs_batch.shape}, obs={obs_batch.shape}, value_preds={value_preds_batch.shape}")
+        else:
+            share_obs_batch = check(share_obs_batch).to(**self.tpdv)
+            obs_batch = check(obs_batch).to(**self.tpdv)
+            actions_batch = check(actions_batch).to(**self.tpdv)
+
         # Reshape to do in a single forward pass for all steps
         values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
                                                                               obs_batch, 
