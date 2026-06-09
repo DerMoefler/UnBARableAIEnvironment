@@ -1,5 +1,8 @@
+import sys
+import os
+
 from typing import Any, Dict, Optional, Tuple
-from engine_session import EngineSession, EngineSessionConfig
+from src.environment.engine_session import EngineSession, EngineSessionConfig
 import numpy as np
 
 import bar_ai
@@ -25,12 +28,12 @@ class BAR_Environment:
         info = self.session.start()
 
         # TODO: Observation aus Engine/Logs/IPC ableiten
-        observation = None
+        observation = get_obs()
         return observation, info
 
     def step(self, action):
         # TODO: action -> Engine input, obs/reward/terminated/truncated ermitteln
-        observation = None
+        observation = get_obs()
         reward = 0.0
         terminated = False
         truncated = False
@@ -49,6 +52,17 @@ class BAR_Environment:
             pass
 
     def get_obs_agent(self, agent_id):
+
+        data = bar_ai.UnitData()
+        data.health = 100.0
+        data.team = 1
+        data.xPosition = 10.0
+        data.yPosition = 20.0
+        data.zPosition = 5.0
+        data.hasCurrentCommand = True
+
+        pawn = bar_ai.Pawn(data)
+
         # placeholder for all information
         enemy_max, enemy_feat = self.get_enemy_feat_size()  # (max_enemies, features_per_enemy)
         ally_max, ally_feat = self.get_ally_feat_size()    # (max_allies, features_per_ally)
@@ -62,7 +76,7 @@ class BAR_Environment:
         unit = self.get_unit_by_id(agent_id)
         unit_type = self.get_unit_type(agent_id)
         # available_actions = self.get_available_actions(unit_type).flatten()
-        health = self.get_health(agent_id)
+        health = pawn.getHealth()  # self.get_health(agent_id)
 
         if health > 0:  # otherwise dead, returns all zeros
             pos_x = self.get_pos_x(agent_id)

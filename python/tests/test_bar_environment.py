@@ -1,5 +1,7 @@
-from bar_environment import BAR_Environment
+import os
+import sys
 
+from src.environment.bar_environment import BAR_Environment
 
 def main():
 	env = BAR_Environment()
