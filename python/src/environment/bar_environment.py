@@ -1,6 +1,3 @@
-import sys
-import os
-
 from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 import numpy as np
@@ -145,9 +142,6 @@ class BAR_Environment:
     
     def get_own_feat_size(self):
         return 7
-
-    def get_n_agents(self):
-        return 1
     
     def get_unit_by_id(self, unit_id):
         return 0
@@ -199,7 +193,7 @@ class BAR_Environment:
         # default: no allies in sight
         return []
     
-    def get_relative_pos(self, unit_id, other_unit_id):
+    def get_relative_pos(self, unit_id, second_unit_id):
         #posx1 - posx2
         #posy1 - posy2
         #posz1 - posz2
@@ -219,6 +213,8 @@ class BAR_Environment:
 
     #     return avail_actions
 
+    def get_n_agents(self):
+        return 1
 
     def get_obs(self):
         agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]

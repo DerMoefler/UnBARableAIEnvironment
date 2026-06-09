@@ -1,6 +1,3 @@
-import os
-import sys
-
 from src.environment.bar_environment import BAR_Environment
 
 def main():
