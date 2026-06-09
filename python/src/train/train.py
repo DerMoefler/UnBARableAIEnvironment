@@ -8,10 +8,10 @@ Example usage:
 import argparse
 import numpy as np
 import torch
-from bar_environment import BAR_Environment, EngineSessionConfig
-from policy import R_MAPPO_Policy
-from replay_buffer import SharedReplayBuffer
-from r_mappo import R_MAPPO
+from src.enviroment.bar_environment import BAR_Environment, EngineSessionConfig
+from src.train.policy import R_MAPPO_Policy
+from src.train.replay_buffer import SharedReplayBuffer
+from src.train.r_mappo import R_MAPPO
 
 
 class Args:

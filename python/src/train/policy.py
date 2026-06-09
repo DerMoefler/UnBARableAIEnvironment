@@ -30,7 +30,7 @@ class Critic(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
-        self.v_out = self  # for POPart compatibility
+        self.v_out = self.net  # for POPart compatibility
         
     def forward(self, obs):
         return self.net(obs)
@@ -75,6 +75,14 @@ class R_MAPPO_Policy:
         :return action_log_probs: (torch.Tensor) action log probabilities
         :return dist_entropy: (torch.Tensor) action entropy
         """
+        # Convert numpy arrays to tensors
+        if isinstance(share_obs_batch, np.ndarray):
+            share_obs_batch = torch.FloatTensor(share_obs_batch).to(self.device)
+        if isinstance(obs_batch, np.ndarray):
+            obs_batch = torch.FloatTensor(obs_batch).to(self.device)
+        if isinstance(actions_batch, np.ndarray):
+            actions_batch = torch.LongTensor(actions_batch).to(self.device)
+        
         # Get value predictions from critic
         values = self.critic(share_obs_batch)
         
