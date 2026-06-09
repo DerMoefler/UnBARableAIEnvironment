@@ -19,3 +19,23 @@ Install conan using
 ```console
 uv tool install conan
 ```
+
+## Engine 
+If the Engine does not load correctly after pulling try:
+
+```console
+git submodule update --init --recursive
+```
+
+if the Engine loads test if you are on the correct branch:
+
+```console
+cd RecoilEngine
+git status
+```
+should show: On branch UnBARableAI
+if not:
+
+```console
+git checkout UnBARableAI
+```
