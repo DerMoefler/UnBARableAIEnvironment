@@ -2,12 +2,14 @@
 Quick integration test for R_MAPPO.
 Tests R_MAPPO with simulated data without requiring the full environment.
 
-Note:
-- The full training-loop smoke test below uses num_agents=1 intentionally.
-- Reason: the current replay-buffer / trainer path appears to have a shape
-  mismatch for multi-agent chunked batches (data_chunk_length vs num_agents).
-- This keeps the integration test useful without failing on an internal
-  multi-agent batching issue unrelated to basic trainer wiring.
+This version explicitly tests:
+- basic initialization
+- value loss
+- single-agent style PPO update
+- network mode switching
+- gradient clipping path
+- multi-agent PPO update
+- multi-agent full training loop
 """
 
 import sys
@@ -53,7 +55,8 @@ def huber_loss(error, delta):
 def get_gard_norm(net):
     """Mock gradient norm (typo preserved from original dependency name)."""
     total_norm = 0.0
-    for p in net.parameters():
+    params = net if hasattr(net, "__iter__") else net.parameters()
+    for p in params:
         if p.grad is not None:
             param_norm = p.grad.data.norm(2)
             total_norm += param_norm.item() ** 2
@@ -109,7 +112,7 @@ class Args:
 
 
 # -------------------------------------------------------------------
-# Optional helper for future debugging
+# Optional helpers
 # -------------------------------------------------------------------
 def print_sample_shapes(sample, prefix="sample"):
     """Print shapes of a PPO sample tuple for debugging."""
@@ -149,12 +152,9 @@ def test_r_mappo_basic():
     device = torch.device("cpu")
     args = Args()
 
-    # Create policy
     obs_dim = 128
     action_dim = 7
     policy = R_MAPPO_Policy(obs_dim, action_dim, device=device)
-
-    # Create trainer
     trainer = R_MAPPO(args, policy, device=device)
 
     print("✓ R_MAPPO initialized successfully")
@@ -234,7 +234,7 @@ def test_ppo_update():
 def test_network_modes():
     """Test prep_training and prep_rollout."""
     print("=" * 60)
-    print("TEST 5: Network Mode Switching")
+    print("TEST 4: Network Mode Switching")
     print("=" * 60)
 
     device = torch.device("cpu")
@@ -264,7 +264,7 @@ def test_gradient_clipping():
     and norms are reported.
     """
     print("=" * 60)
-    print("TEST 6: Gradient Clipping")
+    print("TEST 5: Gradient Clipping")
     print("=" * 60)
 
     device = torch.device("cpu")
@@ -305,30 +305,62 @@ def test_gradient_clipping():
     print()
 
 
-def test_training_loop():
-    """
-    Test full training loop with replay buffer.
-
-    IMPORTANT:
-    This smoke test intentionally uses num_agents = 1.
-
-    The current multi-agent buffer/training path appears to produce
-    a shape mismatch in cal_value_loss():
-        tensor dim 4 (data_chunk_length) vs dim 2 (num_agents)
-
-    That points to an issue inside the actual training stack, not the smoke test.
-    Using one agent keeps this test useful and stable.
-    """
+def test_multi_agent_ppo_update():
+    """Test a single PPO update with true multi-agent shaped inputs."""
     print("=" * 60)
-    print("TEST 4: Full Training Loop (2 epochs)")
+    print("TEST 6: Multi-Agent PPO Update Step")
     print("=" * 60)
 
     device = torch.device("cpu")
     args = Args()
-    args.ppo_epoch = 2  # Quick smoke test
+    policy = R_MAPPO_Policy(64, 4, device=device)
+    trainer = R_MAPPO(args, policy, device=device)
 
-    # IMPORTANT: single-agent smoke test to avoid current multi-agent chunk mismatch
-    num_agents = 1
+    batch_size = 8
+    num_agents = 2
+    obs_dim = 64
+    action_dim = 4
+
+    # share_obs is global per timestep: (B, D)
+    # obs is per-agent: (B, A, D)
+    sample = (
+        np.random.randn(batch_size, obs_dim).astype(np.float32),               # share_obs_batch
+        np.random.randn(batch_size, num_agents, obs_dim).astype(np.float32),   # obs_batch
+        np.zeros((batch_size, num_agents, 1), dtype=np.float32),               # rnn_states_batch
+        np.zeros((batch_size, num_agents, 1), dtype=np.float32),               # rnn_states_critic_batch
+        np.random.randint(0, action_dim, (batch_size, num_agents, 1)).astype(np.float32),  # actions_batch
+        np.random.randn(batch_size, num_agents, 1).astype(np.float32),         # value_preds_batch
+        np.random.randn(batch_size, num_agents, 1).astype(np.float32),         # return_batch
+        np.ones((batch_size, num_agents, 1), dtype=np.float32),                # masks_batch
+        np.ones((batch_size, num_agents, 1), dtype=np.float32),                # active_masks_batch
+        np.random.randn(batch_size, num_agents, 1).astype(np.float32),         # old_action_log_probs_batch
+        np.random.randn(batch_size, num_agents, 1).astype(np.float32),         # adv_targ
+        np.ones((batch_size, num_agents, 1), dtype=np.float32),                # available_actions_batch
+    )
+
+    value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = trainer.ppo_update(sample)
+
+    print("✓ Multi-agent PPO update completed successfully")
+    print(f"  - Value Loss:      {value_loss.item():.6f}")
+    print(f"  - Policy Loss:     {policy_loss.item():.6f}")
+    print(f"  - Entropy:         {dist_entropy.item():.6f}")
+    print(f"  - Actor Grad Norm: {float(actor_grad_norm):.6f}")
+    print(f"  - Critic Grad Norm:{float(critic_grad_norm):.6f}")
+    print(f"  - Importance Weights Mean: {imp_weights.mean().item():.6f}")
+    print()
+
+
+def test_training_loop_multi_agent():
+    """Test full multi-agent training loop with replay buffer."""
+    print("=" * 60)
+    print("TEST 7: Full Multi-Agent Training Loop (2 agents, 2 epochs)")
+    print("=" * 60)
+
+    device = torch.device("cpu")
+    args = Args()
+    args.ppo_epoch = 2  # Quick test
+
+    num_agents = 2
     obs_dim = 64
     action_dim = 4
     buffer_size = 16
@@ -368,6 +400,16 @@ def test_training_loop():
         masks = np.ones(buffer.masks[0].shape, dtype=np.float32)
         active_masks = np.ones(buffer.active_masks[0].shape, dtype=np.float32)
 
+        # Optional sanity assertions
+        assert share_obs.shape == buffer.share_obs[0].shape
+        assert obs.shape == buffer.obs[0].shape
+        assert actions.shape == buffer.actions[0].shape
+        assert action_log_probs.shape == buffer.action_log_probs[0].shape
+        assert value_preds.shape == buffer.value_preds[0].shape
+        assert rewards.shape == buffer.rewards[0].shape
+        assert masks.shape == buffer.masks[0].shape
+        assert active_masks.shape == buffer.active_masks[0].shape
+
         buffer.insert(
             share_obs=share_obs,
             obs=obs,
@@ -381,10 +423,9 @@ def test_training_loop():
 
     print("✓ Buffer populated")
 
-    print("Computing returns and advantages...")
+    print("Computing returns...")
     with torch.no_grad():
         next_value = torch.randn(*buffer.value_preds[0].shape).numpy().astype(np.float32)
-
     buffer.compute_returns(next_value, gamma=0.99)
     print("✓ Returns computed")
 
@@ -392,20 +433,11 @@ def test_training_loop():
     print(f"  returns:      {buffer.returns.shape}")
     print(f"  value_preds:  {buffer.value_preds.shape}")
 
-    # Optional debug hook:
-    # If you later want to inspect the first sample generated by the buffer,
-    # you can uncomment and adapt this if your replay buffer exposes a generator.
-    #
-    # advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
-    # gen = buffer.feed_forward_generator(advantages, args.num_mini_batch)
-    # first_sample = next(gen)
-    # print_sample_shapes(first_sample, prefix="first training minibatch")
-
-    print("Running training loop...")
+    print("Running multi-agent training loop...")
     trainer.prep_training()
     train_info = trainer.train(buffer, update_actor=True)
 
-    print("✓ Training completed")
+    print("✓ Multi-agent training completed")
     print(f"\nTraining Statistics (averaged over {args.ppo_epoch} epochs):")
     for key, val in train_info.items():
         print(f"  - {key:20s}: {val:.6f}")
@@ -419,7 +451,7 @@ def main():
     """Run all tests."""
     print("\n")
     print("╔" + "=" * 58 + "╗")
-    print("║" + " " * 15 + "R_MAPPO Integration Tests" + " " * 19 + "║")
+    print("║" + " " * 10 + "R_MAPPO Multi-Agent Integration Tests" + " " * 11 + "║")
     print("╚" + "=" * 58 + "╝")
     print()
 
@@ -429,7 +461,8 @@ def main():
         test_ppo_update()
         test_network_modes()
         test_gradient_clipping()
-        test_training_loop()
+        test_multi_agent_ppo_update()
+        test_training_loop_multi_agent()
 
         print("=" * 60)
         print("✓ ALL TESTS PASSED!")
