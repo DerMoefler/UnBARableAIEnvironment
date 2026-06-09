@@ -17,27 +17,7 @@ from typing import Any
 
 import numpy as np
 import torch
-
-
-# -----------------------------------------------------------------------------
-# Pfad-Fix: sorgt dafür, dass `src.*`-Imports unabhängig vom aktuellen Working
-# Directory funktionieren.
-# -----------------------------------------------------------------------------
-def _find_project_root(start_file: str) -> Path:
-    current = Path(start_file).resolve().parent
-    for candidate in [current, *current.parents]:
-        if (candidate / "src").exists():
-            return candidate
-    return Path(start_file).resolve().parent
-
-
-PROJECT_ROOT = _find_project_root(__file__)
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-
-# Jetzt erst Projektmodule importieren
-from src.environment.bar_environment import BAR_Environment, EngineSessionConfig
+from src.enviroment.bar_environment import BAR_Environment, EngineSessionConfig
 from src.train.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.r_mappo import R_MAPPO
