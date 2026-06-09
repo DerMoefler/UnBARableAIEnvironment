@@ -25,12 +25,12 @@ class BAR_Environment:
         info = self.session.start()
 
         # TODO: Observation aus Engine/Logs/IPC ableiten
-        observation = get_obs()
+        observation = self.get_obs()
         return observation, info
 
     def step(self, action):
         # TODO: action -> Engine input, obs/reward/terminated/truncated ermitteln
-        observation = get_obs()
+        observation = self.get_obs()
         reward = 0.0
         terminated = False
         truncated = False

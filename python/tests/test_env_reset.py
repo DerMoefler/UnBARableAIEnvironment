@@ -1,4 +1,4 @@
-from bar_environment import BAR_Environment
+from src.environment.bar_environment import BAR_Environment
 import time
 
 

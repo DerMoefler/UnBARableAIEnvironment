@@ -35,11 +35,11 @@ class BARUnitView:
 
 @dataclass
 class EngineSessionConfig:
-    engine_exe: Union[str, Path] = "~/RecoilEngine/build-amd64-linux/install/spring-headless"
+    engine_exe: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine/build-amd64-linux/install/spring-headless"
     write_dir: Union[str, Path] = "~/bar-data"
     config_file: Union[str, Path] = "config/test_fast.cfg"
     startscript: Union[str, Path] = "startscripts/3PawnVs3Pawn.txt"
-    cwd: Union[str, Path] = "~/RecoilEngine"
+    cwd: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine"
 
     stdout: Optional[Union[int, str, Path]] = None
     stderr: Optional[Union[int, str, Path]] = None
@@ -186,7 +186,7 @@ class EngineSession:
             bufsize=1 if self.cfg.text_mode else 0,
         )
 
-        self._connect_ipc()
+        #self._connect_ipc()
         return self.info()
 
     def stop(self) -> None:
