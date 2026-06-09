@@ -10,6 +10,8 @@ struct UnitData {
     float yPosition;
     float zPosition;
     bool hasCurrentCommand;
+    int unitID;
+    int unitType;
 };
 
 }; // namespace unit

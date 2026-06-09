@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 
 namespace UnBARableAI {
 
@@ -12,7 +13,10 @@ public:
     virtual float getYPosition(void) const = 0;
     virtual float getZPosition(void) const = 0;
     virtual bool hasCurrentCommand(void) const = 0;
-
+    virtual int getUnitID(void) const = 0;
+    virtual int getUnitType(void) const = 0;
+    virtual std::vector<int> getUnitsInSight(void) const = 0;
+    virtual std::vector<int> getEnemyUnitsInSight(void) const = 0;
 };
 
 }; // namespace unit

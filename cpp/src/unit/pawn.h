@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include "unit.h"
 #include "../unit_data/unit_data.h"
 
@@ -27,6 +28,19 @@ public:
     }
     bool hasCurrentCommand(void) const override {
         return m_data.hasCurrentCommand;
+    }
+
+    int getUnitID(void) const override {
+        return m_data.unitID;
+    }
+    int getUnitType(void) const override {
+        return m_data.unitType;
+    }
+    std::vector<int> getUnitsInSight(void) const override {
+        return std::vector<int>{1, 2, 3};
+    }
+    std::vector<int> getEnemyUnitsInSight(void) const override {
+        return std::vector<int>{4, 5, 6};
     }
 
 private:
