@@ -34,6 +34,8 @@ try:
     data.xPosition = 10.0
     data.yPosition = 20.0
     data.zPosition = 5.0
+    data.unitID = 42
+    data.unitType = 3
     data.hasCurrentCommand = True
 
     print("✅ UnitData erstellt")
@@ -46,7 +48,10 @@ try:
     print("team:", pawn.getTeam())
     print("pos:", pawn.getXPosition(), pawn.getYPosition(), pawn.getZPosition())
     print("has command:", pawn.hasCurrentCommand())
-
+    print("unit ID:", pawn.getUnitID())
+    print("unit type:", pawn.getUnitType())
+    print("units in sight:", pawn.getUnitsInSight())
+    print("enemy units in sight:", pawn.getEnemyUnitsInSight())
     print("✅ Methoden funktionieren")
 
 except Exception as e:

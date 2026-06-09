@@ -1,4 +1,5 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 
 #include "../unit/unit.h"
 #include "../unit/pawn.h"
@@ -25,7 +26,9 @@ PYBIND11_MODULE(bar_ai, m) {
         .def_readwrite("xPosition", &UnitData::xPosition)
         .def_readwrite("yPosition", &UnitData::yPosition)
         .def_readwrite("zPosition", &UnitData::zPosition)
-        .def_readwrite("hasCurrentCommand", &UnitData::hasCurrentCommand);
+        .def_readwrite("hasCurrentCommand", &UnitData::hasCurrentCommand)
+        .def_readwrite("unitID", &UnitData::unitID)
+        .def_readwrite("unitType", &UnitData::unitType);
 
     // -------------------------
     // Unit (abstrakte Basisklasse)
@@ -38,7 +41,11 @@ PYBIND11_MODULE(bar_ai, m) {
         .def("getXPosition", &Unit::getXPosition)
         .def("getYPosition", &Unit::getYPosition)
         .def("getZPosition", &Unit::getZPosition)
-        .def("hasCurrentCommand", &Unit::hasCurrentCommand);
+        .def("hasCurrentCommand", &Unit::hasCurrentCommand)
+        .def("getUnitID", &Unit::getUnitID)
+        .def("getUnitType", &Unit::getUnitType)
+        .def("getUnitsInSight", &Unit::getUnitsInSight)
+        .def("getEnemyUnitsInSight", &Unit::getEnemyUnitsInSight);
 
     // -------------------------
     // Pawn : Unit
@@ -51,5 +58,9 @@ PYBIND11_MODULE(bar_ai, m) {
         .def("getXPosition", &Pawn::getXPosition)
         .def("getYPosition", &Pawn::getYPosition)
         .def("getZPosition", &Pawn::getZPosition)
-        .def("hasCurrentCommand", &Pawn::hasCurrentCommand);
+        .def("hasCurrentCommand", &Pawn::hasCurrentCommand)
+        .def("getUnitID", &Pawn::getUnitID)
+        .def("getUnitType", &Pawn::getUnitType)
+        .def("getUnitsInSight", &Pawn::getUnitsInSight)
+        .def("getEnemyUnitsInSight", &Pawn::getEnemyUnitsInSight);
 }
