@@ -1,0 +1,3 @@
+[submodule "RecoilEngine"]
+	path = RecoilEngine
+	url = https://github.com/beyond-all-reason/RecoilEngine.git
