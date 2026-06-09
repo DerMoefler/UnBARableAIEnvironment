@@ -2,6 +2,8 @@ from typing import Any, Dict, Optional, Tuple
 from engine_session import EngineSession, EngineSessionConfig
 import numpy as np
 
+import bar_ai
+
 
 class BAR_Environment:
     def __init__(self, session_cfg: Optional[EngineSessionConfig] = None):
@@ -125,7 +127,7 @@ class BAR_Environment:
     
     def get_ally_feat_size(self):
         # return (max_allies, features_per_ally)
-        return (5, 3)
+        return (5, 2)
     
     def get_own_feat_size(self):
         return 7
@@ -170,9 +172,9 @@ class BAR_Environment:
             u = str(unit_type) if unit_type is not None else None
 
         if u == "pawn":
-            return 7
+            return 429.0
         if u == "commander":
-            return 13
+            return 450.0
         return 0
         
     def get_enemy_units_in_sight(self, unit_id, sight_radius):
