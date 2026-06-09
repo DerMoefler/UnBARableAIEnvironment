@@ -3,7 +3,7 @@
 
 namespace UnBARableAI {
     namespace unit {
-    Pawn::Pawn(UnitData data) : m_data(data) {
+    Pawn::Pawn(UnitData data) : Unit(data) {
 
     }
     }; // namespace unit

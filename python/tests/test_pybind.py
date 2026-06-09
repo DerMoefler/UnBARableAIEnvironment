@@ -45,6 +45,8 @@ try:
 
     print("📊 Werte:")
     print("health:", pawn.getHealth())
+    print("max health:", pawn.getMaxHealth())
+    print("sight range:", pawn.getSightRange())
     print("team:", pawn.getTeam())
     print("pos:", pawn.getXPosition(), pawn.getYPosition(), pawn.getZPosition())
     print("has command:", pawn.hasCurrentCommand())

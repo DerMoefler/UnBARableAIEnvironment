@@ -38,6 +38,8 @@ PYBIND11_MODULE(bar_ai, m) {
     py::class_<Unit>(m, "Unit")
         .def("getHealth", &Unit::getHealth)
         .def("getTeam", &Unit::getTeam)
+        .def("getMaxHealth", &Unit::getMaxHealth)
+        .def("getSightRange", &Unit::getSightRange)
         .def("getXPosition", &Unit::getXPosition)
         .def("getYPosition", &Unit::getYPosition)
         .def("getZPosition", &Unit::getZPosition)
@@ -54,6 +56,8 @@ PYBIND11_MODULE(bar_ai, m) {
     py::class_<Pawn, Unit>(m, "Pawn")
         .def(py::init<UnitData>(), py::arg("data"))
         .def("getHealth", &Pawn::getHealth)
+        .def("getMaxHealth", &Pawn::getMaxHealth)
+        .def("getSightRange", &Pawn::getSightRange)
         .def("getTeam", &Pawn::getTeam)
         .def("getXPosition", &Pawn::getXPosition)
         .def("getYPosition", &Pawn::getYPosition)
@@ -63,4 +67,5 @@ PYBIND11_MODULE(bar_ai, m) {
         .def("getUnitType", &Pawn::getUnitType)
         .def("getUnitsInSight", &Pawn::getUnitsInSight)
         .def("getEnemyUnitsInSight", &Pawn::getEnemyUnitsInSight);
+
 }
