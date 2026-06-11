@@ -26,7 +26,7 @@ SharedMemoryPosix::SharedMemoryPosix(std::string_view name)
 }
 
 SharedMemoryPosix::~SharedMemoryPosix(void) {
-    // shm_unlink(m_name.c_str());
+    shm_unlink(m_name.c_str());
 }
 
 id_t SharedMemoryPosix::createSegment(const size_t size) {
