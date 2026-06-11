@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <span>
 
-namespace UnBARableAI {
+namespace UnBARableAINS {
 
 namespace memory {
 

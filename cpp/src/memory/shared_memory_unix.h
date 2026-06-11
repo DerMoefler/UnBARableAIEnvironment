@@ -1,6 +1,6 @@
 #pragma once
 
-namespace UnBARableAI {
+namespace UnBARableAINS {
 
 namespace memory {
 

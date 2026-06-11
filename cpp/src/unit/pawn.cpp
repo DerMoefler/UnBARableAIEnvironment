@@ -1,7 +1,7 @@
 #include "pawn.h"
 
 
-namespace UnBARableAI {
+namespace UnBARableAINS {
     namespace unit {
     Pawn::Pawn(UnitData data) : Unit(data) {
 

@@ -10,9 +10,9 @@ namespace py = pybind11;
 PYBIND11_MODULE(bar_ai, m) {
     m.doc() = "Python bindings for UnBARableAI";
 
-    using UnBARableAI::unit::Unit;
-    using UnBARableAI::unit::Pawn;
-    using UnBARableAI::unit::UnitData;
+    using UnBARableAINS::unit::Unit;
+    using UnBARableAINS::unit::Pawn;
+    using UnBARableAINS::unit::UnitData;
 
     // -------------------------
     // UnitData

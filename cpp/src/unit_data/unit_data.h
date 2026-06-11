@@ -1,5 +1,5 @@
 #pragma once
-namespace UnBARableAI {
+namespace UnBARableAINS {
 
 namespace unit {
 
