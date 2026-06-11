@@ -2,7 +2,7 @@
 #include <vector>
 #include "../unit_data/unit_data.h"
 
-namespace UnBARableAI {
+namespace UnBARableAINS {
 
 namespace unit {
 

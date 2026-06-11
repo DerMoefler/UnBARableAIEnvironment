@@ -8,7 +8,7 @@
 
 #include <system_error>
 
-namespace UnBARableAI {
+namespace UnBARableAINS {
 
 namespace memory {
 

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "memory/shared_memory_posix.h"
 
-namespace UnBARableAI {
+namespace UnBARableAINS {
 
 using namespace memory;
 

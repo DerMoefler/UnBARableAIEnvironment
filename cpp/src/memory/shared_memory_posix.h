@@ -10,7 +10,7 @@
 
 #include "memory/shared_memory_impl.h"
 
-namespace UnBARableAI {
+namespace UnBARableAINS {
 
 namespace memory {
 
