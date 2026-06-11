@@ -29,29 +29,45 @@ SharedMemoryPosix::~SharedMemoryPosix(void) {
     shm_unlink(m_name.c_str());
 }
 
-id_t SharedMemoryPosix::writeSegment(std::span<const std::byte> data) {
-    id_t segmentId = getNextId();
-    if(segmentId >= m_segmentOffsets.capacity() - 1) {
+id_t SharedMemoryPosix::createSegment(const size_t size) {
+    if(!size) {
+        throw std::length_error("Don't dare create an empty segment.");
+    }
+    id_t newSegmentId = getNextId();
+    if(newSegmentId >= m_segments.capacity() - 1) {
         extendSegmentTable();
     }
-    // Get size and extend shm if needed
-    const size_t dataSize = data.size();
-    const size_t segmentSize = calcualteSegmentSize(dataSize);
+
+    // extend shm if needed (an additional size_t is needed for the encoding of the valid length in the beginning)
+    const size_t segmentSize = calculatePartialSegmentSize(size) + sizeof(size_t);
     if((m_head + segmentSize) > m_size) {
         // Increase by n * c_size_increase to fit the data into memory.
         const size_t sizeIncrease = (segmentSize / c_size_increase + 1) * c_size_increase;
         increaseSize(sizeIncrease);
     }
-    // Layout: (segmentSize, data[0], data[1], ..., data[dataSize], segment_link_id, link)
-    write(segmentSize);
-    setSegmentTableLink(segmentId, m_head);
-    for(size_t i = 0; i < dataSize; i++) {
-        write(static_cast<uint8_t>(data[i]));
+    // Layout: (validLength, partialLength, data[0], data[1], ..., data[dataSize], segment_link_id, link)
+    write(static_cast<size_t>(sizeof(size_t)), m_head);
+    write(segmentSize - sizeof(size_t), m_head + sizeof(size_t));
+    setSegmentTableLink(newSegmentId, m_head);
+    write(c_segment_link_id, m_head + segmentSize - sizeof(link_t) - sizeof(position_t));
+    write(static_cast<link_t>(0x00), m_head + segmentSize - sizeof(link_t));
+    // Initialize segment
+    Segment& segment = m_segments[newSegmentId];
+    segment = {true, newSegmentId, m_head, static_cast<position_t>(m_head + 2 * sizeof(size_t)), segmentSize, {m_head}};
+    // Move head to after the segment
+    m_head += segmentSize;
+    return segment.id;
+}
+
+
+id_t SharedMemoryPosix::writeSegment(DataView data) {
+    id_t newSegmentId = createSegment(data.size());
+    Segment& segment = m_segments[newSegmentId];
+    for(size_t i = 0; i < data.size(); i++) {
+        write(static_cast<uint8_t>(data[i]), segment.head);
+        segment.head++;
     }
-    write(c_segment_link_id);
-    write(static_cast<link_t>(0x00));
-    
-    return segmentId;
+    return newSegmentId;
 }
 
 void SharedMemoryPosix::increaseSize(const size_t size) {
@@ -91,10 +107,11 @@ void SharedMemoryPosix::extendSegmentTable(void) {
         write(static_cast<link_t>(m_head), writePositionPreviousOffset);
     }
 
-    m_segmentOffsets.reserve(c_contiguous_segment_count + 1);
+    m_segments.reserve(c_contiguous_segment_count + 1);
     id_t firstId = partialSegmentTablesCount * c_contiguous_segment_count;
     m_segmentTableOffsets.push_back(m_head);
     for(id_t i = firstId; i < firstId + c_contiguous_segment_count; i++) {
+        m_segments.push_back({false, 0, 0, 0, 0, {}});
         write(i);
         write(static_cast<link_t>(0x00));
     }

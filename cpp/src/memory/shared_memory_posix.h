@@ -43,6 +43,37 @@ public:
     */ 
     using position_t = id_t;
 
+    /// \brief Alias for a view to some data (e.g. to write to a segment).
+    using DataView = const std::span<const std::byte>;
+
+    /**
+     * \brief A struct to hold information about the memory layout of a segment in shared memory.
+     * 
+     * In memory, a Segment's \ref id is stored in a partially linked table with its associated \ref start. A Segment itself is also partially
+     * linked. The first "partial" Segment, i.e. the position in memory that \ref start refers to, starts with the current length of the entire
+     * segment, i.e. the amount of valid data. Then, each partial segment (including the first) stores its own length at the beginning (or in the case
+     * of the first segment, after the valid length). This is so the end of the partial segment can be determined. The last few bytes of the Segment
+     * denote a \ref link_t to the following partial segment. The value of this \ref link_t is 0 if this is the last segment.
+     * \note The valid length as well as the partial segment length both include themselves. The link_t is included in the partial segment size as well.
+     * \note The first segment's partial length excldues the valid length while the valid length includes the partial length.
+     * \note It is not guaranteed for the head to be in the last partial segment. The user may allocate multiple partial Segments without ever actually
+     * writing data to it. 
+     */
+    struct Segment {
+        /// \brief A boolean determining whether the instance holds information about an actual segment or not.
+        bool                        valid = false;
+        /// \brief The id of the segment.
+        id_t                        id;
+        /// \brief The start of the segment relative to the shared memory's start.
+        position_t                  start;  
+        /// \brief The head of the segment relative to the shared memory's start
+        position_t                  head;
+        /// \brief The total capacity of the segment.
+        size_t                      size;
+        /// \brief The offsets of partial segments relative to the shared memory's start.
+        std::vector<position_t>     offsets;
+    };
+
     /// \brief The id used to signal that the next entry is not an offset for a data segment but rather the offset to the next partial segment table.
     inline static constexpr id_t   c_partial_table_link_id = 0xFE'DC'BA'98;//'76'54'32'10;
 
@@ -50,7 +81,7 @@ public:
     * \brief Number of contiguous segments in the partially linked list.
     * The last element is a relative pointer to next array. \todo image
     */ 
-    inline static constexpr uint32_t    c_contiguous_segment_count = 1;
+    inline static constexpr uint32_t    c_contiguous_segment_count = 2;
 
     /// \brief The id used to signal that the following bytes compose a \ref position_t to where the segment continues.
     inline static constexpr id_t   c_segment_link_id       = 0xAA'AA'AA'AA;
@@ -72,11 +103,81 @@ public:
     ~SharedMemoryPosix(void);
 
     /**
+     * \brief Creates a new \ref Segment with the specified size.
+     * 
+     * \param size The size allocated for the Segment.
+     * \return The id the memory Segment has been assigned.
+     * \throws std::length_error if the size is 0.
+     * 
+     * This method simply allocates the requested amount of memory. The Segment's head is at the memory starts position, meaning you can
+     * simply write data to the Segment using \ref appendToSegment. To later reserve more space, use \ref increaseSegmentCapacity.
+     * \sa Segment.
+     * \note The Segment is allocated at \ref m_head and is moved after the segment. The \ref Segment::head is moved to the first data byte's location
+     * (after valid length and partial length).
+     */
+    id_t    createSegment(const size_t size);
+
+    /**
+     * \brief Writes data into a Segment starting at the current head of the \ref Segment.
+     * 
+     * \param id The id of the Segment, returned by e.g. \ref createSegment.
+     * \param data A view of the data to be written.
+     * \throws std::length_error If appending the data would exceed the Segment's capacity.
+     *
+     * This method writes data to the Segment and moves the head along with it. No data will be written if
+     * the Segment's remaining capacity (total capcaity - head) is too small to fit the entire data.
+     */
+    void    appendToSegment(id_t id, DataView data);
+
+    /**
+     * \brief Writes data into a Segment starting at the specified position.
+     * 
+     * \param id The id of the Segment, returned by e.g. \ref createSegment.
+     * \param position The position within the segment.
+     * \param data A view of the data to be written.
+     * \throws std::length_error If appending the data would exceed the Segment's capacity.
+     *
+     * No data will be written if the Segment's remaining capacity (total capcaity - head) is too small to fit the entire data.
+     */
+    void    writeToSegmentAt(id_t id, position_t position, DataView data);
+
+    /**
+     * \brief Increases the total capacity of the Segment.
+     * 
+     * \param id The id of the segment, returned by e.g. \ref createSegment.
+     * \param additionalCapacity The additional amount of memory to be reserved.
+     *
+     * \note This method will create a new partial segment which might impact performance. If you know the size beforehand, use \ref createSegment with
+     * the appropriate size.
+     */
+    void    increaseSegmentCapacity(id_t id, const size_t additionalCapacity);
+
+    /**
+     * \brief Resize a segment to a specific size.
+     * 
+     * \param id The id of the segment, returned by e.g. \ref createSegment.
+     * \param newCapacity The new capacity of the segment.
+     *
+     * If the new capacity is smaller than the current capacity, all memory exceeding it will be freed and therefore the data lost. Otherwise,
+     * behaves like a call to \ref increaseSegmentCapacity with additionalCapacity = newCapacity - currentCapacity
+     */
+    void    resizeSegment(id_t id, const size_t newCapacity);
+
+    /**
+     * \brief Get the current total capacity of the segment.
+     * 
+     * \param id The id of the segment, returned by e.g. \ref createSegment.
+     * \return The Segment's total capacity.
+     */
+    size_t  getSegmentCapacity(id_t id);
+
+    /**
      * \brief Writes a segment of data into memory.
      * 
-     * \return The id the memory segment has been assigned internally.
+     * \param data A view of the data to be written.
+     * \return The id the memory segment has been assigned.
      */
-    id_t    writeSegment(std::span<const std::byte> data);
+    id_t    writeSegment(DataView data);
 
     /**
      * \brief Deletes a segment of data from memory.
@@ -98,16 +199,16 @@ private:
     /// \brief Extend the segment table in memory by \ref c_contiguous_segment_count.
     void extendSegmentTable(void);
 
-    /// \brief Update the \ref link_t in the segment table for the given id.
+    /// \brief Update the \ref link_t in the segment table for the given id. \todo Possibly change to use Segment.
     void setSegmentTableLink(const id_t id, const link_t link);
 
     /**
      * \brief Calculate the size of a segment.
      * \param dataSize The size of the data the segment contains.
-     * Adds the size of the size_t at the beginning of the segment for length encoding
+     * Adds the size of the size_t at the beginning of the segment for partial length encoding
      * as well as the id_t marker and link_t to the next part of the segment.
      */
-    inline static constexpr size_t calcualteSegmentSize(const size_t dataSize) {
+    inline static constexpr size_t calculatePartialSegmentSize(const size_t dataSize) {
         return dataSize + sizeof(size_t) + sizeof(id_t) + sizeof(link_t);
     }
 
@@ -203,11 +304,11 @@ private:
     position_t                          m_head = 0;
 
     /** 
-     * \brief Table storing entries [offset], i.e. the offset from the start of shared memory to the segment identified by id, which corresponds to the index.
+     * \brief Vector storing Segments where the index correponds to the Segment's id.
      * 
-     * This list is stored as a partially linked list directly after the version tag. \todo Document using image
+     * The Segment's offsets stored as a partially linked list directly after the version tag. \todo Document using image
      */ 
-    std::vector<position_t>             m_segmentOffsets = {};
+    std::vector<Segment>                m_segments = {};
 
     /** 
      * \brief Vector storing the relative position of the partial segment table offsets.

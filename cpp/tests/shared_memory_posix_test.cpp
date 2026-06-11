@@ -17,6 +17,7 @@ TEST(SharedMemoryPosixTest, writeSegment) {
     shm.writeSegment(data);
     shm.writeSegment(data);
     shm.writeSegment(data);
+    shm.createSegment(0xFF);
 }
 
 } // namespace UnBARableAI
