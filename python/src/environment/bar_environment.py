@@ -50,8 +50,8 @@ class BAR_Environment:
 
     def get_obs_agent(self, agent_id):
 
-        data = bar_ai.UnitData()
-        pawn = bar_ai.Pawn(data)
+        data = bar_ai.UnitData() #should include date about every existing unit
+        pawn = bar_ai.Pawn(data) #need to reference the unit
 
         # placeholder for all information
         enemy_max, enemy_feat = self.get_enemy_feat_size()  # (max_enemies, features_per_enemy)
@@ -64,7 +64,7 @@ class BAR_Environment:
 
         unit_type = pawn.getUnitType()
         # available_actions = self.get_available_actions(unit_type).flatten()
-        health = pawn.getHealth()  # self.get_health(agent_id)
+        health = pawn.getHealth()
 
         if health > 0:  # otherwise dead, returns all zeros
             pos_x = pawn.getXPosition()
@@ -76,31 +76,38 @@ class BAR_Environment:
 
             own_feats[:7] = np.array([float(unit_type), float(pos_x), float(pos_y), float(pos_z), float(health), float(health_percentage), float(sight_radius)], dtype=np.float32)
 
-
-            for enemy_unit in pawn.getUnitsInSight(): #pawn.getEnemyUnitsInSight(): should get an array of unit objects
+            enemy_idx = 0
+            for enemy_unit in pawn.getUnitsInSight(): #pawn.getEnemyUnitsInSight(): should get an array of unit objects, as in pawn = bar_ai.Pawn(data)
                 if enemy_unit.getTeam() != pawn.getTeam():
                     enemy_unit_type = enemy_unit.getUnitType()
                     enemy_pos = np.asarray(self.get_relative_pos(pawn, enemy_unit)).flatten()
                     enemy_health = enemy_unit.getHealth()
 
-                    enemy_features[enemy_idx, :3] = [
+                    enemy_features[enemy_idx, :5] = [
                         float(enemy_unit_type),
-                        float(enemy_pos[0]) if enemy_pos.size > 0 else 0.0,
+                        float(enemy_pos[0]),
+                        float(enemy_pos[1]),
+                        float(enemy_pos[2]),
                         float(enemy_health),
                     ]
+                    enemy_idx += 1
 
 
+            ally_idx = 0
             for ally_unit in pawn.getUnitsInSight():
                 if ally_unit.getTeam() == pawn.getTeam():
                     ally_unit_type = ally_unit.getUnitType()
                     ally_pos = np.asarray(self.get_relative_pos(pawn, ally_unit)).flatten()
                     ally_health = ally_unit.getHealth()
 
-                    ally_features[ally_idx, :3] = [
+                    ally_features[ally_idx, :5] = [
                         float(ally_unit_type),
-                        float(ally_pos[0]) if ally_pos.size > 0 else 0.0,
+                        float(ally_pos[0]),
+                        float(ally_pos[1]),
+                        float(ally_pos[2]),
                         float(ally_health),
                     ]
+                    ally_idx += 1
 
 
         local_obs = np.concatenate(
