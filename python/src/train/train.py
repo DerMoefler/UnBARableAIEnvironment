@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from src.enviroment.bar_environment import BAR_Environment, EngineSessionConfig
+from src.environment.bar_environment import BAR_Environment, EngineSessionConfig
 from src.train.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.r_mappo import R_MAPPO
