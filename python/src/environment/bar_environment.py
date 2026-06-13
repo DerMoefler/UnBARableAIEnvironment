@@ -49,6 +49,27 @@ class BAR_Environment:
             pass
 
     def get_obs_agent(self, agent_id):
+        """
+        Returns the observation for a specific agent
+
+        Parameters
+        ----------
+        self : BAR_Environment
+            The training environment instance.
+        agent_id : int
+            The ID of the agent for which to retrieve the observation.
+        
+        Returns
+        -------
+        observation : np.ndarray
+            A 1-D numpy array containing the observation for the specified agent.
+
+        Examples
+        --------
+        >>> get_obs_agent(bar_env, 67)
+        [0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+        0. 0. 0. 0. 0. 0. 0. 0.]
+        """
 
         data = bar_ai.UnitData() #should include date about every existing unit
         pawn = bar_ai.Pawn(data) #need to reference the unit
@@ -121,21 +142,129 @@ class BAR_Environment:
         return local_obs
 
     def get_enemy_feat_size(self):
-        # return (max_enemies, features_per_enemy), hardcoded for now
-        return (5, 3)
+        """
+        Returns the size of enemy features, which is hardcoded for now
+
+        Paramters
+        ---------
+        self: Bar_Environment
+            The bar training environment
+        
+        Returns
+        -------
+        n_enemy_features: 5
+            number of enemy features
+        n_enemies: 3
+            number of enemies
+        
+        Examples
+        --------
+        >>> get_enemy_feat_size(bar_env)
+        5, 3
+        """
+        
+        n_enemy_features = 5
+        n_enemies = 3
+
+        return (n_enemy_features, n_enemies)
     
     def get_ally_feat_size(self):
-        # return (max_allies, features_per_ally), hardcodede for now
-        return (5, 2)
+        """
+        Returns the size of ally features, which is hardcoded for now
+
+        Paramters
+        ---------
+        self: Bar_Environment
+            The bar training environment
+        
+        Returns
+        -------
+        n_ally_features: 5
+            number of enemy features
+        n_allies: 3
+            number of enemies
+        
+        Examples
+        --------
+        >>> get_ally_feat_size(bar_env)
+        5, 2
+        """
+        
+        n_ally_features = 5
+        n_allies = 2
+
+        return (n_ally_features, n_allies)
     
     def get_own_feat_size(self):
-        #might be changed in the future, limited to 7 right now, because of unit_type, posx, posy, posz, health, health_percentage, sight_radius
-        return 7
+        """
+        Returns the number of own features, has to be changed when implementing new units
+
+        Paramters
+        ---------
+        self: Bar_Environment
+            The bar training environment
+
+        Returns
+        -------
+        n_own_features: int
+            The number of feature of the own agent
+        
+        Example
+        -------
+        >>> get_own_feat_size(bar_env)
+        7
+        """
+
+        n_own_features = 7
+        return n_own_features
     
     def get_health_percentage(self, health, health_max):
-        return health / health_max
+        """
+        Returns the percentage of health a unit has.
+
+        Paramters
+        ---------
+        self: Bar_Environment
+            The bar training environment
+        health: float_32
+            The current health of a unit
+        health_max: float_32
+            The maximum health of a unit
+        
+        Returns
+        -------
+        health_percentage : float_32
+            The percentage of health a unit thas
+
+        Examples
+        --------
+        >>> get_health_percentage(self, 146.0, 200.0)
+        0.73
+        """
+
+        health_percentage = health / health_max
+
+        return health_percentage
     
     def get_relative_pos(self, agent, second_unit_id):
+        """
+        Calculates the relative position of a unit to the agent unit
+
+        Parameters
+        ----------
+        self : BAR_Environment
+            The training environment instance
+        
+        Returns
+        -------
+        rel_pos : np.array
+            A 1-D numpy array containing the relative position (x, y, z) of the second unit to the agent unit
+        
+        Examples
+        --------
+        >>> get_relative_pos(bar_env, 1, 0)
+        [3.0, 5.2, 7.3]
+        """
         relx = second_unit_id.getXPosition() - agent.getXPosition()
         rely = second_unit_id.getYPosition() - agent.getYPosition()
         relz = second_unit_id.getZPosition() - agent.getZPosition()
@@ -156,8 +285,52 @@ class BAR_Environment:
     #     return avail_actions
 
     def get_n_agents(self):
-        return 1
+        """
+        Returns the number of agents, has to be changed fpr more agents
+
+        Parameters
+        ----------
+        self : BAR_Environment
+            The training environment instance
+        
+        Returns
+        -------
+        n_agnets : int
+            number of agents
+        
+        Examples
+        --------
+        >>> get_n_agents(bar_env)
+        1
+        """
+
+        n_agents = 1
+
+        return n_agents
 
     def get_obs(self):
+        """
+        Returns the global observation for all agents
+
+        Parameters
+        ----------
+        self : BAR_Environment
+            The training environment instance
+
+        Returns
+        -------
+        observations : List[np.ndarray]
+            A list of 1-D numpy arrays, each containing the observation for a specific agent
+
+        Examples
+        --------
+        >>> get_obs(bar_env)
+        [array(
+        [0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+        0. 0. 0. 0. 0. 0. 0. 0.],
+        [0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
+        0. 0. 0. 0. 0. 0. 0. 0.]
+        )]
+        """
         agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]
         return agents_obs 
