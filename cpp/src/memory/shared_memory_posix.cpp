@@ -1,6 +1,7 @@
 #include "shared_memory_posix.h"
 #include "memory/shared_memory_impl.h"
 
+#include <stdexcept>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -127,6 +128,62 @@ void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position
                       + (id % c_contiguous_segment_count) * 2 * sizeof(id_t) 
                       + sizeof(id_t);
     write(position, writeOffset);
+}
+
+SharedMemoryPosix::PartiallyLinkedListInformation::PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize, const size_t dataSize)
+    : m_memoryStart(memoryStart)
+{
+    extend(memoryStart, headerSize, dataSize);
+}
+
+void SharedMemoryPosix::PartiallyLinkedListInformation::extend(const position_t offset, const size_t headerSize, const size_t dataSize) {
+    const size_t totalSize = headerSize + dataSize + c_link_size;
+    m_offsets.push_back(offset);
+    m_dataSizes.push_back(dataSize);
+    m_sizes.push_back(totalSize);
+    m_size += totalSize;
+}
+
+SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataPosition(const position_t index) const {
+    size_t partialSegmentIndex = 0;
+    size_t previousDataSize = 0;
+    for(int i = 0; i < m_dataSizes.size(); i++) {
+        if (previousDataSize + m_dataSizes[i] > index) {
+            break;
+        }
+        partialSegmentIndex++;
+        previousDataSize += m_dataSizes[i];
+    }
+    const size_t indexInSegment = index - previousDataSize;
+    return getDataStart(partialSegmentIndex) + indexInSegment;
+}
+
+SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderStart(const size_t partialSegmentIndex) const {
+    validatePartialSegmentIndex(partialSegmentIndex);
+    return m_offsets[partialSegmentIndex];
+}
+
+SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataStart(const size_t partialSegmentIndex) const {
+    validatePartialSegmentIndex(partialSegmentIndex);
+    return m_offsets[partialSegmentIndex] + getHeaderSize(partialSegmentIndex);
+}
+
+size_t SharedMemoryPosix::PartiallyLinkedListInformation::getCapacity(void) const {
+    size_t capacity = 0;
+    for(const auto& size : m_dataSizes)
+        capacity += size;
+    return capacity;
+}
+
+size_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderSize(const size_t partialSegmentIndex) const {
+    validatePartialSegmentIndex(partialSegmentIndex);
+    return m_sizes[partialSegmentIndex] - m_dataSizes[partialSegmentIndex] - c_link_size;
+}
+
+void SharedMemoryPosix::PartiallyLinkedListInformation::validatePartialSegmentIndex(const size_t partialSegmentIndex) const {
+    if(partialSegmentIndex >= m_offsets.size()) {
+        throw std::out_of_range("PartialSegmentIndex is out of range");
+    }
 }
 
 }; // namespace memory

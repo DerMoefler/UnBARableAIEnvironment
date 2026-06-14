@@ -47,6 +47,84 @@ public:
     using DataView = const std::span<const std::byte>;
 
     /**
+     * \brief Stores positional information about a partially linked list in shared memory.
+     */
+    class PartiallyLinkedListInformation {
+    public:
+        /// \brief Length of the link at the end of each partial segment so link to the next.
+        inline static constexpr size_t c_link_size = sizeof(position_t);
+        /**
+         * \brief Construct a partially linked list, starting with one partial segment at the memory start.
+         * \param memoryStart Start of the list which is therefore also the start of the first partial segment.
+         * \param headerSize Size of the header for the first partial segement.
+         * \param dataSize Size of the data for the first partial segement.
+         */
+        PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize, const size_t dataSize);
+        
+        /**
+         * \brief Add a new partial segment.
+         * \param offset Offset in shared memory for the new partial segment.
+         * \param headerSize Size of the header for the new partial segement.
+         * \param dataSize Size of the data for the new partial segement.
+         */
+        void extend(const position_t offset, const size_t headerSize, const size_t dataSize);
+
+        /**
+         * \brief Find the position_t (relative to the shared memory's start) from the position of the data inside the list.
+         * \param index Data position inside the entire list.
+         */
+        position_t getDataPosition(const position_t index) const;
+
+        /**
+         * \brief Find the position_t (relative to the shared memory's start) of the header of some partial segment.
+         * \param partialSegmentIndex The partial segment's index.
+         */
+        position_t getHeaderStart(const size_t partialSegmentIndex) const;
+        
+        /**
+         * \brief Find the position_t (relative to the shared memory's start) of the data of some partial segment.
+         * \param partialSegmentIndex The partial segment's index.
+         */
+        position_t getDataStart(const size_t partialSegmentIndex) const;
+
+        /**
+         * \brief Find the size of a partial segment.
+         * \param partialSegmentIndex The partial segment's index.
+         */
+        size_t getHeaderSize(const size_t partialSegmentIndex) const;
+
+        /**
+         * \brief Get the entire size the list occupies in memory.
+         */
+        inline size_t getSize(void) const { return m_size; };
+        
+        /**
+         * \brief Get the data capacity of the list.
+         */
+        size_t getCapacity(void) const;
+        
+    private:
+        /**
+         * \brief Simple validation that the partial segment with that index exists.
+         * \throws std::out_of_range If the index does not exist.
+         */ 
+        void validatePartialSegmentIndex(const size_t partialSegmentIndex) const;
+        
+        /// \brief The position of the head
+        position_t                  head;
+        /// \brief 
+        position_t                  m_memoryStart;
+        /// \brief The total size occupied in memory
+        size_t                      m_size;
+        /// \brief Offsets of the partial elements.
+        std::vector<position_t>     m_offsets;
+        /// \brief Sizes of the partial elements.
+        std::vector<size_t>         m_sizes;
+        /// \brief Data sizes (capacity) of the partial elements.
+        std::vector<size_t>         m_dataSizes;
+    };
+
+    /**
      * \brief A struct to hold information about the memory layout of a segment in shared memory.
      * 
      * In memory, a Segment's \ref id is stored in a partially linked table with its associated \ref start. A Segment itself is also partially
