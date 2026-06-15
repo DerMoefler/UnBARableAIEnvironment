@@ -65,9 +65,10 @@ target_link_libraries(${PROTO_NAME}_proto PUBLIC
 # ------------------------------ (end) gRPC: UnBARableAI proto ------------------------------------
 
 add_executable(tests
-    "tests/shared_memory_test.cpp"
-    "tests/shared_memory_posix_test.cpp"
-    "tests/partially_linked_list_information_test.cpp"
+    "tests/memory/shared_memory_test.cpp"
+    "tests/memory/shared_memory_posix_test.cpp"
+    "tests/memory/partially_linked_list_information_test.cpp"
+    "tests/memory/segment_information_test.cpp"
     "src/memory/shared_memory_posix.cpp"
 )
 

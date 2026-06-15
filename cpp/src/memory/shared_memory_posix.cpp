@@ -187,6 +187,42 @@ void SharedMemoryPosix::PartiallyLinkedListInformation::validatePartialSegmentIn
     }
 }
 
+SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id)
+    : m_id(id)
+    , m_valid(false)
+    , m_information(0, 0, 0)
+{}
+
+SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id, const position_t memoryStart, const size_t dataSize)
+    : SegmentInformation(id)
+{
+    initialize(memoryStart, dataSize);
+}
+
+void SharedMemoryPosix::SegmentInformation::initialize(const position_t memoryStart, const size_t dataSize) {
+    validateState(false);
+    m_information = PartiallyLinkedListInformation{memoryStart, 2 * sizeof(size_t) + sizeof(position_t), dataSize};
+    m_valid = true;
+}
+
+SharedMemoryPosix::position_t SharedMemoryPosix::SegmentInformation::getMemoryStart(void) const {
+    validateState(true);
+    return m_information.getMemoryStart();
+}
+
+void SharedMemoryPosix::SegmentInformation::validateState(bool state) const {
+    if(m_valid != state) {
+        std::string_view message;
+        if(m_valid) {
+            message = "Object has to be invalid for the request operation, but is valid.";
+        }
+        else {
+            message = "Object has to be valid for the request operation, but is invalid.";
+        }
+        throw std::logic_error(message.data());
+    }
+}
+
 }; // namespace memory
 
 }; // namespace UnBARableAI

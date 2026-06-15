@@ -95,9 +95,16 @@ public:
 
         /**
          * \brief Get the entire size the list occupies in memory.
+         * \return Size.
          */
         inline size_t getSize(void) const { return m_size; };
         
+        /**
+         * \brief Get the memory start of the List.
+         * \return Memory start.
+         */
+        inline position_t getMemoryStart(void) const { return m_memoryStart; };
+
         /**
          * \brief Get the data capacity of the list.
          */
@@ -122,6 +129,65 @@ public:
         std::vector<size_t>         m_sizes         = {};
         /// \brief Data sizes (capacity) of the partial elements.
         std::vector<size_t>         m_dataSizes     = {};
+    };
+
+    /**
+     * \brief Hold information about a Segment in shared memory.
+     * 
+     * A instance of SegmentInformation can either be constructed as or set to be invalid. This means that the Segment does not actually exist,
+     * meaning no information about it can be queried. This is to allow reserving space for a SegmentInformation object without it holding
+     * information about an actual Segment.
+     * \see PartiallyLinkedListInformation
+     */
+    class SegmentInformation {
+    public:
+        /**
+         * \brief Constructs an invalid SegmentInformation instance.
+         * \param id Id assigned to the invalid Segment.
+         */
+        SegmentInformation(const id_t id);
+
+        /**
+         * \brief Constructs a valid SegmentInformation instance with one partial segment.
+         * \param id Id assigned to the Segment.
+         * \param memoryStart Start of the segment in shared memory.
+         * \param dataSize Data size for the first partial segment.
+         */
+        SegmentInformation(const id_t id, const position_t memoryStart, const size_t dataSize);
+
+        /**
+         * \brief Initialize an invalid segment.
+         * \param memoryStart Start of the segment in shared memory.
+         * \param dataSize Data size for the first partial segment.
+         * \pre The instance must be invalid.
+         * \post A valid instance with one partial segment.
+         * \throws std::logic_error If called on a valid instance.
+         */
+        void initialize(const position_t memoryStart, const size_t dataSize);
+
+        /**
+         * \brief Check if the instance is valid.
+         * \return Bool whether the instance holds valid information.
+         */
+        inline bool isValid(void) const { return m_valid; }
+
+        /**
+         * \brief Get the memory start of the List.
+         * \return Memory start.
+         */
+        position_t getMemoryStart(void) const;
+
+    private:
+        /**
+         * \brief Validate that the object is valid.
+         * \param state Bool whether the object has to be in (either valid or invalid).
+         * \throws std::logic_error If the object is not in the correct state.
+         */
+        void validateState(bool state) const;
+        
+        id_t                                    m_id;
+        bool                                    m_valid;
+        PartiallyLinkedListInformation          m_information;
     };
 
     /**
