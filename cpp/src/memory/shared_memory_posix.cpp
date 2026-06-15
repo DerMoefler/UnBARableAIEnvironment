@@ -35,12 +35,16 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
         throw std::length_error("Don't dare create an empty segment.");
     }
     id_t newSegmentId = getNextId();
-    if(newSegmentId >= m_segments.capacity() - 1) {
+    if(newSegmentId >= m_segmentsInformation.capacity() - 1) {
         extendSegmentTable();
     }
 
+    // Initialize segment information
+    SegmentInformation& sInformation = m_segmentsInformation[newSegmentId];
+    sInformation.initialize(m_head, size);
+
     // extend shm if needed (an additional size_t is needed for the encoding of the valid length in the beginning)
-    const size_t segmentSize = calculatePartialSegmentSize(size) + sizeof(size_t);
+    const size_t segmentSize = sInformation.getSize();
     if((m_head + segmentSize) > m_size) {
         // Increase by n * c_size_increase to fit the data into memory.
         const size_t sizeIncrease = (segmentSize / c_size_increase + 1) * c_size_increase;
@@ -50,23 +54,25 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
     write(static_cast<size_t>(sizeof(size_t)), m_head);
     write(segmentSize - sizeof(size_t), m_head + sizeof(size_t));
     setSegmentTableLink(newSegmentId, m_head);
-    write(c_segment_link_id, m_head + segmentSize - sizeof(link_t) - sizeof(position_t));
+    // write(c_segment_link_id, m_head + segmentSize - sizeof(link_t) - sizeof(position_t));
     write(static_cast<link_t>(0x00), m_head + segmentSize - sizeof(link_t));
-    // Initialize segment
-    Segment& segment = m_segments[newSegmentId];
-    segment = {true, newSegmentId, m_head, static_cast<position_t>(m_head + 2 * sizeof(size_t)), segmentSize, {m_head}};
+    
     // Move head to after the segment
     m_head += segmentSize;
-    return segment.id;
+    return newSegmentId;
 }
 
 
 id_t SharedMemoryPosix::writeSegment(DataView data) {
     id_t newSegmentId = createSegment(data.size());
-    Segment& segment = m_segments[newSegmentId];
+    SegmentInformation& sInformation = m_segmentsInformation[newSegmentId];
     for(size_t i = 0; i < data.size(); i++) {
-        write(static_cast<uint8_t>(data[i]), segment.head);
-        segment.head++;
+        write(static_cast<uint8_t>(data[i]), sInformation.getHead());
+        // TODO: FIX ASAP -> allow the head to move to the last partial segment's link (which is then necessarily 0x00), meaning the Segment is fully used
+        if (i == data.size() -1) {
+            break;
+        }
+        sInformation.advanceHead(1);
     }
     return newSegmentId;
 }
@@ -108,11 +114,11 @@ void SharedMemoryPosix::extendSegmentTable(void) {
         write(static_cast<link_t>(m_head), writePositionPreviousOffset);
     }
 
-    m_segments.reserve(c_contiguous_segment_count + 1);
+    m_segmentsInformation.reserve(c_contiguous_segment_count + 1);
     id_t firstId = partialSegmentTablesCount * c_contiguous_segment_count;
     m_segmentTableOffsets.push_back(m_head);
     for(id_t i = firstId; i < firstId + c_contiguous_segment_count; i++) {
-        m_segments.push_back({false, 0, 0, 0, 0, {}});
+        m_segmentsInformation.push_back({i});
         write(i);
         write(static_cast<link_t>(0x00));
     }
@@ -146,6 +152,9 @@ void SharedMemoryPosix::PartiallyLinkedListInformation::extend(const position_t 
 }
 
 SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataPosition(const position_t index) const {
+    if(index >= getCapacity()) {
+        throw std::out_of_range("Index exceeds capacity");
+    }
     size_t partialSegmentIndex = 0;
     size_t previousDataSize = 0;
     for(int i = 0; i < m_dataSizes.size(); i++) {
@@ -159,6 +168,29 @@ SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation:
     return getDataStart(partialSegmentIndex) + indexInSegment;
 }
 
+SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getIndexPosition(const position_t position) const {
+    // Get the first partial segment offset larger than position
+    auto it = std::lower_bound(m_offsets.begin(), m_offsets.end(), position);
+    if (it == m_offsets.begin()) {
+        throw std::out_of_range("Position not within any partial segments.");
+    }
+    --it;
+    const size_t partialSegmentIndex = std::distance(m_offsets.begin(), it);
+    const size_t dataOffset = position - *it;
+    if (dataOffset >= m_sizes[partialSegmentIndex]) {
+        throw std::out_of_range("Position not within any partial segments.");
+    }
+    const size_t headerSize = getHeaderSize(partialSegmentIndex);
+    if (dataOffset < headerSize || dataOffset >= (headerSize + m_dataSizes[partialSegmentIndex])) {
+        throw std::invalid_argument("Position lies within header / link section of partial segment.");
+    }
+    position_t dataIndex = 0;
+    for (int i = 0; i < partialSegmentIndex; i++) {
+        dataIndex += m_dataSizes[i];
+    }
+    return dataIndex + dataOffset - headerSize;
+}
+
 SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderStart(const size_t partialSegmentIndex) const {
     validatePartialSegmentIndex(partialSegmentIndex);
     return m_offsets[partialSegmentIndex];
@@ -169,16 +201,22 @@ SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation:
     return m_offsets[partialSegmentIndex] + getHeaderSize(partialSegmentIndex);
 }
 
-size_t SharedMemoryPosix::PartiallyLinkedListInformation::getCapacity(void) const {
-    size_t capacity = 0;
-    for(const auto& size : m_dataSizes)
-        capacity += size;
-    return capacity;
+void SharedMemoryPosix::PartiallyLinkedListInformation::advanceHead(size_t increment) {
+    position_t index = getIndexPosition(m_head);
+    index += increment;
+    m_head = getDataPosition(index);
 }
 
 size_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderSize(const size_t partialSegmentIndex) const {
     validatePartialSegmentIndex(partialSegmentIndex);
     return m_sizes[partialSegmentIndex] - m_dataSizes[partialSegmentIndex] - c_link_size;
+}
+
+size_t SharedMemoryPosix::PartiallyLinkedListInformation::getCapacity(void) const {
+    size_t capacity = 0;
+    for(const auto& size : m_dataSizes)
+        capacity += size;
+    return capacity;
 }
 
 void SharedMemoryPosix::PartiallyLinkedListInformation::validatePartialSegmentIndex(const size_t partialSegmentIndex) const {

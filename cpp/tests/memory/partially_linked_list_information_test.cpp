@@ -28,4 +28,18 @@ TEST(PartiallyLinkedListInformationTest, SingleSegment) {
     ASSERT_EQ(plli.getDataPosition(dataSize - 1), memoryStart + headerSize + dataSize - 1);
 }
 
+TEST(PartiallyLinkedListInformationTest, getIndexPosition) {
+    constexpr position_t    memoryStartA = 10;
+    constexpr position_t    memoryStartB = 50;
+    constexpr position_t    memoryStartC = 100;
+    constexpr size_t        headerSize  = 10;
+    constexpr size_t        dataSize    = 16;
+
+    PllInformation plli{memoryStartA, headerSize, dataSize};
+    plli.extend(memoryStartB, headerSize, dataSize);
+    plli.extend(memoryStartC, headerSize, dataSize);
+
+    EXPECT_EQ(plli.getIndexPosition(memoryStartC + 12), 2 * dataSize + 2);
+}
+
 } // namespace UnBARableAI

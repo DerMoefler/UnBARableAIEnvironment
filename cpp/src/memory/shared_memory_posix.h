@@ -72,8 +72,21 @@ public:
         /**
          * \brief Find the position_t (relative to the shared memory's start) from the position of the data inside the list.
          * \param index Data position inside the entire list.
+         * \return The position in shared memory.
+         * \throws std::out_of_range If the index is larger than the data size.
+         * \see Inverse: \ref getIndexPosition.
          */
         position_t getDataPosition(const position_t index) const;
+
+        /**
+         * \brief Find the index (into the data portion of the Segment) from a position into shared memory.
+         * \param position Position in the shared memory.
+         * \return The index into the Segment's data portion.
+         * \throws std::out_of_range If the position is not within a partial segment.
+         * \throws std::invalid_argument If the position is within the header or trailer of a partial segment.
+         * \see Inverse: \ref getDataPosition.
+         */
+        position_t getIndexPosition(const position_t position) const;
 
         /**
          * \brief Find the position_t (relative to the shared memory's start) of the header of some partial segment.
@@ -86,6 +99,24 @@ public:
          * \param partialSegmentIndex The partial segment's index.
          */
         position_t getDataStart(const size_t partialSegmentIndex) const;
+
+        /**
+         * \brief Advance the list's head by the given amount.
+         * \param increment Amount to advance the head by.
+         */
+        void advanceHead(size_t increment);
+
+        /**
+         * \brief Set the head's position.
+         * \param index Index into the data part of the list to move the head to.
+         */
+        void setHead(position_t index);
+
+        /**
+         * \brief Get the head's position.
+         * \return The head's position_t.
+         */
+        inline position_t getHead(void) const { return m_head; };
 
         /**
          * \brief Find the size of a partial segment.
@@ -177,6 +208,37 @@ public:
          */
         position_t getMemoryStart(void) const;
 
+        /**
+         * \brief Advance the Segment's head by the given amount.
+         * \param increment Amount to advance the head by.
+         */
+        inline void advanceHead(size_t increment) { m_information.advanceHead(increment); };
+
+        /**
+         * \brief Set the head's position.
+         * \param index Index into the data part of the segment to move the head to.
+         */
+        inline void setHead(position_t index) { m_information.setHead(index); };
+
+        /**
+         * \brief Get the head's position.
+         * \return The head's position_t.
+         */
+        inline position_t getHead(void) const { return m_information.getHead(); };
+
+        /**
+         * \brief Get the id.
+         * \return The id_t.
+         */
+        inline id_t getId(void) const { return m_id; };
+
+        /**
+         * \brief Get the size.
+         * \return The id_t.
+         * \see PartiallyLinkedListInformation::getSize
+         */
+        inline size_t getSize(void) const { return m_information.getSize(); };
+
     private:
         /**
          * \brief Validate that the object is valid.
@@ -188,34 +250,6 @@ public:
         id_t                                    m_id;
         bool                                    m_valid;
         PartiallyLinkedListInformation          m_information;
-    };
-
-    /**
-     * \brief A struct to hold information about the memory layout of a segment in shared memory.
-     * 
-     * In memory, a Segment's \ref id is stored in a partially linked table with its associated \ref start. A Segment itself is also partially
-     * linked. The first "partial" Segment, i.e. the position in memory that \ref start refers to, starts with the current length of the entire
-     * segment, i.e. the amount of valid data. Then, each partial segment (including the first) stores its own length at the beginning (or in the case
-     * of the first segment, after the valid length). This is so the end of the partial segment can be determined. The last few bytes of the Segment
-     * denote a \ref link_t to the following partial segment. The value of this \ref link_t is 0 if this is the last segment.
-     * \note The valid length as well as the partial segment length both include themselves. The link_t is included in the partial segment size as well.
-     * \note The first segment's partial length excldues the valid length while the valid length includes the partial length.
-     * \note It is not guaranteed for the head to be in the last partial segment. The user may allocate multiple partial Segments without ever actually
-     * writing data to it. 
-     */
-    struct Segment {
-        /// \brief A boolean determining whether the instance holds information about an actual segment or not.
-        bool                        valid = false;
-        /// \brief The id of the segment.
-        id_t                        id;
-        /// \brief The start of the segment relative to the shared memory's start.
-        position_t                  start;  
-        /// \brief The head of the segment relative to the shared memory's start
-        position_t                  head;
-        /// \brief The total capacity of the segment.
-        size_t                      size;
-        /// \brief The offsets of partial segments relative to the shared memory's start.
-        std::vector<position_t>     offsets;
     };
 
     /// \brief The id used to signal that the next entry is not an offset for a data segment but rather the offset to the next partial segment table.
@@ -452,7 +486,7 @@ private:
      * 
      * The Segment's offsets stored as a partially linked list directly after the version tag. \todo Document using image
      */ 
-    std::vector<Segment>                m_segments = {};
+    std::vector<SegmentInformation>     m_segmentsInformation = {};
 
     /** 
      * \brief Vector storing the relative position of the partial segment table offsets.
