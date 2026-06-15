@@ -134,6 +134,7 @@ SharedMemoryPosix::PartiallyLinkedListInformation::PartiallyLinkedListInformatio
     : m_memoryStart(memoryStart)
 {
     extend(memoryStart, headerSize, dataSize);
+    m_head = memoryStart + headerSize;
 }
 
 void SharedMemoryPosix::PartiallyLinkedListInformation::extend(const position_t offset, const size_t headerSize, const size_t dataSize) {

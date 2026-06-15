@@ -111,17 +111,17 @@ public:
         void validatePartialSegmentIndex(const size_t partialSegmentIndex) const;
         
         /// \brief The position of the head
-        position_t                  head;
+        position_t                  m_head;
         /// \brief 
         position_t                  m_memoryStart;
         /// \brief The total size occupied in memory
-        size_t                      m_size;
+        size_t                      m_size          = 0;
         /// \brief Offsets of the partial elements.
-        std::vector<position_t>     m_offsets;
+        std::vector<position_t>     m_offsets       = {};
         /// \brief Sizes of the partial elements.
-        std::vector<size_t>         m_sizes;
+        std::vector<size_t>         m_sizes         = {};
         /// \brief Data sizes (capacity) of the partial elements.
-        std::vector<size_t>         m_dataSizes;
+        std::vector<size_t>         m_dataSizes     = {};
     };
 
     /**
