@@ -27,6 +27,13 @@ If the Engine does not load correctly after pulling, try:
 git submodule update --init --recursive
 ```
 
+if you are on the server try:
+
+```console
+git config submodule.RecoilEngine.url projekt@localhost:~/repos/RecoilEngine
+git submodule update --init --recursive
+```
+
 if the Engine loads, test if you are on the correct branch:
 
 ```console
