@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
+from src.environment.grpc_server import UnBARableAIGRPCServer
 import numpy as np
 
 import bar_ai
@@ -9,6 +10,8 @@ class BAR_Environment:
     def __init__(self, session_cfg: Optional[EngineSessionConfig] = None):
         self.session_cfg = session_cfg or EngineSessionConfig()
         self.session: Optional[EngineSession] = None
+        self.grpc_server = UnBARableAIGRPCServer()
+        self.grpc_server.start()
         
     def _require_session(self) -> EngineSession:
         if self.session is None or not self.session.is_running():

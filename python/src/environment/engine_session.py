@@ -35,14 +35,19 @@ class BARUnitView:
 
 @dataclass
 class EngineSessionConfig:
+    """
+    all configuration parameters for an EngineSession,
+    stdout is output stream for the engine's output, can be None (Terminal output), a file path, or subprocess.PIPE
+    stderr is output stream for the engine's error output, can be None (Terminal output), a file path, or subprocess.PIPE
+    """
     engine_exe: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine/build-amd64-linux/install/spring-headless"
     write_dir: Union[str, Path] = "~/bar-data"
     config_file: Union[str, Path] = "config/test_fast.cfg"
     startscript: Union[str, Path] = "startscripts/3PawnVs3Pawn.txt"
     cwd: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine"
 
-    stdout: Optional[Union[int, str, Path]] = None
-    stderr: Optional[Union[int, str, Path]] = None
+    stdout: Optional[Union[int, str, Path]] = "~/bar-data/engine_stdout.log"
+    stderr: Optional[Union[int, str, Path]] = "~/bar-data/engine_stderr.log"
     merge_stderr_to_stdout: bool = False
     text_mode: bool = True
 
