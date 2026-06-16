@@ -50,6 +50,7 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
         const size_t sizeIncrease = (segmentSize / c_size_increase + 1) * c_size_increase;
         increaseSize(sizeIncrease);
     }
+    // TODO fix this as well
     // Layout: (validLength, partialLength, data[0], data[1], ..., data[dataSize], segment_link_id, link)
     write(static_cast<size_t>(sizeof(size_t)), m_head);
     write(segmentSize - sizeof(size_t), m_head + sizeof(size_t));
