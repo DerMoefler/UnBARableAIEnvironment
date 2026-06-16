@@ -20,7 +20,9 @@ Install conan using
 uv tool install conan
 ```
 
-## Engine 
+# Engine 
+
+## init Engine Submodule
 If the Engine does not load correctly after pulling, try:
 
 ```console
@@ -45,4 +47,26 @@ if not:
 
 ```console
 git checkout UnBARableAI
+```
+
+## Building the engine
+in Recoilengine:
+
+```console
+./docker-build-v2/build.sh linux
+```
+## Engine run
+if you want to run the engine (e.g. via env_reset)
+
+you need the bar-data folder in your ~ dictonary,
+on server:
+```console
+cd ~
+cp -r /home/projekt/bar-data .
+```
+
+local via ssh ki-vm:
+```console
+cd ~
+scp -r projekt@ki-vm:/home/projekt/bar-data .
 ```
