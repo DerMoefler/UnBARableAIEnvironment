@@ -1,26 +1,43 @@
 """
 Training script integrating BAR environment, policy, replay buffer, and R_MAPPO trainer.
 
-Empfohlener Start (wenn diese Datei als `python/train.py` gespeichert ist):
-    uv run --active python train.py
+Empfohlener Start:
+    PYTHONUNBUFFERED=1 uv run src/train/train.py
+
+Oder alternativ:
+    uv run python -u src/train/train.py
 
 Oder mit Parametern:
-    uv run --active python train.py --num-episodes 100 --num-mini-batch 4
+    PYTHONUNBUFFERED=1 uv run src/train/train.py --num-episodes 100 --num-mini-batch 4
 """
 
 from __future__ import annotations
 
+print("DEBUG: script started", flush=True)
+
 import argparse
-import sys
-from pathlib import Path
+import traceback
 from typing import Any
 
+print("DEBUG: stdlib imports done", flush=True)
+
 import numpy as np
+print("DEBUG: numpy imported", flush=True)
+
 import torch
+print("DEBUG: torch imported", flush=True)
+
 from src.environment.bar_environment import BAR_Environment, EngineSessionConfig
+print("DEBUG: bar_environment imported", flush=True)
+
 from src.train.policy import R_MAPPO_Policy
+print("DEBUG: policy imported", flush=True)
+
 from src.train.replay_buffer import SharedReplayBuffer
+print("DEBUG: replay_buffer imported", flush=True)
+
 from src.train.r_mappo import R_MAPPO
+print("DEBUG: r_mappo imported", flush=True)
 
 
 # -----------------------------------------------------------------------------
@@ -137,13 +154,6 @@ def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
     return arr.astype(np.float32)
 
 
-def _repeat_shared_obs(shared_obs: np.ndarray, num_agents: int) -> np.ndarray:
-    """
-    Macht aus (obs_dim,) -> (num_agents, obs_dim)
-    """
-    return np.repeat(shared_obs[None, :], num_agents, axis=0).astype(np.float32)
-
-
 def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
     """
     Macht aus Critic-Output einen Buffer-kompatiblen Array.
@@ -166,6 +176,8 @@ def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
 # Hauptprogramm
 # -----------------------------------------------------------------------------
 def main() -> None:
+    print("DEBUG: entered main()", flush=True)
+
     parser = argparse.ArgumentParser(description="Train BAR environment with R_MAPPO")
     parser.add_argument("--num-episodes", type=int, default=10, help="Number of episodes")
     parser.add_argument("--num-mini-batch", type=int, default=4, help="Number of mini-batches")
@@ -186,49 +198,71 @@ def main() -> None:
         default=7,
         help="Action dimension (Fallback, falls nicht aus Env ableitbar)",
     )
-
-    args = parser.parse_args()
-
-    device = torch.device(args.device)
-
-    print("Initializing BAR environment...")
-    env_config = EngineSessionConfig()
-    env = BAR_Environment(env_config)
-
-    # -------------------------------------------------------------------------
-    # Dimensions-Fallbacks
-    # Hinweis: Wenn deine Env observation/action spaces anbietet, solltest du
-    # das hier langfristig sauber aus der Env ableiten.
-    # -------------------------------------------------------------------------
-    obs_dim = args.obs_dim
-    action_dim = args.action_dim
-
-    print(f"Using obs_dim={obs_dim}, action_dim={action_dim}, num_agents={args.num_agents}")
-    print("Initializing policy...")
-    policy = R_MAPPO_Policy(obs_dim, action_dim, device=device, lr=args.lr)
-
-    print("Initializing replay buffer...")
-    buffer = SharedReplayBuffer(
-        num_agents=args.num_agents,
-        obs_shape=(obs_dim,),
-        action_shape=(1,),
-        buffer_size=args.buffer_size,
-        device=device,
+    parser.add_argument(
+        "--debug-shapes",
+        action="store_true",
+        help="Print tensor/array shapes during rollout",
     )
 
-    print("Initializing R_MAPPO trainer...")
-    trainer_args = TrainerArgs()
-    trainer_args.num_mini_batch = args.num_mini_batch
-    trainer = R_MAPPO(trainer_args, policy, device=device)
+    args = parser.parse_args()
+    print("DEBUG: args parsed", flush=True)
+    print(f"DEBUG: args = {args}", flush=True)
 
-    print("\nStarting training loop...")
+    device = torch.device(args.device)
+    print(f"DEBUG: device = {device}", flush=True)
+
+    success = False
+    env = None
 
     try:
+        print("Initializing BAR environment...", flush=True)
+        env_config = EngineSessionConfig()
+        print("DEBUG: EngineSessionConfig created", flush=True)
+
+        env = BAR_Environment(env_config)
+        print("DEBUG: BAR_Environment created", flush=True)
+
+        # ---------------------------------------------------------------------
+        # Dimensions-Fallbacks
+        # ---------------------------------------------------------------------
+        obs_dim = args.obs_dim
+        action_dim = args.action_dim
+
+        print(
+            f"Using obs_dim={obs_dim}, action_dim={action_dim}, num_agents={args.num_agents}",
+            flush=True,
+        )
+
+        print("Initializing policy...", flush=True)
+        policy = R_MAPPO_Policy(obs_dim, action_dim, device=device, lr=args.lr)
+        print("DEBUG: policy created", flush=True)
+
+        print("Initializing replay buffer...", flush=True)
+        buffer = SharedReplayBuffer(
+            num_agents=args.num_agents,
+            obs_shape=(obs_dim,),
+            action_shape=(1,),
+            buffer_size=args.buffer_size,
+            device=device,
+        )
+        print("DEBUG: replay buffer created", flush=True)
+
+        print("Initializing R_MAPPO trainer...", flush=True)
+        trainer_args = TrainerArgs()
+        trainer_args.num_mini_batch = args.num_mini_batch
+        trainer = R_MAPPO(trainer_args, policy, device=device)
+        print("DEBUG: trainer created", flush=True)
+
+        print("\nStarting training loop...", flush=True)
+
         for episode in range(args.num_episodes):
+            print(f"DEBUG: starting episode {episode + 1}", flush=True)
+
             # -------------------------------------------------------------
             # Reset
             # -------------------------------------------------------------
             reset_result = env.reset()
+            print("DEBUG: env.reset() returned", flush=True)
 
             if isinstance(reset_result, tuple) and len(reset_result) >= 1:
                 obs = reset_result[0]
@@ -238,7 +272,13 @@ def main() -> None:
                 info = {}
 
             obs = _prepare_obs(obs, args.num_agents, obs_dim)
+
+            # zentrale Observation für Critic und Buffer: Shape (obs_dim,)
             share_obs = obs.mean(axis=0).astype(np.float32)
+
+            if args.debug_shapes:
+                print(f"DEBUG: reset obs shape = {obs.shape}", flush=True)
+                print(f"DEBUG: reset share_obs shape = {share_obs.shape}", flush=True)
 
             episode_reward = 0.0
             done = False
@@ -248,12 +288,16 @@ def main() -> None:
             # Rollout
             # -------------------------------------------------------------
             trainer.prep_rollout()
+            print("DEBUG: trainer.prep_rollout() done", flush=True)
 
             while not done and step_count < args.buffer_size:
+                if args.debug_shapes:
+                    print(f"DEBUG: rollout step {step_count}", flush=True)
+
                 obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device)
 
                 with torch.no_grad():
-                    # Actor -> diskrete Aktion
+                    # Actor -> diskrete Aktion pro Agent
                     action_logits = policy.actor(obs_tensor)
                     action_dist = torch.distributions.Categorical(logits=action_logits)
                     actions = action_dist.sample()
@@ -268,7 +312,11 @@ def main() -> None:
                 # ---------------------------------------------------------
                 # Environment step
                 # ---------------------------------------------------------
-                step_result = env.step(actions.detach().cpu().numpy())
+                env_actions = actions.detach().cpu().numpy()
+                if args.debug_shapes:
+                    print(f"DEBUG: env_actions shape = {env_actions.shape}", flush=True)
+
+                step_result = env.step(env_actions)
 
                 if not isinstance(step_result, tuple) or len(step_result) < 5:
                     raise RuntimeError(
@@ -283,21 +331,44 @@ def main() -> None:
                 next_obs = _prepare_obs(next_obs, args.num_agents, obs_dim)
                 next_share_obs = next_obs.mean(axis=0).astype(np.float32)
                 reward_arr = _prepare_reward(reward, args.num_agents)
-
                 value_preds = _repeat_value(values, args.num_agents)
-                share_obs_repeated = _repeat_shared_obs(share_obs, args.num_agents)
 
-                masks = np.ones((args.num_agents, 1), dtype=np.float32) * (0.0 if done else 1.0)
+                masks = np.ones((args.num_agents, 1), dtype=np.float32) * (
+                    0.0 if done else 1.0
+                )
                 active_masks = np.ones((args.num_agents, 1), dtype=np.float32)
+
+                if args.debug_shapes:
+                    print(f"DEBUG: obs shape = {obs.shape}", flush=True)
+                    print(f"DEBUG: share_obs shape = {share_obs.shape}", flush=True)
+                    print(
+                        f"DEBUG: buffer.share_obs[buffer.step] shape = "
+                        f"{buffer.share_obs[buffer.step].shape}",
+                        flush=True,
+                    )
+                    print(f"DEBUG: actions shape = {env_actions.reshape(args.num_agents, 1).shape}", flush=True)
+                    print(
+                        f"DEBUG: action_log_probs shape = "
+                        f"{action_log_probs.detach().cpu().numpy().reshape(args.num_agents, 1).shape}",
+                        flush=True,
+                    )
+                    print(f"DEBUG: value_preds shape = {value_preds.shape}", flush=True)
+                    print(f"DEBUG: reward_arr shape = {reward_arr.shape}", flush=True)
+                    print(f"DEBUG: masks shape = {masks.shape}", flush=True)
+                    print(f"DEBUG: active_masks shape = {active_masks.shape}", flush=True)
 
                 # ---------------------------------------------------------
                 # Buffer insert
+                # WICHTIG:
+                # share_obs bleibt (obs_dim,) und wird NICHT wiederholt
                 # ---------------------------------------------------------
                 buffer.insert(
-                    share_obs=share_obs_repeated,
+                    share_obs=share_obs,
                     obs=obs,
-                    actions=actions.detach().cpu().numpy().reshape(args.num_agents, 1),
-                    action_log_probs=action_log_probs.detach().cpu().numpy().reshape(args.num_agents, 1),
+                    actions=env_actions.reshape(args.num_agents, 1),
+                    action_log_probs=action_log_probs.detach().cpu().numpy().reshape(
+                        args.num_agents, 1
+                    ),
                     value_preds=value_preds,
                     rewards=reward_arr,
                     masks=masks,
@@ -307,7 +378,6 @@ def main() -> None:
                 episode_reward += float(reward_arr.mean())
                 step_count += 1
 
-                # State weiterschieben
                 obs = next_obs
                 share_obs = next_share_obs
 
@@ -322,30 +392,54 @@ def main() -> None:
 
             next_value = _repeat_value(next_value_tensor, args.num_agents)
 
-            # Manche Implementierungen erwarten exakt dieses Argument
+            if args.debug_shapes:
+                print(f"DEBUG: next_value shape = {next_value.shape}", flush=True)
+
             buffer.compute_returns(next_value, gamma=args.gamma)
+            print("DEBUG: buffer.compute_returns() done", flush=True)
 
             # -------------------------------------------------------------
             # Training
             # -------------------------------------------------------------
             trainer.prep_training()
+            print("DEBUG: trainer.prep_training() done", flush=True)
+
             train_info = trainer.train(buffer, update_actor=True)
+            print("DEBUG: trainer.train() done", flush=True)
 
-            # Buffer zurücksetzen
             buffer.reset()
+            print("DEBUG: buffer.reset() done", flush=True)
 
-            # Logging
-            print(f"Episode {episode + 1}/{args.num_episodes}")
-            print(f"  Episode Reward: {episode_reward:.4f}")
-            print(f"  Steps: {step_count}")
-            print(f"  Value Loss: {train_info.get('value_loss', 0):.6f}")
-            print(f"  Policy Loss: {train_info.get('policy_loss', 0):.6f}")
-            print(f"  Entropy: {train_info.get('dist_entropy', 0):.6f}")
-            print()
+            print(f"Episode {episode + 1}/{args.num_episodes}", flush=True)
+            print(f"  Episode Reward: {episode_reward:.4f}", flush=True)
+            print(f"  Steps: {step_count}", flush=True)
+            print(f"  Value Loss: {train_info.get('value_loss', 0):.6f}", flush=True)
+            print(f"  Policy Loss: {train_info.get('policy_loss', 0):.6f}", flush=True)
+            print(f"  Entropy: {train_info.get('dist_entropy', 0):.6f}", flush=True)
+            print("", flush=True)
+
+        success = True
+
+    except Exception as e:
+        print("\nERROR: Exception occurred during training!", flush=True)
+        print(f"ERROR TYPE: {type(e).__name__}", flush=True)
+        print(f"ERROR MSG : {e}", flush=True)
+        print("\nTRACEBACK:", flush=True)
+        traceback.print_exc()
+        raise
 
     finally:
-        env.close()
-        print("Training complete!")
+        if env is not None:
+            try:
+                env.close()
+                print("DEBUG: env.close() done", flush=True)
+            except Exception as close_err:
+                print(f"WARNING: env.close() failed: {close_err}", flush=True)
+
+        if success:
+            print("Training complete!", flush=True)
+        else:
+            print("Training aborted due to an error.", flush=True)
 
 
 if __name__ == "__main__":

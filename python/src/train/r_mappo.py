@@ -3,12 +3,113 @@ import torch
 import torch.nn as nn
 
 
-class R_MAPPO():
+def check(x):
+    """
+    Lokaler Ersatz für `onpolicy.algorithms.utils.util.check`.
+    """
+    if isinstance(x, np.ndarray):
+        return torch.from_numpy(x)
+    if torch.is_tensor(x):
+        return x
+    return torch.as_tensor(x)
+
+
+def huber_loss(error, delta):
+    """
+    Lokaler Ersatz für onpolicy.utils.util.huber_loss
+    """
+    abs_error = torch.abs(error)
+    quadratic = torch.minimum(abs_error, torch.tensor(delta, device=error.device, dtype=error.dtype))
+    linear = abs_error - quadratic
+    return 0.5 * quadratic ** 2 + delta * linear
+
+
+def mse_loss(error):
+    """
+    Lokaler Ersatz für onpolicy.utils.util.mse_loss
+    """
+    return error ** 2
+
+
+def get_grad_norm(parameters):
+    """
+    Lokaler Ersatz für onpolicy.utils.util.get_gard_norm
+    """
+    parameters = [p for p in parameters if p.grad is not None]
+    if len(parameters) == 0:
+        return torch.tensor(0.0)
+
+    total_norm = 0.0
+    for p in parameters:
+        param_norm = p.grad.data.norm(2)
+        total_norm += param_norm.item() ** 2
+
+    total_norm = total_norm ** 0.5
+    return torch.tensor(total_norm)
+
+
+class ValueNorm(nn.Module):
+    """
+    Minimaler lokaler Ersatz für onpolicy.utils.valuenorm.ValueNorm.
+    Wird in deinem aktuellen Setup zwar nicht benutzt
+    (weil use_valuenorm=False und use_popart=False),
+    ist aber hier der Vollständigkeit halber enthalten.
+    """
+
+    def __init__(self, input_shape, device=torch.device("cpu"), epsilon=1e-5):
+        super().__init__()
+        self.input_shape = input_shape
+        self.device = device
+        self.epsilon = epsilon
+
+        self.running_mean = torch.zeros(input_shape, device=device, dtype=torch.float32)
+        self.running_var = torch.ones(input_shape, device=device, dtype=torch.float32)
+        self.count = torch.tensor(epsilon, device=device, dtype=torch.float32)
+
+    def update(self, x):
+        x = check(x).to(device=self.device, dtype=torch.float32)
+        if x.ndim == 1:
+            batch_mean = x.mean()
+            batch_var = x.var(unbiased=False)
+            batch_count = torch.tensor(float(x.shape[0]), device=self.device)
+        else:
+            batch_mean = x.mean(dim=0)
+            batch_var = x.var(dim=0, unbiased=False)
+            batch_count = torch.tensor(float(x.shape[0]), device=self.device)
+
+        self._update_from_moments(batch_mean, batch_var, batch_count)
+
+    def _update_from_moments(self, batch_mean, batch_var, batch_count):
+        delta = batch_mean - self.running_mean
+        total_count = self.count + batch_count
+
+        new_mean = self.running_mean + delta * batch_count / total_count
+
+        m_a = self.running_var * self.count
+        m_b = batch_var * batch_count
+        m2 = m_a + m_b + delta ** 2 * self.count * batch_count / total_count
+        new_var = m2 / total_count
+
+        self.running_mean = new_mean
+        self.running_var = new_var
+        self.count = total_count
+
+    def normalize(self, x):
+        x = check(x).to(device=self.device, dtype=torch.float32)
+        return (x - self.running_mean) / torch.sqrt(self.running_var + self.epsilon)
+
+    def denormalize(self, x):
+        x = check(x).to(device=self.device, dtype=torch.float32)
+        return x * torch.sqrt(self.running_var + self.epsilon) + self.running_mean
+
+
+class R_MAPPO:
     """
     Trainer class for MAPPO to update policies.
-    :param args: (argparse.Namespace) arguments containing relevant model, policy, and env information.
-    :param policy: (R_MAPPO_Policy) policy to update.
-    :param device: (torch.device) specifies the device to run on (cpu/gpu).
+
+    :param args: arguments containing relevant model, policy, and env information.
+    :param policy: policy to update.
+    :param device: specifies the device to run on (cpu/gpu).
     """
 
     def __init__(self, args, policy, device=torch.device("cpu")):
@@ -36,13 +137,12 @@ class R_MAPPO():
         self._use_policy_active_masks = args.use_policy_active_masks
 
         assert (self._use_popart and self._use_valuenorm) is False, (
-            "self._use_popart and self._use_valuenorm can not be set True simultaneously"
+            "self._use_popart and self._use_valuenorm cannot both be True at the same time"
         )
 
         if self._use_popart:
             self.value_normalizer = self.policy.critic.v_out
         elif self._use_valuenorm:
-            from onpolicy.utils.valuenorm import ValueNorm
             self.value_normalizer = ValueNorm(1, device=self.device)
         else:
             self.value_normalizer = None
@@ -50,12 +150,6 @@ class R_MAPPO():
     def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
         """
         Calculate value function loss.
-        :param values: (torch.Tensor) value function predictions.
-        :param value_preds_batch: (torch.Tensor) "old" value predictions from data batch.
-        :param return_batch: (torch.Tensor) reward-to-go returns.
-        :param active_masks_batch: (torch.Tensor) denotes if agent is active.
-
-        :return value_loss: (torch.Tensor) value function loss.
         """
         value_pred_clipped = value_preds_batch + (
             values - value_preds_batch
@@ -70,11 +164,9 @@ class R_MAPPO():
             error_original = return_batch - values
 
         if self._use_huber_loss:
-            from onpolicy.utils.util import huber_loss
             value_loss_clipped = huber_loss(error_clipped, self.huber_delta)
             value_loss_original = huber_loss(error_original, self.huber_delta)
         else:
-            from onpolicy.utils.util import mse_loss
             value_loss_clipped = mse_loss(error_clipped)
             value_loss_original = mse_loss(error_original)
 
@@ -84,7 +176,8 @@ class R_MAPPO():
             value_loss = value_loss_original
 
         if self._use_value_active_masks:
-            value_loss = (value_loss * active_masks_batch).sum() / active_masks_batch.sum()
+            denom = active_masks_batch.sum().clamp(min=1e-8)
+            value_loss = (value_loss * active_masks_batch).sum() / denom
         else:
             value_loss = value_loss.mean()
 
@@ -123,18 +216,15 @@ class R_MAPPO():
         old_action_log_probs_batch,
         adv_targ,
         available_actions_batch,
-        check
     ):
         """
         Prepare tensors for policy evaluation and loss computation.
 
-        Handles these cases:
+        Handles:
         - Single-agent batches
-        - Multi-agent batches where obs/actions/etc. have shape (B, A, ...)
-        - Multi-agent batches where share_obs is global per timestep with shape (B, D)
-          and must be repeated across the agent dimension
+        - Multi-agent batches with obs shape (B, A, ...)
+        - Multi-agent batches with shared global obs shape (B, D)
         """
-        # Convert core tensors
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
         value_preds_batch = check(value_preds_batch).to(**self.tpdv)
@@ -149,25 +239,16 @@ class R_MAPPO():
         if available_actions_batch is not None:
             available_actions_batch = check(available_actions_batch).to(**self.tpdv)
 
-        # Convert optional RNN states
         if rnn_states_batch is not None:
             rnn_states_batch = check(rnn_states_batch).to(**self.tpdv)
         if rnn_states_critic_batch is not None:
             rnn_states_critic_batch = check(rnn_states_critic_batch).to(**self.tpdv)
 
-        # ------------------------------------------------------------------
-        # Multi-agent case:
-        # obs_batch shape is usually (B, A, obs_dim)
-        # share_obs_batch may be:
-        #   - (B, A, share_obs_dim)  -> already per-agent
-        #   - (B, share_obs_dim)     -> global state per timestep, repeat for A
-        # ------------------------------------------------------------------
+        # Multi-agent case
         if obs_batch.ndim == 3:
             batch_size, num_agents = obs_batch.shape[0], obs_batch.shape[1]
 
-            # Make share_obs_batch per-agent before flattening
             if share_obs_batch.ndim == 2:
-                # (B, D) -> (B, A, D)
                 if share_obs_batch.shape[0] != batch_size:
                     raise ValueError(
                         f"Expected share_obs_batch.shape[0] == batch_size, but got "
@@ -176,7 +257,6 @@ class R_MAPPO():
                 share_obs_batch = share_obs_batch.unsqueeze(1).expand(-1, num_agents, -1)
 
             elif share_obs_batch.ndim == 3:
-                # Already per-agent
                 if share_obs_batch.shape[0] != batch_size or share_obs_batch.shape[1] != num_agents:
                     raise ValueError(
                         f"share_obs_batch shape {share_obs_batch.shape} is incompatible "
@@ -187,7 +267,6 @@ class R_MAPPO():
                     f"Unsupported share_obs_batch.ndim={share_obs_batch.ndim} for multi-agent batch"
                 )
 
-            # Flatten all per-agent tensors to (B * A, ...)
             share_obs_batch = share_obs_batch.reshape(batch_size * num_agents, -1)
             obs_batch = obs_batch.reshape(batch_size * num_agents, -1)
             actions_batch = actions_batch.reshape(batch_size * num_agents, -1)
@@ -217,7 +296,7 @@ class R_MAPPO():
                 )
 
         else:
-            # Single-agent or already flattened path
+            # Single-agent or already flattened
             if share_obs_batch.ndim > 2:
                 share_obs_batch = share_obs_batch.reshape(share_obs_batch.shape[0], -1)
             if obs_batch.ndim > 2:
@@ -269,20 +348,7 @@ class R_MAPPO():
     def ppo_update(self, sample, update_actor=True):
         """
         Update actor and critic networks.
-
-        :param sample: (Tuple) contains data batch with which to update networks.
-        :param update_actor: (bool) whether to update actor network.
-
-        :return value_loss: (torch.Tensor) value function loss.
-        :return critic_grad_norm: (torch.Tensor) gradient norm from critic update.
-        :return policy_loss: (torch.Tensor) actor(policy) loss value.
-        :return dist_entropy: (torch.Tensor) action entropies.
-        :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
-        :return imp_weights: (torch.Tensor) importance sampling weights.
         """
-        from onpolicy.algorithms.utils.util import check
-        from onpolicy.utils.util import get_gard_norm
-
         if len(sample) == 12:
             (
                 share_obs_batch,
@@ -341,10 +407,8 @@ class R_MAPPO():
             old_action_log_probs_batch,
             adv_targ,
             available_actions_batch,
-            check,
         )
 
-        # Reshape to do in a single forward pass for all steps/agents
         values, action_log_probs, dist_entropy = self.policy.evaluate_actions(
             share_obs_batch,
             obs_batch,
@@ -365,9 +429,10 @@ class R_MAPPO():
         ) * adv_targ
 
         if self._use_policy_active_masks:
+            denom = active_masks_batch.sum().clamp(min=1e-8)
             policy_action_loss = (
                 -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True) * active_masks_batch
-            ).sum() / active_masks_batch.sum()
+            ).sum() / denom
         else:
             policy_action_loss = -torch.sum(
                 torch.min(surr1, surr2), dim=-1, keepdim=True
@@ -385,7 +450,7 @@ class R_MAPPO():
                 self.policy.actor.parameters(), self.max_grad_norm
             )
         else:
-            actor_grad_norm = get_gard_norm(self.policy.actor.parameters())
+            actor_grad_norm = get_grad_norm(self.policy.actor.parameters())
 
         self.policy.actor_optimizer.step()
 
@@ -402,7 +467,7 @@ class R_MAPPO():
                 self.policy.critic.parameters(), self.max_grad_norm
             )
         else:
-            critic_grad_norm = get_gard_norm(self.policy.critic.parameters())
+            critic_grad_norm = get_grad_norm(self.policy.critic.parameters())
 
         self.policy.critic_optimizer.step()
 
@@ -417,11 +482,7 @@ class R_MAPPO():
 
     def train(self, buffer, update_actor=True):
         """
-        Perform a training update using minibatch GD.
-        :param buffer: (SharedReplayBuffer) buffer containing training data.
-        :param update_actor: (bool) whether to update actor network.
-
-        :return train_info: (dict) contains information regarding training update.
+        Perform a training update using minibatch gradient descent.
         """
         if self._use_popart or self._use_valuenorm:
             advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(
@@ -434,15 +495,17 @@ class R_MAPPO():
         advantages_copy[buffer.active_masks[:-1] == 0.0] = np.nan
         mean_advantages = np.nanmean(advantages_copy)
         std_advantages = np.nanstd(advantages_copy)
+
         advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
 
-        train_info = {}
-        train_info["value_loss"] = 0
-        train_info["policy_loss"] = 0
-        train_info["dist_entropy"] = 0
-        train_info["actor_grad_norm"] = 0
-        train_info["critic_grad_norm"] = 0
-        train_info["ratio"] = 0
+        train_info = {
+            "value_loss": 0,
+            "policy_loss": 0,
+            "dist_entropy": 0,
+            "actor_grad_norm": 0,
+            "critic_grad_norm": 0,
+            "ratio": 0,
+        }
 
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
