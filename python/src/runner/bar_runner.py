@@ -3,7 +3,7 @@ import wandb
 import numpy as np
 from functools import reduce
 import torch
-from onpolicy.runner.shared.base_runner import Runner
+from src.runner.base_runner import Runner
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ERKLÄRUNG: _t2n (Tensor to Numpy)

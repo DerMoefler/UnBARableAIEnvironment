@@ -10,6 +10,8 @@ dependencies = [
     "pybind11>=3.0.4",
     "numpy",
     "torch>=2.12.0",
+    "tensorboardx>=2.6.5",
+    "wandb>=0.27.2",
 ]
 
 [tool.pytest.ini_options]
