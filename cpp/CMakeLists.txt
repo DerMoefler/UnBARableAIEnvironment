@@ -81,7 +81,7 @@ target_link_libraries(tests
     GTest::gtest_main
 )
 add_executable(send_event_client
-    send_event_client.cpp
+    tests/grpc/send_event_client.cpp
 )
 
 target_link_libraries(send_event_client

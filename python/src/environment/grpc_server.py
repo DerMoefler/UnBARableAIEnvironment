@@ -8,7 +8,7 @@ from google.protobuf import empty_pb2
 
 sys.path.append(str(Path(__file__).parent / "generated"))
 
-import UnBARableAI_pb2_grpc as unbarable_ai_pb2_grpc
+import generated.UnBARableAI_pb2_grpc as unbarable_ai_pb2_grpc
 
 
 class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServicer):
@@ -17,15 +17,13 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServicer):
         return empty_pb2.Empty()
 
 
-def serve() -> None:
-    logging.basicConfig(level=logging.INFO)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
-    unbarable_ai_pb2_grpc.add_UnBARableAIServicer_to_server(UnBARableAIService(), server)
-    server.add_insecure_port("[::]:50051")
-    server.start()
-    logging.info("Python gRPC server listening on 0.0.0.0:50051")
-    server.wait_for_termination()
+class UnBARableAIGRPCServer:
+    def serve() -> None:
+        logging.basicConfig(level=logging.INFO)
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+        unbarable_ai_pb2_grpc.add_UnBARableAIServicer_to_server(UnBARableAIService(), server)
+        server.add_insecure_port("[::]:50051")
+        server.start()
+        logging.info("Python gRPC server listening on 0.0.0.0:50051")
+        server.wait_for_termination()
 
-
-if __name__ == "__main__":
-    serve()
