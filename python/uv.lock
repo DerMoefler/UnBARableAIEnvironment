@@ -858,20 +858,6 @@ wheels = [
 ]
 
 [[package]]
-name = "tensorboardx"
-version = "2.6.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "packaging" },
-    { name = "protobuf" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/48/a9/fc520ea91ab1f3ba51cbf3fe24f2b6364ed3b49046969e0868d46d6da372/tensorboardx-2.6.5.tar.gz", hash = "sha256:ca176db3997ee8c07d2eb77381225956a3fd1c10c91beafab1f17069adc47017", size = 4770195, upload-time = "2026-04-03T15:40:23.803Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/0f/69fbab4c30b2f3a76e6de67585ea72a8eccf381751f5c0046b966fde9658/tensorboardx-2.6.5-py3-none-any.whl", hash = "sha256:c10b891d00af306537cb8b58a039b2ba41571f0da06f433a41c4ca8d6abe1373", size = 87510, upload-time = "2026-04-03T15:40:22.111Z" },
-]
-
-[[package]]
 name = "torch"
 version = "2.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -962,7 +948,6 @@ dependencies = [
     { name = "grpcio-tools" },
     { name = "numpy" },
     { name = "pybind11" },
-    { name = "tensorboardx" },
     { name = "torch" },
     { name = "wandb" },
 ]
@@ -973,7 +958,6 @@ requires-dist = [
     { name = "grpcio-tools", specifier = ">=1.80.0" },
     { name = "numpy" },
     { name = "pybind11", specifier = ">=3.0.4" },
-    { name = "tensorboardx", specifier = ">=2.6.5" },
     { name = "torch", specifier = ">=2.12.0" },
     { name = "wandb", specifier = ">=0.27.2" },
 ]
