@@ -21,6 +21,8 @@ Oder mit Parametern:
 
 from __future__ import annotations
 
+import wandb
+
 print("DEBUG: script started", flush=True)
 
 import argparse
@@ -479,7 +481,7 @@ def main() -> None:
         type=int,
         default=128,
         help="Observation dimension (Fallback, falls nicht aus Env ableitbar)",
-    )
+    )     
     parser.add_argument(
         "--action-dim",
         type=int,
@@ -497,6 +499,12 @@ def main() -> None:
         default=True,
         help="Use centralized critic input (share_obs).",
     )
+    parser.add_argument(
+        "--use-wandb",
+        action="store_true",
+        default=False,
+        help="Use Weights & Biases for experiment tracking",
+    )
 
     args = parser.parse_args()
     print("DEBUG: args parsed", flush=True)
@@ -507,6 +515,10 @@ def main() -> None:
 
     success = False
     env = None
+
+    if args.use_wandb:
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity, name=args.wandb_run_name, config=vars(args))
+
 
     try:
         print("Initializing BAR environment...", flush=True)

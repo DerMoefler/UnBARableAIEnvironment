@@ -38,3 +38,9 @@ if you changed something in the cpp files and want to rebuild run:
 ```console
 uv sync --reinstall
 ```
+
+## train.py
+Command to start the train.py script, from the python directory. Capslock signals the epceted data type.
+```console
+uv run train.py --num-episodes INT --num-mini-batch INT --buffer-size INT --num-agents INT --lr FLOAT --gamma FLOAT --device STR --obs-dim INT --action-dim INT --debug-shapes BOOL --use-centralized-v BOOL --use-wandb BOOL
+```
