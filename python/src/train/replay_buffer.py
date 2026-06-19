@@ -88,7 +88,7 @@ class SharedReplayBuffer:
         self.action_log_probs = np.zeros((buffer_size, num_agents, 1), dtype=np.float32)
         self.rnn_states = np.zeros((buffer_size + 1, num_agents, 1), dtype=np.float32)  # Placeholder
         self.rnn_states_critic = np.zeros((buffer_size + 1, num_agents, 1), dtype=np.float32)  # Placeholder
-        self.available_actions = np.ones((buffer_size + 1, num_agents, 1), dtype=np.float32)  # Placeholder
+        self.available_actions = np.ones((buffer_size + 1, num_agents, action_dim), dtype=np.float32)  # Placeholder
 
         self.step = 0
 
@@ -185,10 +185,10 @@ class SharedReplayBuffer:
 
         for step in reversed(range(self.buffer_size)):
             if step == self.buffer_size - 1:
-                next_non_terminal = 1.0 - self.masks[step + 1]
+                next_non_terminal = self.masks[step + 1]
                 next_value_step = next_value
             else:
-                next_non_terminal = 1.0 - self.masks[step + 1]
+                next_non_terminal = self.masks[step + 1]
                 next_value_step = self.value_preds[step + 1]
 
             delta = self.rewards[step] + gamma * next_value_step * next_non_terminal - self.value_preds[step]
