@@ -152,7 +152,7 @@ void SharedMemoryPosix::PartiallyLinkedListInformation::extend(const position_t 
     m_size += totalSize;
 }
 
-SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataPosition(const position_t index) const {
+position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataPosition(const position_t index) const {
     if(index >= getCapacity()) {
         throw std::out_of_range("Index exceeds capacity");
     }
@@ -169,7 +169,7 @@ SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation:
     return getDataStart(partialSegmentIndex) + indexInSegment;
 }
 
-SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getIndexPosition(const position_t position) const {
+position_t SharedMemoryPosix::PartiallyLinkedListInformation::getIndexPosition(const position_t position) const {
     // Get the first partial segment offset larger than position
     auto it = std::lower_bound(m_offsets.begin(), m_offsets.end(), position);
     if (it == m_offsets.begin()) {
@@ -192,12 +192,12 @@ SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation:
     return dataIndex + dataOffset - headerSize;
 }
 
-SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderStart(const size_t partialSegmentIndex) const {
+position_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderStart(const size_t partialSegmentIndex) const {
     validatePartialSegmentIndex(partialSegmentIndex);
     return m_offsets[partialSegmentIndex];
 }
 
-SharedMemoryPosix::position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataStart(const size_t partialSegmentIndex) const {
+position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataStart(const size_t partialSegmentIndex) const {
     validatePartialSegmentIndex(partialSegmentIndex);
     return m_offsets[partialSegmentIndex] + getHeaderSize(partialSegmentIndex);
 }
@@ -244,7 +244,7 @@ void SharedMemoryPosix::SegmentInformation::initialize(const position_t memorySt
     m_valid = true;
 }
 
-SharedMemoryPosix::position_t SharedMemoryPosix::SegmentInformation::getMemoryStart(void) const {
+position_t SharedMemoryPosix::SegmentInformation::getMemoryStart(void) const {
     validateState(true);
     return m_information.getMemoryStart();
 }

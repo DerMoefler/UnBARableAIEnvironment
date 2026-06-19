@@ -6,7 +6,6 @@ namespace UnBARableAINS {
 using namespace memory;
 
 using PllInformation = SharedMemoryPosix::PartiallyLinkedListInformation;
-using position_t = SharedMemoryPosix::position_t;
 
 
 TEST(PartiallyLinkedListInformationTest, SingleSegment) {

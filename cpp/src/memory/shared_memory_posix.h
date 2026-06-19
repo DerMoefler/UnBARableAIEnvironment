@@ -8,7 +8,7 @@
 #include <concepts>
 #include <endian.h>
 
-#include "memory/shared_memory_impl.h"
+#include "../memory/shared_memory_types.h"
 
 namespace UnBARableAINS {
 
@@ -26,23 +26,6 @@ namespace memory {
 class SharedMemoryPosix {
     static_assert(sizeof(size_t) == 8, "Invalid bytelength for type 'size_t'");
 public:
-    /** 
-    * \brief Type alias for a 'link', which is specifically a relative pointer linking objects together, e.g. the segment table or a segment itself.
-    *
-    * \note Raw pointers are not usable in shared memory, which is why this class uses offsets
-    * relative to \ref m_memoryStart.
-    */ 
-    using link_t = id_t;
-
-    /** 
-    * \brief Type alias for a specific position in the shared memory.
-    *
-    * The position starts at 0 from the \ref m_memoryStart. Conceptually very similar to \ref link_t. The difference is, that
-    * a \ref link_t is specific to linking binary objects like the segment table or segments themselves together. A position is effectively
-    * the general term, while \ref link_t is a semantically special position_t.
-    */ 
-    using position_t = id_t;
-
     /// \brief Alias for a view to some data (e.g. to write to a segment).
     using DataView = const std::span<const std::byte>;
 
