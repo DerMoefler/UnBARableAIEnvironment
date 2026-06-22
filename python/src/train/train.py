@@ -816,7 +816,10 @@ def main() -> None:
     env = None
 
     if args.use_wandb:
-        wandb.init(project=args.wandb_project, entity=args.wandb_entity, name=args.wandb_run_name, config=vars(args))
+        wandb.init(project="ki",
+                   name="1",
+                   config=vars(args),
+        )
 
     try:
         print("Initializing BAR environment...", flush=True)
@@ -1119,6 +1122,21 @@ def main() -> None:
 
             train_info = trainer.train(buffer, update_actor=True)
             print("DEBUG: trainer.train() done", flush=True)
+            if args.use_wandb:
+                wandb.log({
+                    "episode_reward": episode_reward,
+                    "episode_steps": step_count,
+                    "policy_loss": train_info.get("policy_loss", 0.0),
+                    "value_loss": train_info.get("value_loss", 0.0),
+                    "entropy": train_info.get("dist_entropy", 0.0),
+                    "approx_kl": train_info.get("approx_kl", 0.0),
+                    "clip_fraction": train_info.get("clip_fraction", 0.0),
+                    "explained_variance": train_info.get("explained_variance", 0.0),
+                    "learning_rate": args.lr,
+                    "gamma": args.gamma,
+                    "ppo_epoch": trainer_args.ppo_epoch,
+                    "num_mini_batch": trainer_args.num_mini_batch,
+                }, step=episode)
 
             buffer.reset()
             print("DEBUG: buffer.reset() done", flush=True)
