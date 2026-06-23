@@ -34,13 +34,52 @@ class BAR_Environment:
         self.episode_start_frame = -1
 
         # Team-ID der lernenden Agenten.
-        # Für erste Tests hart auf 0 gesetzt.
-        # Muss später ggf. an euer Startscript angepasst werden.
+        # Laut aktuellem Setup ist Team 0 die KI.
         self.training_team_id = 0
+
+        # ------------------------------------------------------------------
+        # Reward tracking
+        # ------------------------------------------------------------------
+        # Diese Werte speichern den vorherigen Zustand.
+        # Der Reward wird aus der Differenz zwischen vorherigem und aktuellem
+        # Zustand berechnet.
+        self.prev_own_health_sum = 0.0
+        self.prev_enemy_health_sum = 0.0
+        self.prev_own_alive_count = 0
+        self.prev_enemy_alive_count = 0
+
+        # Gibt an, ob der Reward-State nach reset() erfolgreich initialisiert wurde.
+        self.reward_state_initialized = False
+
+        # Letzte Reward-Komponenten für Debugging im info-Dict.
+        self.last_reward_info = {}
+
+        # Reward-Koeffizienten.
+        # Positive Rewards:
+        # - Schaden an Gegnern
+        # - Gegner töten
+        # - Spiel gewinnen
+        #
+        # Negative Rewards:
+        # - Eigener Schaden
+        # - Eigene Units verlieren
+        # - Spiel verlieren
+        # - Zeitstrafe
+        self.reward_damage_enemy_coef = 0.01
+        self.reward_damage_own_coef = 0.01
+        self.reward_enemy_kill = 1.0
+        self.reward_own_death = 1.0
+        self.reward_win = 5.0
+        self.reward_loss = 5.0
+        self.reward_time_penalty = 0.001
+
+        # Reward-Clipping verhindert extrem große Werte.
+        self.reward_clip_min = -10.0
+        self.reward_clip_max = 10.0
 
         self.grpc_server = UnBARableAIGRPCServer()
         self.grpc_server.start()
-        
+
     def _require_session(self) -> EngineSession:
         if self.session is None or not self.session.is_running():
             raise RuntimeError("Engine session is not running. Call reset() first.")
@@ -65,11 +104,17 @@ class BAR_Environment:
         # TODO: Observation aus Engine/Logs/IPC ableiten
         observation = self.get_obs()
 
+        # Reward-State initialisieren.
+        # Das ist wichtig, damit compute_reward() später Deltas berechnen kann:
+        # vorherige Gegner-HP - aktuelle Gegner-HP.
+        self._init_reward_state()
+
         # Zusätzliche Debug-Informationen zurückgeben
         info["episode_step"] = self.episode_step
         info["episode_start_frame"] = self.episode_start_frame
         info["max_episode_steps"] = self.max_episode_steps
         info["max_episode_frames"] = self.max_episode_frames
+        info["reward_state_initialized"] = self.reward_state_initialized
 
         return observation, info
 
@@ -93,8 +138,8 @@ class BAR_Environment:
         # Neue Observation auslesen
         observation = self.get_obs()
 
-        # TODO: Reward später durch compute_reward() ersetzen
-        reward = 0.0
+        # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
+        reward = self.compute_reward()
 
         # Natural episode end:
         # z. B. alle Gegner tot oder alle eigenen Units tot.
@@ -118,6 +163,8 @@ class BAR_Environment:
             "truncated": truncated,
             "terminal_reason": self._get_terminal_reason() if terminated else "not_terminal",
             "truncation_reason": self._get_truncation_reason() if truncated else "not_truncated",
+            "reward": reward,
+            "reward_info": self.last_reward_info,
         }
 
         return observation, reward, terminated, truncated, info
@@ -143,7 +190,7 @@ class BAR_Environment:
             The training environment instance.
         agent_id : int
             The ID of the agent for which to retrieve the observation.
-        
+
         Returns
         -------
         observation : np.ndarray
@@ -250,14 +297,14 @@ class BAR_Environment:
         ---------
         self: Bar_Environment
             The bar training environment
-        
+
         Returns
         -------
         n_enemies: 3
             number of enemies
         n_enemy_features: 5
             number of enemy features
-        
+
         Examples
         --------
         >>> get_enemy_feat_size(bar_env)
@@ -271,7 +318,7 @@ class BAR_Environment:
         n_enemy_features = 5
 
         return (n_enemies, n_enemy_features)
-    
+
     def get_ally_feat_size(self):
         """
         Returns the size of ally features, which is hardcoded for now
@@ -280,14 +327,14 @@ class BAR_Environment:
         ---------
         self: Bar_Environment
             The bar training environment
-        
+
         Returns
         -------
         n_allies: 2
             number of allies
         n_ally_features: 5
             number of ally features
-        
+
         Examples
         --------
         >>> get_ally_feat_size(bar_env)
@@ -301,7 +348,7 @@ class BAR_Environment:
         n_ally_features = 5
 
         return (n_allies, n_ally_features)
-    
+
     def get_own_feat_size(self):
         """
         Returns the number of own features, has to be changed when implementing new units
@@ -315,7 +362,7 @@ class BAR_Environment:
         -------
         n_own_features: int
             The number of feature of the own agent
-        
+
         Example
         -------
         >>> get_own_feat_size(bar_env)
@@ -324,7 +371,7 @@ class BAR_Environment:
 
         n_own_features = 7
         return n_own_features
-    
+
     def get_health_percentage(self, health, health_max):
         """
         Returns the percentage of health a unit has.
@@ -337,7 +384,7 @@ class BAR_Environment:
             The current health of a unit
         health_max: float_32
             The maximum health of a unit
-        
+
         Returns
         -------
         health_percentage : float_32
@@ -356,7 +403,7 @@ class BAR_Environment:
         health_percentage = health / health_max
 
         return health_percentage
-    
+
     def get_relative_pos(self, agent, second_unit_id):
         """
         Calculates the relative position of a unit to the agent unit
@@ -365,12 +412,12 @@ class BAR_Environment:
         ----------
         self : BAR_Environment
             The training environment instance
-        
+
         Returns
         -------
         rel_pos : np.array
             A 1-D numpy array containing the relative position (x, y, z) of the second unit to the agent unit
-        
+
         Examples
         --------
         >>> get_relative_pos(bar_env, 1, 0)
@@ -439,6 +486,233 @@ class BAR_Environment:
         ]
 
         return own_alive, enemy_alive
+
+    def _get_team_stats(self):
+        """
+        Computes current team statistics used for reward calculation.
+
+        The reward is based on changes between the last stored state and the
+        current state:
+        - enemy health decrease means damage dealt
+        - own health decrease means damage taken
+        - enemy alive count decrease means enemy kill
+        - own alive count decrease means own death
+
+        Returns
+        -------
+        stats : dict
+            Dictionary containing current own/enemy health sums and alive counts.
+        """
+        own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
+
+        own_health_sum = sum(
+            max(0.0, float(unit.health))
+            for unit in own_alive
+        )
+
+        enemy_health_sum = sum(
+            max(0.0, float(unit.health))
+            for unit in enemy_alive
+        )
+
+        stats = {
+            "own_health_sum": float(own_health_sum),
+            "enemy_health_sum": float(enemy_health_sum),
+            "own_alive_count": int(len(own_alive)),
+            "enemy_alive_count": int(len(enemy_alive)),
+        }
+
+        return stats
+
+    def _init_reward_state(self) -> None:
+        """
+        Initializes the reward baseline after reset().
+
+        This function stores the current health sums and alive counts.
+        Later compute_reward() compares the new state with these stored values.
+        """
+        stats = self._get_team_stats()
+
+        self.prev_own_health_sum = stats["own_health_sum"]
+        self.prev_enemy_health_sum = stats["enemy_health_sum"]
+        self.prev_own_alive_count = stats["own_alive_count"]
+        self.prev_enemy_alive_count = stats["enemy_alive_count"]
+
+        # If both sides are zero, shared memory probably did not provide units yet.
+        # In that case reward calculation should stay safe and return 0.0.
+        self.reward_state_initialized = not (
+            self.prev_own_alive_count == 0
+            and self.prev_enemy_alive_count == 0
+        )
+
+        self.last_reward_info = {
+            "reward_state_initialized": self.reward_state_initialized,
+            "own_health_sum": self.prev_own_health_sum,
+            "enemy_health_sum": self.prev_enemy_health_sum,
+            "own_alive_count": self.prev_own_alive_count,
+            "enemy_alive_count": self.prev_enemy_alive_count,
+            "enemy_damage_done": 0.0,
+            "own_damage_taken": 0.0,
+            "enemy_kills": 0,
+            "own_deaths": 0,
+            "win_bonus": 0.0,
+            "loss_penalty": 0.0,
+            "time_penalty": 0.0,
+            "raw_reward": 0.0,
+            "clipped_reward": 0.0,
+        }
+
+    def compute_reward(self) -> float:
+        """
+        Computes the team reward for the controlled team.
+
+        Reward components:
+        ------------------
+        + enemy damage dealt
+        - own damage taken
+        + enemy kills
+        - own deaths
+        + win bonus
+        - loss penalty
+        - small time penalty
+
+        Returns
+        -------
+        reward : float
+            Team reward for this environment step.
+        """
+        stats = self._get_team_stats()
+
+        own_health_sum = stats["own_health_sum"]
+        enemy_health_sum = stats["enemy_health_sum"]
+        own_alive_count = stats["own_alive_count"]
+        enemy_alive_count = stats["enemy_alive_count"]
+
+        # If no unit data is available yet, return 0.0 and try to initialize.
+        # This prevents fake win/loss rewards when shared memory is not ready.
+        if own_alive_count == 0 and enemy_alive_count == 0:
+            self.reward_state_initialized = False
+
+            self.last_reward_info = {
+                "reward_state_initialized": False,
+                "own_health_sum": own_health_sum,
+                "enemy_health_sum": enemy_health_sum,
+                "own_alive_count": own_alive_count,
+                "enemy_alive_count": enemy_alive_count,
+                "enemy_damage_done": 0.0,
+                "own_damage_taken": 0.0,
+                "enemy_kills": 0,
+                "own_deaths": 0,
+                "win_bonus": 0.0,
+                "loss_penalty": 0.0,
+                "time_penalty": 0.0,
+                "raw_reward": 0.0,
+                "clipped_reward": 0.0,
+            }
+
+            return 0.0
+
+        # If the reward state was not initialized yet, initialize it now.
+        # This can happen if reset() was called before shared memory had unit data.
+        if not self.reward_state_initialized:
+            self.prev_own_health_sum = own_health_sum
+            self.prev_enemy_health_sum = enemy_health_sum
+            self.prev_own_alive_count = own_alive_count
+            self.prev_enemy_alive_count = enemy_alive_count
+            self.reward_state_initialized = True
+
+            self.last_reward_info = {
+                "reward_state_initialized": True,
+                "own_health_sum": own_health_sum,
+                "enemy_health_sum": enemy_health_sum,
+                "own_alive_count": own_alive_count,
+                "enemy_alive_count": enemy_alive_count,
+                "enemy_damage_done": 0.0,
+                "own_damage_taken": 0.0,
+                "enemy_kills": 0,
+                "own_deaths": 0,
+                "win_bonus": 0.0,
+                "loss_penalty": 0.0,
+                "time_penalty": 0.0,
+                "raw_reward": 0.0,
+                "clipped_reward": 0.0,
+            }
+
+            return 0.0
+
+        # Damage/kills/deaths are calculated as deltas from the previous step.
+        enemy_damage_done = max(0.0, self.prev_enemy_health_sum - enemy_health_sum)
+        own_damage_taken = max(0.0, self.prev_own_health_sum - own_health_sum)
+
+        enemy_kills = max(0, self.prev_enemy_alive_count - enemy_alive_count)
+        own_deaths = max(0, self.prev_own_alive_count - own_alive_count)
+
+        reward = 0.0
+
+        # Reward for damaging enemy units.
+        reward += self.reward_damage_enemy_coef * enemy_damage_done
+
+        # Penalty for taking damage.
+        reward -= self.reward_damage_own_coef * own_damage_taken
+
+        # Reward for killing enemy units.
+        reward += self.reward_enemy_kill * enemy_kills
+
+        # Penalty for losing own units.
+        reward -= self.reward_own_death * own_deaths
+
+        win_bonus = 0.0
+        loss_penalty = 0.0
+
+        # Win/loss reward.
+        if enemy_alive_count == 0 and own_alive_count > 0:
+            win_bonus = self.reward_win
+            reward += win_bonus
+
+        if own_alive_count == 0 and enemy_alive_count > 0:
+            loss_penalty = self.reward_loss
+            reward -= loss_penalty
+
+        # Small time penalty to discourage doing nothing forever.
+        time_penalty = self.reward_time_penalty
+        reward -= time_penalty
+
+        raw_reward = float(reward)
+
+        # Clip reward to avoid unstable training from extreme values.
+        clipped_reward = float(
+            np.clip(
+                raw_reward,
+                self.reward_clip_min,
+                self.reward_clip_max,
+            )
+        )
+
+        # Store current values as previous values for the next step.
+        self.prev_own_health_sum = own_health_sum
+        self.prev_enemy_health_sum = enemy_health_sum
+        self.prev_own_alive_count = own_alive_count
+        self.prev_enemy_alive_count = enemy_alive_count
+
+        # Store reward components for debugging/logging.
+        self.last_reward_info = {
+            "reward_state_initialized": self.reward_state_initialized,
+            "own_health_sum": own_health_sum,
+            "enemy_health_sum": enemy_health_sum,
+            "own_alive_count": own_alive_count,
+            "enemy_alive_count": enemy_alive_count,
+            "enemy_damage_done": float(enemy_damage_done),
+            "own_damage_taken": float(own_damage_taken),
+            "enemy_kills": int(enemy_kills),
+            "own_deaths": int(own_deaths),
+            "win_bonus": float(win_bonus),
+            "loss_penalty": float(loss_penalty),
+            "time_penalty": float(time_penalty),
+            "raw_reward": raw_reward,
+            "clipped_reward": clipped_reward,
+        }
+
+        return clipped_reward
 
     def _is_terminal(self):
         """
@@ -574,12 +848,12 @@ class BAR_Environment:
         ----------
         self : BAR_Environment
             The training environment instance
-        
+
         Returns
         -------
         n_agnets : int
             number of agents
-        
+
         Examples
         --------
         >>> get_n_agents(bar_env)
