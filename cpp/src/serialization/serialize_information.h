@@ -1,11 +1,14 @@
 #pragma once
 #include <array>
 #include <concepts>
-#include <cstdint>
+#include <cstddef>
+#include <memory>
 #include <type_traits>
 #include <vector>
 
-#include "../memory/shared_memory_types.h"
+#include "memory/shared_memory_types.h"
+#include "utility/always_false.h"
+#include "utility/typelist.h"
 
 namespace UnBARableAINS {
 
@@ -34,15 +37,6 @@ template<typename T>
 concept Serializable = SerializeInformation<T>::c_serializable;
 
 namespace detail {
-
-    /**
-    * \brief Metafunction to use for triggering a static_assert in portions of code, that should never be compiled.
-    * \tparam T An arbitrary type.
-    * Do not partially specialized this Metafunction ever since its entire purpose is always evaluate to false.
-    */
-    template<typename T>
-    struct AlwaysFalse_MF : std::false_type {};
-
     /// \brief Tag Type for a simple Field.
     struct Field_t {};
 
@@ -64,7 +58,7 @@ namespace detail {
     * \tparam T Type to check.
     * \todo fix declaration and partial specializations documentation
     */
-    template<typename T, typename = void>
+    template<typename T>
     struct IsMultifield_MF : std::false_type {};
 
     /**
@@ -109,7 +103,7 @@ namespace detail {
     concept MultiField      = detail::IsMultifield_MF<T>::value;
 
     /**
-    * \brief Concept for a Fieldlike, meaning either a \ref Field or \ref MultiField.
+    * \brief Concept for a Fieldlike, meaning either a simple Field or MultiField.
     * \tparam T Type to check.
     * \anchor FieldlikeConcept
     */
@@ -117,11 +111,12 @@ namespace detail {
     concept Fieldlike       = detail::IsFieldlike_MF<T>::value; 
 
     /**
-    * \brief Struct to hold a parameter pack of \ref Fieldlike%s.
+    * \brief Typelist of \ref Fieldlike%s.
     * \tparam F... Fieldlikes.
+    * Struct to hold a parameter pack so you can define some operations on them.
     */
     template<Fieldlike... F>
-    struct Fields;
+    struct Fields : Typelist::Typelist<F...> {};
 
     /**
     * \brief Concept to check whether a \ref FieldlikeConcept "Fieldlike" specifies how to inline it.
@@ -157,6 +152,7 @@ namespace detail {
     /**
     * \brief Concept to check whether the inlineability of Type is defined in its \ref SerializeInformation.
     * \tparam P Type to check.
+    * \see \ref ConstSizeConcept "ConstSize": Inlineability is ignored for Types satisfying ConstSize.
     */
     template<typename T>
     concept SpecifiesInlineability = requires { { SerializeInformation<T>::c_inline } -> std::convertible_to<bool>; };
@@ -186,98 +182,270 @@ namespace detail {
     /**
     * \brief Concept to check whether a fixed serialized size is available or not.
     * \tparam T Type to check.
+    * \note A Type with a constant size will always be inlined. Specifying c_inline for a field
+    * which has a Type with constant size will just be ignored.
+    * \anchor ConstSizeConcept
     */
     template<typename T>
     concept ConstSize = requires {
         { SerializeInformation<T>::c_serialized_size } -> std::convertible_to<size_t>;
     };
 
-    template<Serializable T>
-    size_t getSize(const T& serializable);
+    /**
+     * \brief Metafunction to get the ValueType for a \ref FieldlikeConcept "Fieldlike".
+     * \tparam F The \ref FieldlikeConcept "Fieldlike".
+     */
+    template<typename F>
+    struct GetFieldlikeValueType_MF;
 
-
+    /**
+     * \brief Implementation for GetFieldlikeValueType_MF for a simple Field.
+     * \tparam F The Field.
+     */
     template<Field F>
-    size_t getFieldSize(const typename F::Type& value) {
-        using Type = typename F::Type;
-        // End of recursion
-        if constexpr (detail::ConstSize<Type>) {
-            return SerializeInformation<Type>::c_serialized_size;
-        }
-        // Continue recusion through possible subfields if the type is to be inlined
-        else if constexpr (inlineType<Type>()){
-            return getSize<Type>(value);
-        }
-        // End recursion because the Type is not inlined and will be referenced using a link_t
-        else {
-            return sizeof(memory::link_t);
-        }
-    }
-
-    template<MultiField F>
-    size_t getFieldSize(const typename F::Field::Type& value) {
-        using Type = typename F::Field::Type;
-        // End of recursion
-        if constexpr (detail::ConstSize<Type>) {
-            return SerializeInformation<Type>::c_serialized_size;
-        }
-        // Continue recusion through possible subfields if the type is to be inlined
-        else if constexpr (inlineType<Type>()){
-            return getSize<Type>(value);
-        }
-        // End recursion because the Type is not inlined and will be referenced using a link_t
-        else {
-            return sizeof(memory::link_t);
-        }
-    }
-
-    template<Serializable T, typename U>
-    struct GetSizeImpl_MF;
-
-    template<Serializable T, Fieldlike... Fs>
-    struct GetSizeImpl_MF<T, Fields<Fs...>> {
-    private:
-        template<Fieldlike F>
-        inline static constexpr size_t getOne(const T& serializable) {
-            using SI = SerializeInformation<T>;
-            constexpr std::type_identity<F> fieldKey{};
-            if constexpr(inlineField<F>()) {
-                if constexpr (IsField_MF<F>::value) {
-                    decltype(auto) fieldData = SI::get(fieldKey, serializable);
-                    return getFieldSize<F>(fieldData);
-                }
-                else {
-                    size_t totalSize {0};
-                    size_t numElements = SI::getSize(fieldKey, serializable);
-                    for (size_t i = 0; i < numElements; i++) {
-                        auto fieldData = SI::get(fieldKey, serializable, i);
-                        totalSize += getFieldSize<F>(fieldData);
-                    }
-                    return totalSize;
-                }
-            }
-            else {
-                return sizeof(memory::link_t);
-            }
-        }
-    public:
-        inline static constexpr size_t get(const T& serializable) {
-            return (getOne<Fs>(serializable) + ... + 0);
-        }
+    struct GetFieldlikeValueType_MF<F> {
+        using Type = F::Type;
     };
 
-    template<Serializable T>
-    size_t getSize(const T& serializable) {
-        using Fields = typename SerializeInformation<T>::Fields;
-        return detail::GetSizeImpl_MF<T, Fields>::get(serializable);
-    }
+    /**
+     * \brief Implementation for GetFieldlikeValueType_MF for a MultiField.
+     * \tparam F The MultiField.
+     */
+    template<MultiField F>
+    struct GetFieldlikeValueType_MF<F> {
+        using Type = F::Field::Type;
+    };
+} // namespace detail
 
-}; // namespace detail
-
+// Forward declaration for the shared_ptr in FieldNode.
 template<Serializable T>
-struct FieldSizes {
-    static size_t get(const T& serializable) {
-        return detail::getSize(serializable);
+class Layout;
+
+/**
+ * \brief Common information about memory offset and sizes for \ref FieldlikeConcept "Fieldlike".
+ * \tparam F The \ref FieldlikeConcept "Fieldlike".
+ */
+template<typename F>
+struct FieldNodeCommon {
+    /// \brief The offset within the parent's data.
+    size_t      offset          = 0;
+    /// \brief The size occupied in the parent's data.
+    size_t      inlineSize      = 0;
+    /// \brief The entire size occupied in memory by this field.
+    size_t      deepSize        = 0;
+
+    /// \brief Whether the field is inlined or not.
+    inline static constexpr bool isInlined = detail::inlineField<F>();
+};
+
+/**
+ * \brief A struct to store information about the memory layout of a Field.
+ * \tparam F A \ref FieldlikeConcept "Fieldlike".
+ */ 
+template<typename F>
+struct FieldNode;
+
+/**
+ * \brief Implementation of a FieldNode for a simple Field.
+ * \tparam F The simple Field.
+ */
+template<detail::Field F>
+struct FieldNode<F> : FieldNodeCommon<F> {
+    /// \brief Type alias for the Field's Tagtype.
+    using Tag                   = F;
+    /// \brief Type alias for the underlying Type of the value for the Field \p F.
+    using ValueType             = F::Type;
+
+    /// \brief Pointer to the Layout of the ValueType if either the field itself or the type isn't inlined.
+    std::shared_ptr<Layout<ValueType>>                  child;
+};
+
+/**
+ * \brief Implementation of a FieldNode for a MultiField.
+ * \tparam F The MultiField.
+ */
+template<detail::MultiField F>
+struct FieldNode<F> : FieldNodeCommon<F> {
+    /// \brief Type alias for the Field's Tagtype.
+    using Tag                   = F;
+    /// \brief Type alias for the underlying Type of the value for the Field \p F.
+    using ValueType             = F::Field::Type;
+
+    /// \brief The amount of elements contained in the field.
+    size_t      count           = 0;
+    /// \brief \ref count "Count times" pointers to the Layout of the ValueType if either the field itself or the type isn't inlined.
+    std::vector<std::shared_ptr<Layout<ValueType>>>     children;
+};
+
+/**
+ * \brief Holds information about the memory layout for a Serializable Type.
+ * \tparam T A \ref Serializable.
+ */
+template<Serializable T>
+class Layout {
+private:
+    /**
+     * \brief Metafunction to get the Type of a std::tuple to hold all FieldNode%s.
+     * \tparam Fields \ref Fields.
+     */
+    template<typename Fields>
+    struct GetNodesTupleType_MF;
+
+    /**
+     * \brief Metafunction to get the Type of a std::tuple to hold all FieldNode%s.
+     * \tparam Fields \ref Fields.
+     * Partial specialization provides the actual implementation.
+     */
+    template<detail::Fieldlike... Fs>
+    struct GetNodesTupleType_MF<detail::Fields<Fs...>> {
+        using Nodes = std::tuple<FieldNode<Fs>...>;
+    };
+public:
+    /// \brief Type alias for \p T's SerializeInformation.
+    using SI = SerializeInformation<T>;
+    /// \brief Type alias for the std::tuple holding the \ref FieldNode%s.
+    using Nodes = typename GetNodesTupleType_MF<typename SI::Fields>::Nodes;
+
+    /// \brief Constant for number of Fields.
+    inline static constexpr size_t c_numFields = std::tuple_size<Nodes>::value;
+
+    /**
+     * \brief Basic constructor to compute a layout.
+     * \param value An instance of Type \p T for which to compute the layout.
+     */
+    Layout(const T& value)
+        : m_inlinedSize(0)
+        , m_deepSize(0)
+    {
+        buildNodes(value, m_nodes, m_inlinedSize, m_deepSize);
     }
+
+    /**
+     * \brief Getter for inlinedSize.
+     * \returns Inlined size for \p T.
+     */
+    inline size_t getInlinedSize(void)  const { return m_inlinedSize; };
+    
+    /**
+     * \brief Getter for deepSize, i.e. the entire size for the serialization for the given value of \p T in memory.
+     * \returns Deep size  for \p T.
+     */
+    inline size_t getDeepSize(void)     const { return m_deepSize; };
+
+    /**
+     * \brief Getter for a specific \ref FieldNode.
+     * \tparam F The requested \ref FieldlikeConcept "Field".
+     * \returns The corresponding FieldNode.
+     */
+    template<detail::Fieldlike F>
+    inline const FieldNode<F>& get(std::type_identity<F>) const { return std::get<FieldNode<F>>(m_nodes); };
+private:
+    /**
+     * \brief Helper to build the actual \ref Nodes.
+     * \tparam Nodes The types of \ref Nodes.
+     * \param[in] value An instance of Type \p T.
+     * \param[inout] tuple A std::tuple<Nodes...> holding the actual data.
+     * \param[out] inlinedSize The inlined size for the given \p value.
+     * \param[out] deepSize The deep size for the given \p value.
+     * Calls \ref getFieldNode for each \p Nodes... and computes the cumulated sizes.
+     */
+    template<typename... Nodes>
+    static void buildNodes(const T& value, std::tuple<Nodes...>& tuple, size_t& inlinedSize, size_t& deepSize) {
+        size_t offset = 0;
+        std::apply([&](Nodes&... fields) {
+            ((fields = getFieldNode<typename Nodes::Tag>(value, offset)), ...);
+            ((inlinedSize += fields.inlineSize), ...);
+            ((deepSize += fields.deepSize), ...);
+        }, tuple);
+    }
+
+    /**
+     * \brief Helper to build one FieldNode for a specific \ref FieldlikeConcept "Field".
+     * \tparam F The \ref FieldlikeConcept "Fieldlike".
+     * \tparam ParentValue The Serializable Type the Field is a part of.
+     * \param[in] parentValue An instance of Type \p ParentValue.
+     * \param[inout] currentOffset The cumulated inlined sizes of the Fields before this Field in the parent data.
+     */
+    template<detail::Fieldlike F, Serializable ParentValue>
+    static FieldNode<F> getFieldNode(const ParentValue& parentValue, size_t& currentOffset) {
+        // Alias and constants
+        using ValueType = typename detail::GetFieldlikeValueType_MF<F>::Type;
+        using ValueTypeSI = SerializeInformation<ValueType>;
+        using ParentValueSI = SerializeInformation<ParentValue>;
+        constexpr std::type_identity<F> fieldKey {};
+        
+        FieldNode<F> node {};
+        node.offset = currentOffset;
+        
+        // if constexpr (inlineField<F>() && !inlineType<ValueType>()) {
+        //     static_assert(AlwaysFalse_MF<F>::value, "The type of the field specified to be inlined is not actually inlineable.");
+        // }
+        
+        // Get number of elements for MultiField
+        if constexpr (detail::MultiField<F>) {
+            node.count = ParentValueSI::getSize(fieldKey, parentValue);
+        }
+        
+        // ----- Compute the deep size of the field. -----
+        // End of recursion: The ValueType has a constant size and the Field's size is therefore easily computed.
+        if constexpr (detail::ConstSize<ValueType>) {
+            constexpr size_t serializedSize = ValueTypeSI::c_serialized_size;
+            if constexpr(detail::MultiField<F>) {
+                node.deepSize = node.count * serializedSize;
+            }
+            else {
+                node.deepSize = serializedSize;
+            }
+        }
+        // Recursive case: A Layout has to be computed for the ValueType since it is more complex than a constant size.
+        else {
+            // Compute a layout for each element of the multifield.
+            if constexpr (detail::MultiField<F>) {
+                node.deepSize = 0;
+                node.children.reserve(node.count);
+                for (int i = 0; i < node.count; i++) {
+                    decltype(auto) fieldValue = ParentValueSI::get(fieldKey, parentValue, i);
+                    node.children.push_back(std::make_shared<Layout<ValueType>>(fieldValue));
+                    node.deepSize += node.children[i]->getDeepSize();
+                }
+            }
+            // Compute a layout for the one element we have in a simple field.
+            else {
+                decltype(auto) fieldValue = ParentValueSI::get(fieldKey, parentValue);
+                node.child = std::make_shared<Layout<ValueType>>(fieldValue);
+                node.deepSize = node.child->getDeepSize();
+            }
+        }
+        // ----- Deep size computed. -----
+
+        // ----- Update inline size. -----
+        constexpr bool isTypeInlined    = detail::inlineType<ValueType>();
+        constexpr bool isFieldInlined   = detail::inlineField<F>(); 
+        // Fully inlined
+        if constexpr (isFieldInlined && isTypeInlined) {
+            node.inlineSize = node.deepSize;
+        }
+        // Field itself is inlined, but the type isnt. Imagine an std::vector<std::vector<int>>.
+        // The F_Elements MultiField of a vector is generally inlined. The first F_Elements::ValueType
+        // is std::vector<int> however, which itself is not inlineable. Therefore, we can only inline
+        // the first F_Elements as link_t's to the std::vector<int>.
+        else if constexpr (detail::MultiField<F> && isFieldInlined && !isTypeInlined) {
+            node.inlineSize = node.count * sizeof(memory::link_t);
+        }
+        else {
+            node.inlineSize = sizeof(memory::link_t);
+        }
+        // ----- Inline size updated. -----
+
+        currentOffset += node.inlineSize;
+        return node;
+    }
+
+    size_t      m_inlinedSize;
+    size_t      m_deepSize;
+
+
+    Nodes       m_nodes;
 };
 
 /**
@@ -287,6 +455,8 @@ struct FieldSizes {
 template<std::integral T>
 struct SerializeInformation<T> {
     using Type = T;
+    // TODO fix (or maybe this is nice, I dunno)
+    using Fields = detail::Fields<>;
 
     inline static constexpr bool    c_serializable = true;
     inline static constexpr size_t  c_serialized_size = sizeof(Type);
@@ -340,6 +510,6 @@ struct SerializeInformation<std::vector<T, Alloc>> {
     }
 };
 
-}; // namespace unit
+}; // namespace serialization
 
 }; // namespace UnBARableAI
