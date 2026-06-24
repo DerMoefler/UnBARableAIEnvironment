@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Protobuf CONFIG REQUIRED)
+find_dependency(gRPC CONFIG REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/UnBARableAITargets.cmake")

@@ -1,12 +1,9 @@
 #pragma once
 
-#include <grpcpp/grpcpp.h>
-#include <google/protobuf/empty.pb.h>
 
 #include <memory>
 #include <string>
 
-#include "UnBARableAI.grpc.pb.h"
 
 class UnBARableAIClient {
 public:
@@ -17,6 +14,13 @@ public:
      */
     explicit UnBARableAIClient(const std::string& target = "127.0.0.1:50051");
 
+    ~UnBARableAIClient();
+
+    UnBARableAIClient(UnBARableAIClient&&) noexcept;    
+    UnBARableAIClient& operator=(UnBARableAIClient&&) noexcept;    
+
+    UnBARableAIClient(const UnBARableAIClient&) = delete;    
+    UnBARableAIClient& operator=(const UnBARableAIClient&) = delete;
     /**
      * @brief Sendet den RPC `handleEventUpdate` an den Python-Server.
      *
@@ -30,19 +34,16 @@ public:
      *
      * @return Letzte Fehlermeldung oder leerer String.
      */
-    const std::string& GetLastError() const { return last_error_; }
+    const std::string& GetLastError() const;
 
     /**
      * @brief Liefert das aktuell konfigurierte Ziel.
      *
      * @return Zieladresse des Servers.
      */
-    const std::string& GetTarget() const { return target_; }
+    const std::string& GetTarget() const;
 
 private:
-    std::string target_;
-    std::string last_error_;
-
-    std::shared_ptr<grpc::Channel> channel_;
-    std::unique_ptr<UnBARableAI::Stub> stub_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 };
