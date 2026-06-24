@@ -5,7 +5,28 @@ import torch.nn as nn
 
 def check(x):
     """
-    Lokaler Ersatz für `onpolicy.algorithms.utils.util.check`.
+    Converts input data into a torch tensor if necessary.
+
+    This function acts as a local replacement for
+    `onpolicy.algorithms.utils.util.check`.
+
+    Parameters
+    ----------
+    x : Any
+        Input value to be converted. Can be a numpy array, a torch tensor,
+        or any object supported by `torch.as_tensor`.
+
+    Returns
+    -------
+    tensor : torch.Tensor
+        The input converted to a torch tensor if needed.
+
+    Examples
+    --------
+    >>> check(np.array([1.0, 2.0]))
+    tensor([1., 2.], dtype=torch.float64)
+    >>> check(torch.tensor([1.0]))
+    tensor([1.])
     """
     if isinstance(x, np.ndarray):
         return torch.from_numpy(x)
@@ -16,24 +37,90 @@ def check(x):
 
 def huber_loss(error, delta):
     """
-    Lokaler Ersatz für onpolicy.utils.util.huber_loss
+    Computes the Huber loss for a given prediction error.
+
+    This function acts as a local replacement for
+    `onpolicy.utils.util.huber_loss`.
+
+    Parameters
+    ----------
+    error : torch.Tensor
+        Prediction error tensor.
+    delta : float
+        Threshold at which the loss transitions from quadratic to linear.
+
+    Returns
+    -------
+    loss : torch.Tensor
+        Element-wise Huber loss tensor.
+
+    Examples
+    --------
+    >>> err = torch.tensor([0.5, 2.0])
+    >>> huber_loss(err, 1.0)
+    tensor([0.1250, 1.5000])
     """
     abs_error = torch.abs(error)
-    quadratic = torch.minimum(abs_error, torch.tensor(delta, device=error.device, dtype=error.dtype))
+    quadratic = torch.minimum(
+        abs_error,
+        torch.tensor(delta, device=error.device, dtype=error.dtype)
+    )
     linear = abs_error - quadratic
     return 0.5 * quadratic ** 2 + delta * linear
 
 
 def mse_loss(error):
     """
-    Lokaler Ersatz für onpolicy.utils.util.mse_loss
+    Computes the element-wise mean squared error term.
+
+    This function acts as a local replacement for
+    `onpolicy.utils.util.mse_loss`.
+
+    Parameters
+    ----------
+    error : torch.Tensor
+        Prediction error tensor.
+
+    Returns
+    -------
+    loss : torch.Tensor
+        Element-wise squared error tensor.
+
+    Examples
+    --------
+    >>> mse_loss(torch.tensor([1.0, -2.0]))
+    tensor([1., 4.])
     """
     return error ** 2
 
 
 def get_grad_norm(parameters):
     """
-    Lokaler Ersatz für onpolicy.utils.util.get_gard_norm
+    Computes the global L2 norm of gradients for a parameter collection.
+
+    This function acts as a local replacement for
+    `onpolicy.utils.util.get_gard_norm`.
+
+    Parameters
+    ----------
+    parameters : iterable
+        Iterable containing model parameters.
+
+    Returns
+    -------
+    grad_norm : torch.Tensor
+        Scalar tensor containing the total gradient norm. Returns 0 if
+        no parameter has a gradient.
+
+    Examples
+    --------
+    >>> model = nn.Linear(2, 1)
+    >>> x = torch.tensor([[1.0, 2.0]])
+    >>> y = model(x).sum()
+    >>> y.backward()
+    >>> norm = get_grad_norm(model.parameters())
+    >>> isinstance(norm, torch.Tensor)
+    True
     """
     parameters = [p for p in parameters if p.grad is not None]
     if len(parameters) == 0:
@@ -50,13 +137,66 @@ def get_grad_norm(parameters):
 
 class ValueNorm(nn.Module):
     """
-    Minimaler lokaler Ersatz für onpolicy.utils.valuenorm.ValueNorm.
-    Wird in deinem aktuellen Setup zwar nicht benutzt
-    (weil use_valuenorm=False und use_popart=False),
-    ist aber hier der Vollständigkeit halber enthalten.
+    Minimal local replacement for `onpolicy.utils.valuenorm.ValueNorm`.
+
+    This module tracks running mean and variance statistics and can be used
+    to normalize or denormalize value targets. In the current setup it is
+    included mainly for completeness, because value normalization is disabled
+    by default.
+
+    Parameters
+    ----------
+    input_shape : int or tuple
+        Shape of the value tensor to normalize.
+    device : torch.device, optional
+        Torch device on which internal statistics are stored,
+        by default torch.device("cpu").
+    epsilon : float, optional
+        Small positive constant for numerical stability,
+        by default 1e-5.
+
+    Returns
+    -------
+    ValueNorm
+        A normalization module with running statistics.
+
+    Examples
+    --------
+    >>> vn = ValueNorm(1)
+    >>> x = torch.tensor([[1.0], [2.0], [3.0]])
+    >>> vn.update(x)
+    >>> y = vn.normalize(x)
+    >>> y.shape
+    torch.Size([3, 1])
     """
 
     def __init__(self, input_shape, device=torch.device("cpu"), epsilon=1e-5):
+        """
+        Initializes the value normalization module.
+
+        Parameters
+        ----------
+        self : ValueNorm
+            The normalization module instance.
+        input_shape : int or tuple
+            Shape of the values to normalize.
+        device : torch.device, optional
+            Torch device on which internal tensors are allocated,
+            by default torch.device("cpu").
+        epsilon : float, optional
+            Small positive constant for numerical stability,
+            by default 1e-5.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> vn = ValueNorm(1)
+        >>> vn.epsilon
+        1e-05
+        """
         super().__init__()
         self.input_shape = input_shape
         self.device = device
@@ -67,6 +207,27 @@ class ValueNorm(nn.Module):
         self.count = torch.tensor(epsilon, device=device, dtype=torch.float32)
 
     def update(self, x):
+        """
+        Updates running mean and variance statistics from a new batch.
+
+        Parameters
+        ----------
+        self : ValueNorm
+            The normalization module instance.
+        x : np.ndarray or torch.Tensor
+            Batch of values used to update the running statistics.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> vn = ValueNorm(1)
+        >>> vn.update(torch.tensor([[1.0], [2.0], [3.0]]))
+        >>> vn.count.item() > 0
+        True
+        """
         x = check(x).to(device=self.device, dtype=torch.float32)
         if x.ndim == 1:
             batch_mean = x.mean()
@@ -80,6 +241,31 @@ class ValueNorm(nn.Module):
         self._update_from_moments(batch_mean, batch_var, batch_count)
 
     def _update_from_moments(self, batch_mean, batch_var, batch_count):
+        """
+        Updates running statistics from batch moments.
+
+        Parameters
+        ----------
+        self : ValueNorm
+            The normalization module instance.
+        batch_mean : torch.Tensor
+            Mean of the current batch.
+        batch_var : torch.Tensor
+            Variance of the current batch.
+        batch_count : torch.Tensor
+            Number of elements in the batch.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> vn = ValueNorm(1)
+        >>> vn._update_from_moments(torch.tensor([2.0]), torch.tensor([1.0]), torch.tensor(3.0))
+        >>> vn.running_mean.shape
+        torch.Size([1])
+        """
         delta = batch_mean - self.running_mean
         total_count = self.count + batch_count
 
@@ -95,24 +281,111 @@ class ValueNorm(nn.Module):
         self.count = total_count
 
     def normalize(self, x):
+        """
+        Normalizes input values using running statistics.
+
+        Parameters
+        ----------
+        self : ValueNorm
+            The normalization module instance.
+        x : np.ndarray or torch.Tensor
+            Input values to normalize.
+
+        Returns
+        -------
+        normalized_x : torch.Tensor
+            Normalized tensor.
+
+        Examples
+        --------
+        >>> vn = ValueNorm(1)
+        >>> vn.update(torch.tensor([[1.0], [2.0], [3.0]]))
+        >>> vn.normalize(torch.tensor([[2.0]])).shape
+        torch.Size([1, 1])
+        """
         x = check(x).to(device=self.device, dtype=torch.float32)
         return (x - self.running_mean) / torch.sqrt(self.running_var + self.epsilon)
 
     def denormalize(self, x):
+        """
+        Converts normalized values back to the original scale.
+
+        Parameters
+        ----------
+        self : ValueNorm
+            The normalization module instance.
+        x : np.ndarray or torch.Tensor
+            Normalized values.
+
+        Returns
+        -------
+        denormalized_x : torch.Tensor
+            Denormalized tensor in the original value space.
+
+        Examples
+        --------
+        >>> vn = ValueNorm(1)
+        >>> vn.update(torch.tensor([[1.0], [2.0], [3.0]]))
+        >>> z = vn.normalize(torch.tensor([[2.0]]))
+        >>> vn.denormalize(z).shape
+        torch.Size([1, 1])
+        """
         x = check(x).to(device=self.device, dtype=torch.float32)
         return x * torch.sqrt(self.running_var + self.epsilon) + self.running_mean
 
 
 class R_MAPPO:
     """
-    Trainer class for MAPPO to update policies.
+    Trainer class for MAPPO policy updates.
 
-    :param args: arguments containing relevant model, policy, and env information.
-    :param policy: policy to update.
-    :param device: specifies the device to run on (cpu/gpu).
+    This class performs PPO-style actor-critic optimization for multi-agent
+    policies, including optional value clipping, Huber loss, recurrent data
+    handling, and value normalization.
+
+    Parameters
+    ----------
+    args : Any
+        Configuration object containing optimizer and training hyperparameters.
+    policy : Any
+        Policy object to be optimized. Must provide actor, critic, optimizers,
+        and an `evaluate_actions` method.
+    device : torch.device, optional
+        Torch device on which training is performed, by default torch.device("cpu").
+
+    Returns
+    -------
+    R_MAPPO
+        A trainer instance for MAPPO optimization.
+
+    Examples
+    --------
+    >>> # trainer = R_MAPPO(args, policy)
+    >>> # trainer.prep_training()
     """
 
     def __init__(self, args, policy, device=torch.device("cpu")):
+        """
+        Initializes the MAPPO trainer.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        args : Any
+            Configuration object containing PPO and optimization parameters.
+        policy : Any
+            Policy object to update.
+        device : torch.device, optional
+            Torch device used for training, by default torch.device("cpu").
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> # trainer = R_MAPPO(args, policy, device=torch.device("cpu"))
+        """
         self.device = device
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.policy = policy
@@ -149,7 +422,32 @@ class R_MAPPO:
 
     def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
         """
-        Calculate value function loss.
+        Calculates the critic value loss.
+
+        Supports optional value clipping, Huber loss, value normalization, and
+        masking of inactive agents.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        values : torch.Tensor
+            Current critic predictions.
+        value_preds_batch : torch.Tensor
+            Value predictions stored in the replay buffer.
+        return_batch : torch.Tensor
+            Computed return targets.
+        active_masks_batch : torch.Tensor
+            Masks indicating which agents are active.
+
+        Returns
+        -------
+        value_loss : torch.Tensor
+            Scalar tensor representing the critic loss.
+
+        Examples
+        --------
+        >>> # loss = trainer.cal_value_loss(values, value_preds_batch, return_batch, active_masks_batch)
         """
         value_pred_clipped = value_preds_batch + (
             values - value_preds_batch
@@ -185,8 +483,27 @@ class R_MAPPO:
 
     def _flatten_first_two_dims(self, x):
         """
-        Flatten (batch, num_agents, ...) -> (batch * num_agents, ...)
-        Leaves tensors with ndim < 3 unchanged.
+        Flattens the first two tensor dimensions if possible.
+
+        Converts an input with shape `(batch, num_agents, ...)` into
+        `(batch * num_agents, ...)`. Inputs with fewer than three dimensions
+        remain unchanged.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        x : np.ndarray or torch.Tensor or Any
+            Input array or tensor to flatten.
+
+        Returns
+        -------
+        flattened_x : torch.Tensor or None
+            Flattened torch tensor, or None if the input was None.
+
+        Examples
+        --------
+        >>> # x.shape = (4, 2, 8) -> result.shape = (8, 8)
         """
         if x is None:
             return None
@@ -218,12 +535,51 @@ class R_MAPPO:
         available_actions_batch,
     ):
         """
-        Prepare tensors for policy evaluation and loss computation.
+        Prepares and reshapes batch inputs for multi-agent PPO updates.
 
-        Handles:
-        - Single-agent batches
-        - Multi-agent batches with obs shape (B, A, ...)
-        - Multi-agent batches with shared global obs shape (B, D)
+        This method converts all inputs to torch tensors and ensures they have
+        compatible shapes for policy evaluation and loss computation. It supports
+        both single-agent and multi-agent batch layouts.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        share_obs_batch : np.ndarray or torch.Tensor
+            Shared observations for the critic.
+        obs_batch : np.ndarray or torch.Tensor
+            Agent-specific observations.
+        rnn_states_batch : np.ndarray or torch.Tensor or None
+            Actor recurrent states.
+        rnn_states_critic_batch : np.ndarray or torch.Tensor or None
+            Critic recurrent states.
+        actions_batch : np.ndarray or torch.Tensor
+            Actions from the replay buffer.
+        value_preds_batch : np.ndarray or torch.Tensor
+            Stored critic predictions.
+        return_batch : np.ndarray or torch.Tensor
+            Computed return targets.
+        masks_batch : np.ndarray or torch.Tensor
+            Episode continuation masks.
+        active_masks_batch : np.ndarray or torch.Tensor
+            Agent activity masks.
+        old_action_log_probs_batch : np.ndarray or torch.Tensor
+            Log-probabilities from the behavior policy.
+        adv_targ : np.ndarray or torch.Tensor
+            Advantage targets.
+        available_actions_batch : np.ndarray or torch.Tensor or None
+            Legal action masks.
+
+        Returns
+        -------
+        prepared_batches : tuple
+            Tuple containing all prepared tensors in the correct shape.
+
+        Examples
+        --------
+        >>> # prepared = trainer._prepare_multi_agent_inputs(...)
+        >>> # len(prepared)
+        >>> # 12
         """
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
@@ -244,7 +600,6 @@ class R_MAPPO:
         if rnn_states_critic_batch is not None:
             rnn_states_critic_batch = check(rnn_states_critic_batch).to(**self.tpdv)
 
-        # Multi-agent case
         if obs_batch.ndim == 3:
             batch_size, num_agents = obs_batch.shape[0], obs_batch.shape[1]
 
@@ -296,7 +651,6 @@ class R_MAPPO:
                 )
 
         else:
-            # Single-agent or already flattened
             if share_obs_batch.ndim > 2:
                 share_obs_batch = share_obs_batch.reshape(share_obs_batch.shape[0], -1)
             if obs_batch.ndim > 2:
@@ -347,7 +701,31 @@ class R_MAPPO:
 
     def ppo_update(self, sample, update_actor=True):
         """
-        Update actor and critic networks.
+        Performs a single PPO update step for actor and critic.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        sample : tuple
+            A mini-batch tuple produced by the replay buffer generator.
+        update_actor : bool, optional
+            Whether to backpropagate the actor loss, by default True.
+
+        Returns
+        -------
+        update_results : tuple
+            Tuple containing:
+            - value_loss : torch.Tensor
+            - critic_grad_norm : torch.Tensor or float
+            - policy_loss : torch.Tensor
+            - dist_entropy : torch.Tensor
+            - actor_grad_norm : torch.Tensor or float
+            - imp_weights : torch.Tensor
+
+        Examples
+        --------
+        >>> # value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = trainer.ppo_update(sample)
         """
         if len(sample) == 12:
             (
@@ -420,7 +798,6 @@ class R_MAPPO:
             active_masks_batch,
         )
 
-        # Actor update
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
         surr1 = imp_weights * adv_targ
@@ -454,7 +831,6 @@ class R_MAPPO:
 
         self.policy.actor_optimizer.step()
 
-        # Critic update
         value_loss = self.cal_value_loss(
             values, value_preds_batch, return_batch, active_masks_batch
         )
@@ -482,7 +858,32 @@ class R_MAPPO:
 
     def train(self, buffer, update_actor=True):
         """
-        Perform a training update using minibatch gradient descent.
+        Performs one full MAPPO training phase using mini-batch gradient descent.
+
+        The method computes normalized advantages, iterates over PPO epochs,
+        generates mini-batches from the replay buffer, and aggregates training
+        statistics.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        buffer : SharedReplayBuffer
+            Replay buffer containing rollout data.
+        update_actor : bool, optional
+            Whether to update the actor network, by default True.
+
+        Returns
+        -------
+        train_info : dict
+            Dictionary containing averaged training statistics:
+            `value_loss`, `policy_loss`, `dist_entropy`,
+            `actor_grad_norm`, `critic_grad_norm`, and `ratio`.
+
+        Examples
+        --------
+        >>> # train_info = trainer.train(buffer)
+        >>> # train_info["value_loss"]
         """
         if self._use_popart or self._use_valuenorm:
             advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(
@@ -546,9 +947,41 @@ class R_MAPPO:
         return train_info
 
     def prep_training(self):
+        """
+        Switches actor and critic networks to training mode.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> # trainer.prep_training()
+        """
         self.policy.actor.train()
         self.policy.critic.train()
 
     def prep_rollout(self):
+        """
+        Switches actor and critic networks to evaluation mode.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> # trainer.prep_rollout()
+        """
         self.policy.actor.eval()
         self.policy.critic.eval()

@@ -6,7 +6,6 @@ namespace UnBARableAINS {
 using namespace memory;
 
 using SInformation = SharedMemoryPosix::SegmentInformation;
-using position_t = SharedMemoryPosix::position_t;
 
 TEST(SegmentInformationTest, InvalidConstructor) {
     constexpr size_t        id  = 2;
