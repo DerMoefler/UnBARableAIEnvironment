@@ -43,6 +43,10 @@ file(MAKE_DIRECTORY "${GENERATED_DIR}")
 # erzeugten Dateien automatisch bei Änderungen neu erzeugt. [1](https://github.com/protocolbuffers/protobuf/blob/main/docs/cmake_protobuf_generate.md)[4](https://cmake.org/cmake/help/latest/command/add_library.html)
 add_library(unbarableai_proto OBJECT "${PROTO_FILE}")
 
+set_target_properties(unbarableai_proto PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
 target_include_directories(unbarableai_proto
     PUBLIC
         "$<BUILD_INTERFACE:${GENERATED_DIR}>"
