@@ -257,7 +257,7 @@ struct FieldNode<F> : FieldNodeCommon<F> {
     using ValueType             = F::Type;
 
     /// \brief Pointer to the Layout of the ValueType if either the field itself or the type isn't inlined.
-    std::shared_ptr<Layout<ValueType>>                  child;
+    std::shared_ptr<Layout<ValueType>>                  child = nullptr;
 };
 
 /**
@@ -307,7 +307,7 @@ public:
     using Nodes = typename GetNodesTupleType_MF<typename SI::Fields>::Nodes;
 
     /// \brief Constant for number of Fields.
-    inline static constexpr size_t c_numFields = std::tuple_size<Nodes>::value;
+    inline static constexpr size_t c_num_fields = std::tuple_size<Nodes>::value;
 
     /**
      * \brief Basic constructor to compute a layout.
@@ -331,6 +331,12 @@ public:
      * \returns Deep size  for \p T.
      */
     inline size_t getDeepSize(void)     const { return m_deepSize; };
+
+    /**
+     * \brief Getter for all nodes.
+     * \returns Tuple of all nodes.
+     */
+    inline decltype(auto) getNodes(void) const { return m_nodes; }
 
     /**
      * \brief Getter for a specific \ref FieldNode.

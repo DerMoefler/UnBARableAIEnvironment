@@ -20,6 +20,7 @@ namespace memory {
  * 
  * \todo document
  * \image html shared_memory_layout.svg
+ * \todo There seems to be an out of bounds access problem when using c_contiguous_segments = 2 in shared_memory_test
  * 
  * People seem to prefer POSIX shared memory over system V's, which is used by \ref SharedMemoryUnix.
  */
@@ -242,7 +243,7 @@ public:
     * \brief Number of contiguous segments in the partially linked list.
     * The last element is a relative pointer to next array. \todo image
     */ 
-    inline static constexpr uint32_t    c_contiguous_segment_count = 2;
+    inline static constexpr uint32_t    c_contiguous_segment_count = 32;
 
     /// \brief The id used to signal that the following bytes compose a \ref position_t to where the segment continues.
     inline static constexpr id_t   c_segment_link_id       = 0xAA'AA'AA'AA;

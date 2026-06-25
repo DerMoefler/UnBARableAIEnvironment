@@ -17,8 +17,9 @@ namespace memory {
  * of the shared memory.
  */
 template<class T>
-concept SharedMemoryImpl = requires (T t, std::span<const std::byte> data, id_t id) {
-    { t.writeSegment(data) }    -> std::convertible_to<id_t>;
+concept SharedMemoryImpl = requires (T t, std::span<const std::byte> data, id_t id, size_t size) {
+    { t.writeSegment(data) }        -> std::convertible_to<id_t>;
+    { t.createSegment(size) }       -> std::convertible_to<id_t>;
     // { t.deleteSegment(id) }     -> std::same_as<void>;
 };
 
