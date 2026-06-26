@@ -860,7 +860,7 @@ class BAR_Environment:
         1
         """
 
-        n_agents = 2
+        n_agents = 3
 
         return n_agents
 

@@ -41,7 +41,7 @@ class SharedReplayBuffer:
     """
 
     def __init__(self, num_agents: int, obs_shape, action_shape, buffer_size: int,
-                 device=torch.device("cpu")):
+                 device=torch.device("cpu"), action_dim=None):
         """
         Initializes the shared replay buffer and allocates storage arrays.
 
@@ -59,6 +59,10 @@ class SharedReplayBuffer:
             Maximum number of rollout steps stored in the buffer.
         device : torch.device, optional
             Torch device used for training, by default torch.device("cpu").
+        action_dim : int, optional
+            Number of discrete actions available to each agent. This is used
+            for the available_actions buffer. If None, it is inferred from
+            action_shape as a fallback.
 
         Returns
         -------
@@ -76,6 +80,22 @@ class SharedReplayBuffer:
         self.buffer_size = buffer_size
         self.device = device
 
+        # Determine action_dim for available_actions.
+        #
+        # Important:
+        # - action_shape describes the stored selected action, e.g. (1,)
+        # - action_dim describes the number of possible discrete actions, e.g. 7
+        #
+        # If action_dim is not explicitly provided, we infer a fallback from
+        # action_shape to keep old constructor calls compatible.
+        if action_dim is None:
+            if isinstance(action_shape, (tuple, list)) and len(action_shape) > 0:
+                action_dim = int(action_shape[0])
+            else:
+                action_dim = int(action_shape)
+
+        self.action_dim = int(action_dim)
+
         # Allocate buffers
         self.share_obs = np.zeros((buffer_size + 1, *obs_shape), dtype=np.float32)
         self.obs = np.zeros((buffer_size + 1, num_agents, *obs_shape), dtype=np.float32)
@@ -88,7 +108,7 @@ class SharedReplayBuffer:
         self.action_log_probs = np.zeros((buffer_size, num_agents, 1), dtype=np.float32)
         self.rnn_states = np.zeros((buffer_size + 1, num_agents, 1), dtype=np.float32)  # Placeholder
         self.rnn_states_critic = np.zeros((buffer_size + 1, num_agents, 1), dtype=np.float32)  # Placeholder
-        self.available_actions = np.ones((buffer_size + 1, num_agents, action_dim), dtype=np.float32)  # Placeholder
+        self.available_actions = np.ones((buffer_size + 1, num_agents, self.action_dim), dtype=np.float32)  # Placeholder
 
         self.step = 0
 
@@ -147,7 +167,46 @@ class SharedReplayBuffer:
         self.rewards[self.step] = rewards
         self.masks[self.step + 1] = masks
         self.active_masks[self.step + 1] = active_masks
+
         if available_actions is not None:
+            available_actions = np.asarray(available_actions, dtype=np.float32)
+
+            # If the buffer was created without explicit action_dim, it may have
+            # inferred action_dim from action_shape, e.g. action_shape=(1,).
+            # For discrete action spaces, available_actions can have a different
+            # final dimension, e.g. 7. Resize once if needed.
+            if available_actions.shape[-1] != self.available_actions.shape[-1]:
+                self.action_dim = int(available_actions.shape[-1])
+                new_available_actions = np.ones(
+                    (self.buffer_size + 1, self.num_agents, self.action_dim),
+                    dtype=np.float32,
+                )
+
+                steps_to_copy = min(
+                    self.available_actions.shape[0],
+                    new_available_actions.shape[0],
+                )
+                agents_to_copy = min(
+                    self.available_actions.shape[1],
+                    new_available_actions.shape[1],
+                )
+                actions_to_copy = min(
+                    self.available_actions.shape[2],
+                    new_available_actions.shape[2],
+                )
+
+                new_available_actions[
+                    :steps_to_copy,
+                    :agents_to_copy,
+                    :actions_to_copy,
+                ] = self.available_actions[
+                    :steps_to_copy,
+                    :agents_to_copy,
+                    :actions_to_copy,
+                ]
+
+                self.available_actions = new_available_actions
+
             self.available_actions[self.step + 1] = available_actions
 
         self.step = (self.step + 1) % self.buffer_size
@@ -358,3 +417,6 @@ class SharedReplayBuffer:
         self.masks.fill(1.0)
         self.active_masks.fill(1.0)
         self.action_log_probs.fill(0.0)
+        self.rnn_states.fill(0.0)
+        self.rnn_states_critic.fill(0.0)
+        self.available_actions.fill(1.0)

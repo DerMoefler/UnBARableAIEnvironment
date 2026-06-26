@@ -1,96 +1,66 @@
 """
-Training script integrating BAR environment, policy, replay buffer, and R_MAPPO trainer.
+Simulated BAR 3v3 pawn training test.
 
-Parameters
-----------
-None
+Run:
+    uv run tests/test_bar_3v3_training.py
 
-Returns
--------
-None
-
-Examples
---------
->>> PYTHONUNBUFFERED=1 uv run src/train/train.py
->>> uv run python -u src/train/train.py
->>> PYTHONUNBUFFERED=1 uv run src/train/train.py --num-episodes 100 --num-mini-batch 4
+This version logs:
+- episode reward
+- steps
+- win/loss
+- final ally alive
+- final enemy alive
+- enemy damage done
+- own damage taken
+- action counts
+- action trace
+- entropy
+- policy/value loss
 """
 
 from __future__ import annotations
 
-import wandb
-
-print("DEBUG: script started", flush=True)
-
 import argparse
 import inspect
+import random
 import traceback
 from typing import Any
 
-print("DEBUG: stdlib imports done", flush=True)
-
 import numpy as np
-print("DEBUG: numpy imported", flush=True)
-
 import torch
-print("DEBUG: torch imported", flush=True)
 
-from src.environment.bar_environment import BAR_Environment, EngineSessionConfig
-print("DEBUG: bar_environment imported", flush=True)
+
+# ---------------------------------------------------------------------------
+# IMPORTANT:
+# If this import does not match your project, replace it with the import
+# from your old tests/test_bar_3v3_training.py file.
+# ---------------------------------------------------------------------------
+try:
+    from src.environment.simulated_bar_3v3_pawn_env import SimulatedBAR3v3PawnEnv
+except ImportError:
+    try:
+        from src.environment.bar_3v3_pawn_env import SimulatedBAR3v3PawnEnv
+    except ImportError:
+        try:
+            from src.environment.bar_environment import SimulatedBAR3v3PawnEnv
+        except ImportError as import_err:
+            raise ImportError(
+                "Could not import SimulatedBAR3v3PawnEnv.\n"
+                "Open your old tests/test_bar_3v3_training.py and copy the correct "
+                "SimulatedBAR3v3PawnEnv import into this file."
+            ) from import_err
+
 
 from src.train.policy import R_MAPPO_Policy
-print("DEBUG: policy imported", flush=True)
-
 from src.train.replay_buffer import SharedReplayBuffer
-print("DEBUG: replay_buffer imported", flush=True)
-
 from src.train.r_mappo import R_MAPPO
-print("DEBUG: r_mappo imported", flush=True)
 
 
-# -----------------------------------------------------------------------------
-# Trainer-Args
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Trainer args
+# ---------------------------------------------------------------------------
 class TrainerArgs:
-    """
-    Config namespace for the R_MAPPO trainer.
-
-    Parameters
-    ----------
-    None
-
-    Returns
-    -------
-    TrainerArgs
-        A configuration object containing hyperparameters and feature flags
-        used by the R_MAPPO trainer.
-
-    Examples
-    --------
-    >>> args = TrainerArgs()
-    >>> args.clip_param
-    0.2
-    """
-
     def __init__(self) -> None:
-        """
-        Initializes the trainer configuration with default hyperparameters.
-
-        Parameters
-        ----------
-        self : TrainerArgs
-            The trainer configuration instance.
-
-        Returns
-        -------
-        None
-
-        Examples
-        --------
-        >>> args = TrainerArgs()
-        >>> args.num_mini_batch
-        4
-        """
         self.clip_param = 0.2
         self.ppo_epoch = 10
         self.num_mini_batch = 4
@@ -111,68 +81,16 @@ class TrainerArgs:
         self.use_policy_active_masks = True
 
 
-# -----------------------------------------------------------------------------
-# Hilfsfunktionen
-# -----------------------------------------------------------------------------
-def _as_bool_done(x: Any) -> bool:
-    """
-    Converts terminated/truncated values robustly into a single boolean.
-
-    Parameters
-    ----------
-    x : Any
-        Input value representing termination state. Can be a bool, list, tuple,
-        or numpy array.
-
-    Returns
-    -------
-    done : bool
-        A single boolean indicating whether the input should be interpreted
-        as done.
-
-    Examples
-    --------
-    >>> _as_bool_done(True)
-    True
-    >>> _as_bool_done([True, True])
-    True
-    >>> _as_bool_done([True, False])
-    False
-    """
-    if isinstance(x, (bool, np.bool_)):
-        return bool(x)
-
-    arr = np.asarray(x)
-    if arr.size == 0:
-        return False
-    return bool(arr.all())
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
 def _prepare_obs(obs: Any, num_agents: int, obs_dim: int) -> np.ndarray:
-    """
-    Converts observations into shape (num_agents, obs_dim).
-
-    Parameters
-    ----------
-    obs : Any
-        Raw observation input from the environment.
-    num_agents : int
-        Number of agents.
-    obs_dim : int
-        Observation dimension per agent.
-
-    Returns
-    -------
-    prepared_obs : np.ndarray
-        A 2-D numpy array with shape (num_agents, obs_dim).
-
-    Examples
-    --------
-    >>> _prepare_obs([1.0, 2.0], 2, 2).shape
-    (2, 2)
-    >>> _prepare_obs(None, 3, 4).shape
-    (3, 4)
-    """
     if obs is None:
         return np.zeros((num_agents, obs_dim), dtype=np.float32)
 
@@ -184,24 +102,24 @@ def _prepare_obs(obs: Any, num_agents: int, obs_dim: int) -> np.ndarray:
         elif arr.size == num_agents * obs_dim:
             arr = arr.reshape(num_agents, obs_dim)
         else:
-            flat = np.zeros((num_agents * obs_dim,), dtype=np.float32)
-            n = min(flat.size, arr.size)
-            flat[:n] = arr.reshape(-1)[:n]
-            arr = flat.reshape(num_agents, obs_dim)
+            fixed = np.zeros((num_agents * obs_dim,), dtype=np.float32)
+            n = min(fixed.size, arr.size)
+            fixed[:n] = arr.reshape(-1)[:n]
+            arr = fixed.reshape(num_agents, obs_dim)
 
     elif arr.ndim >= 2:
         if arr.shape[0] != num_agents:
             flat = arr.reshape(-1)
-            padded = np.zeros((num_agents * obs_dim,), dtype=np.float32)
-            n = min(padded.size, flat.size)
-            padded[:n] = flat[:n]
-            arr = padded.reshape(num_agents, obs_dim)
+            fixed = np.zeros((num_agents * obs_dim,), dtype=np.float32)
+            n = min(fixed.size, flat.size)
+            fixed[:n] = flat[:n]
+            arr = fixed.reshape(num_agents, obs_dim)
         else:
             arr = arr.reshape(num_agents, -1)
-            current_dim = arr.shape[1]
-            if current_dim != obs_dim:
+
+            if arr.shape[1] != obs_dim:
                 fixed = np.zeros((num_agents, obs_dim), dtype=np.float32)
-                n = min(obs_dim, current_dim)
+                n = min(obs_dim, arr.shape[1])
                 fixed[:, :n] = arr[:, :n]
                 arr = fixed
 
@@ -213,42 +131,7 @@ def _prepare_share_obs(
     obs: np.ndarray,
     num_agents: int,
     obs_dim: int,
-    use_centralized_v: bool = True,
 ) -> np.ndarray:
-    """
-    Prepares shared observations for the centralized critic.
-
-    Parameters
-    ----------
-    share_obs : Any
-        Raw shared observation input from the environment.
-    obs : np.ndarray
-        Prepared per-agent observations.
-    num_agents : int
-        Number of agents.
-    obs_dim : int
-        Observation dimension per agent.
-    use_centralized_v : bool, optional
-        Whether to use centralized value input, by default True.
-
-    Returns
-    -------
-    prepared_share_obs : np.ndarray
-        A 1-D numpy array representing the shared/global observation if
-        centralized value estimation is enabled, otherwise the original
-        per-agent observations.
-
-    Examples
-    --------
-    >>> obs = np.zeros((2, 4), dtype=np.float32)
-    >>> _prepare_share_obs(None, obs, 2, 4).shape
-    (4,)
-    >>> _prepare_share_obs(None, obs, 2, 4, use_centralized_v=False).shape
-    (2, 4)
-    """
-    if not use_centralized_v:
-        return obs.astype(np.float32)
-
     if share_obs is None:
         return obs.mean(axis=0).astype(np.float32)
 
@@ -257,6 +140,7 @@ def _prepare_share_obs(
     if arr.ndim == 1:
         if arr.size == obs_dim:
             return arr.astype(np.float32)
+
         fixed = np.zeros((obs_dim,), dtype=np.float32)
         n = min(obs_dim, arr.size)
         fixed[:n] = arr.reshape(-1)[:n]
@@ -265,6 +149,7 @@ def _prepare_share_obs(
     if arr.ndim >= 2:
         if arr.shape[0] == num_agents:
             arr = arr.reshape(num_agents, -1)
+
             if arr.shape[1] == obs_dim:
                 return arr.mean(axis=0).astype(np.float32)
 
@@ -287,31 +172,6 @@ def _prepare_available_actions(
     num_agents: int,
     action_dim: int,
 ) -> np.ndarray:
-    """
-    Converts available actions into shape (num_agents, action_dim).
-
-    Parameters
-    ----------
-    available_actions : Any
-        Raw available-actions input from the environment.
-    num_agents : int
-        Number of agents.
-    action_dim : int
-        Action dimension per agent.
-
-    Returns
-    -------
-    prepared_available_actions : np.ndarray
-        A 2-D numpy array with shape (num_agents, action_dim). If the
-        environment does not provide legal actions, all actions are assumed
-        to be available.
-
-    Examples
-    --------
-    >>> _prepare_available_actions(None, 2, 3)
-    array([[1., 1., 1.],
-           [1., 1., 1.]], dtype=float32)
-    """
     if available_actions is None:
         return np.ones((num_agents, action_dim), dtype=np.float32)
 
@@ -337,6 +197,7 @@ def _prepare_available_actions(
             arr = fixed.reshape(num_agents, action_dim)
         else:
             arr = arr.reshape(num_agents, -1)
+
             if arr.shape[1] != action_dim:
                 fixed = np.ones((num_agents, action_dim), dtype=np.float32)
                 n = min(action_dim, arr.shape[1])
@@ -347,29 +208,6 @@ def _prepare_available_actions(
 
 
 def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
-    """
-    Converts rewards into shape (num_agents, 1).
-
-    Parameters
-    ----------
-    reward : Any
-        Raw reward signal from the environment.
-    num_agents : int
-        Number of agents.
-
-    Returns
-    -------
-    prepared_reward : np.ndarray
-        A 2-D numpy array with shape (num_agents, 1).
-
-    Examples
-    --------
-    >>> _prepare_reward(1.0, 2)
-    array([[1.],
-           [1.]], dtype=float32)
-    >>> _prepare_reward([1.0, 2.0], 2).shape
-    (2, 1)
-    """
     if reward is None:
         return np.zeros((num_agents, 1), dtype=np.float32)
 
@@ -377,6 +215,7 @@ def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
 
     if arr.ndim == 0:
         arr = np.full((num_agents, 1), float(arr), dtype=np.float32)
+
     elif arr.ndim == 1:
         if arr.size == 1:
             arr = np.full((num_agents, 1), float(arr[0]), dtype=np.float32)
@@ -387,37 +226,15 @@ def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
             n = min(num_agents, arr.size)
             fixed[:n] = arr[:n]
             arr = fixed.reshape(num_agents, 1)
+
     else:
         arr = arr.reshape(num_agents, -1)
-        if arr.shape[1] != 1:
-            arr = arr[:, :1]
+        arr = arr[:, :1]
 
     return arr.astype(np.float32)
 
 
 def _prepare_dones(done_like: Any, num_agents: int) -> np.ndarray:
-    """
-    Converts done-like values into shape (num_agents,).
-
-    Parameters
-    ----------
-    done_like : Any
-        Raw done signal from the environment.
-    num_agents : int
-        Number of agents.
-
-    Returns
-    -------
-    prepared_dones : np.ndarray
-        A 1-D boolean numpy array with shape (num_agents,).
-
-    Examples
-    --------
-    >>> _prepare_dones(True, 3)
-    array([ True,  True,  True])
-    >>> _prepare_dones([True, False], 2)
-    array([ True, False])
-    """
     if done_like is None:
         return np.zeros((num_agents,), dtype=bool)
 
@@ -430,33 +247,11 @@ def _prepare_dones(done_like: Any, num_agents: int) -> np.ndarray:
     fixed = np.zeros((num_agents,), dtype=bool)
     n = min(num_agents, arr.size)
     fixed[:n] = arr[:n]
+
     return fixed
 
 
 def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
-    """
-    Converts critic output into a buffer-compatible array.
-
-    Parameters
-    ----------
-    value_tensor : torch.Tensor
-        Critic output tensor.
-    num_agents : int
-        Number of agents.
-
-    Returns
-    -------
-    repeated_values : np.ndarray
-        A 2-D numpy array with shape (num_agents, 1).
-
-    Examples
-    --------
-    >>> import torch
-    >>> _repeat_value(torch.tensor([1.0]), 3)
-    array([[1.],
-           [1.],
-           [1.]], dtype=float32)
-    """
     value_np = value_tensor.detach().cpu().numpy().reshape(-1)
 
     if value_np.size == 1:
@@ -465,35 +260,11 @@ def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
     fixed = np.zeros((num_agents,), dtype=np.float32)
     n = min(num_agents, value_np.size)
     fixed[:n] = value_np[:n]
+
     return fixed.reshape(num_agents, 1)
 
 
 def _extract_bad_masks(step_info: Any, num_agents: int) -> np.ndarray:
-    """
-    Extracts bad transition masks from environment info structures.
-
-    Parameters
-    ----------
-    step_info : Any
-        Environment info object. Can be a dict, a list of dicts, or None.
-    num_agents : int
-        Number of agents.
-
-    Returns
-    -------
-    bad_masks : np.ndarray
-        A 2-D numpy array with shape (num_agents, 1), where 0.0 indicates
-        a bad transition and 1.0 indicates a normal transition.
-
-    Examples
-    --------
-    >>> _extract_bad_masks({"bad_transition": True}, 2)
-    array([[0.],
-           [0.]], dtype=float32)
-    >>> _extract_bad_masks(None, 2)
-    array([[1.],
-           [1.]], dtype=float32)
-    """
     bad_masks = np.ones((num_agents, 1), dtype=np.float32)
 
     if step_info is None:
@@ -505,9 +276,8 @@ def _extract_bad_masks(step_info: Any, num_agents: int) -> np.ndarray:
             return np.full((num_agents, 1), val, dtype=np.float32)
 
         for i in range(num_agents):
-            agent_key = i
-            if agent_key in step_info and isinstance(step_info[agent_key], dict):
-                val = 0.0 if bool(step_info[agent_key].get("bad_transition", False)) else 1.0
+            if i in step_info and isinstance(step_info[i], dict):
+                val = 0.0 if bool(step_info[i].get("bad_transition", False)) else 1.0
                 bad_masks[i, 0] = val
 
         return bad_masks
@@ -515,36 +285,112 @@ def _extract_bad_masks(step_info: Any, num_agents: int) -> np.ndarray:
     if isinstance(step_info, (list, tuple)):
         for i in range(min(num_agents, len(step_info))):
             item = step_info[i]
+
             if isinstance(item, dict):
                 bad_masks[i, 0] = 0.0 if bool(item.get("bad_transition", False)) else 1.0
+
         return bad_masks
 
     return bad_masks
 
 
-def _infer_buffer_insert_mode(buffer) -> str:
+def _extract_episode_debug_from_info(step_info: Any) -> dict[str, Any]:
     """
-    Infers the insert signature style of the replay buffer.
+    Extract win/loss/alive/debug metrics from env info.
 
-    Parameters
-    ----------
-    buffer : Any
-        Replay buffer instance.
-
-    Returns
-    -------
-    insert_mode : str
-        Either "extended" for MAPPO-style insert signatures or "simple"
-        for reduced signatures.
-
-    Examples
-    --------
-    >>> class Dummy:
-    ...     def insert(self, obs, actions):
-    ...         pass
-    >>> _infer_buffer_insert_mode(Dummy())
-    'simple'
+    Supports:
+    - dict
+    - list/tuple of dicts
     """
+
+    result: dict[str, Any] = {
+        "won": False,
+        "lost": False,
+        "ally_alive": None,
+        "enemy_alive": None,
+        "enemy_damage_done": 0.0,
+        "own_damage_taken": 0.0,
+        "info_keys": [],
+    }
+
+    infos: list[dict[str, Any]] = []
+
+    if isinstance(step_info, dict):
+        infos = [step_info]
+
+    elif isinstance(step_info, (list, tuple)):
+        infos = [x for x in step_info if isinstance(x, dict)]
+
+    for info in infos:
+        result["info_keys"].extend(list(info.keys()))
+
+        if bool(info.get("won", False)):
+            result["won"] = True
+
+        if bool(info.get("lost", False)):
+            result["lost"] = True
+
+        for ally_key in [
+            "ally_alive",
+            "allies_alive",
+            "num_ally_alive",
+            "final_ally_alive",
+            "ally_units_alive",
+            "alive_allies",
+        ]:
+            if ally_key in info:
+                result["ally_alive"] = info[ally_key]
+
+        for enemy_key in [
+            "enemy_alive",
+            "enemies_alive",
+            "num_enemy_alive",
+            "final_enemy_alive",
+            "enemy_units_alive",
+            "alive_enemies",
+        ]:
+            if enemy_key in info:
+                result["enemy_alive"] = info[enemy_key]
+
+        for damage_key in [
+            "enemy_damage_done",
+            "damage_done",
+            "damage_to_enemy",
+            "enemy_damage",
+        ]:
+            if damage_key in info:
+                result["enemy_damage_done"] += float(info.get(damage_key, 0.0))
+                break
+
+        for damage_key in [
+            "own_damage_taken",
+            "damage_taken",
+            "ally_damage_taken",
+            "own_damage",
+        ]:
+            if damage_key in info:
+                result["own_damage_taken"] += float(info.get(damage_key, 0.0))
+                break
+
+    # Infer win/loss if explicit won/lost is not provided.
+    try:
+        if result["enemy_alive"] is not None and int(result["enemy_alive"]) <= 0:
+            result["won"] = True
+    except Exception:
+        pass
+
+    try:
+        if result["ally_alive"] is not None and int(result["ally_alive"]) <= 0:
+            result["lost"] = True
+    except Exception:
+        pass
+
+    result["info_keys"] = sorted(set(result["info_keys"]))
+
+    return result
+
+
+def _infer_buffer_insert_mode(buffer: Any) -> str:
     try:
         sig = inspect.signature(buffer.insert)
         params = list(sig.parameters.keys())
@@ -553,32 +399,9 @@ def _infer_buffer_insert_mode(buffer) -> str:
             return "extended"
 
         return "simple"
+
     except Exception:
         return "simple"
-
-
-def _maybe_buffer_has_available_actions(buffer) -> bool:
-    """
-    Checks whether the replay buffer stores available actions.
-
-    Parameters
-    ----------
-    buffer : Any
-        Replay buffer instance.
-
-    Returns
-    -------
-    has_available_actions : bool
-        True if the buffer has an `available_actions` attribute, otherwise False.
-
-    Examples
-    --------
-    >>> class Dummy:
-    ...     available_actions = None
-    >>> _maybe_buffer_has_available_actions(Dummy())
-    True
-    """
-    return hasattr(buffer, "available_actions")
 
 
 def _make_rnn_state_arrays(
@@ -586,34 +409,8 @@ def _make_rnn_state_arrays(
     recurrent_n: int = 1,
     hidden_size: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Creates default RNN state arrays for recurrent or non-recurrent policies.
-
-    Parameters
-    ----------
-    num_agents : int
-        Number of agents.
-    recurrent_n : int, optional
-        Number of recurrent layers, by default 1.
-    hidden_size : int, optional
-        Hidden size of the recurrent state, by default 1.
-
-    Returns
-    -------
-    rnn_states : np.ndarray
-        A zero-initialized numpy array for actor RNN states.
-    rnn_states_critic : np.ndarray
-        A zero-initialized numpy array for critic RNN states.
-
-    Examples
-    --------
-    >>> a, b = _make_rnn_state_arrays(2, recurrent_n=1, hidden_size=4)
-    >>> a.shape
-    (2, 1, 4)
-    >>> b.shape
-    (2, 1, 4)
-    """
     rnn_shape = (num_agents, recurrent_n, hidden_size)
+
     return (
         np.zeros(rnn_shape, dtype=np.float32),
         np.zeros(rnn_shape, dtype=np.float32),
@@ -621,51 +418,25 @@ def _make_rnn_state_arrays(
 
 
 def _policy_sample_actions(
-    policy,
+    policy: Any,
     obs: np.ndarray,
     share_obs: np.ndarray,
     available_actions: np.ndarray,
     device: torch.device,
     num_agents: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Samples actions robustly from the policy.
-
-    Parameters
-    ----------
-    policy : Any
-        Policy object. Preferably implements `get_actions(...)`.
-    obs : np.ndarray
-        Per-agent observations.
-    share_obs : np.ndarray
-        Shared observations for the critic.
-    available_actions : np.ndarray
-        Legal action masks per agent.
-    device : torch.device
-        Torch device on which inference is performed.
-    num_agents : int
-        Number of agents.
-
-    Returns
-    -------
-    values : np.ndarray
-        Value predictions with shape (num_agents, 1).
-    actions : np.ndarray
-        Sampled actions with shape (num_agents, 1).
-    action_log_probs : np.ndarray
-        Log-probabilities of the sampled actions with shape (num_agents, 1).
-
-    Examples
-    --------
-    >>> # Example usage depends on a valid policy implementation
-    >>> # values, actions, log_probs = _policy_sample_actions(policy, obs, share_obs, avail, device, 2)
-    """
     if hasattr(policy, "get_actions") and callable(policy.get_actions):
         rnn_states, rnn_states_critic = _make_rnn_state_arrays(num_agents)
         masks = np.ones((num_agents, 1), dtype=np.float32)
 
+        share_obs_for_policy = (
+            share_obs
+            if share_obs.ndim > 1
+            else np.repeat(share_obs[None, :], num_agents, axis=0)
+        )
+
         value, action, action_log_prob, _, _ = policy.get_actions(
-            share_obs if share_obs.ndim > 1 else np.repeat(share_obs[None, :], num_agents, axis=0),
+            share_obs_for_policy,
             obs,
             rnn_states,
             rnn_states_critic,
@@ -696,8 +467,11 @@ def _policy_sample_actions(
         action_log_probs = action_dist.log_prob(actions)
 
         share_obs_tensor = torch.as_tensor(
-            share_obs, dtype=torch.float32, device=device
+            share_obs,
+            dtype=torch.float32,
+            device=device,
         ).unsqueeze(0)
+
         values = policy.critic(share_obs_tensor)
 
     value_preds = _repeat_value(values, num_agents)
@@ -707,141 +481,189 @@ def _policy_sample_actions(
     return value_preds, action_np, action_log_prob_np
 
 
-def _reset_rnn_states_for_done_env(
-    rnn_states: np.ndarray,
-    rnn_states_critic: np.ndarray,
-    done_env: bool,
-) -> tuple[np.ndarray, np.ndarray]:
+def _create_env(args: argparse.Namespace):
     """
-    Resets RNN states when an episode has ended.
-
-    Parameters
-    ----------
-    rnn_states : np.ndarray
-        Actor RNN states.
-    rnn_states_critic : np.ndarray
-        Critic RNN states.
-    done_env : bool
-        Whether the whole episode/environment is done.
-
-    Returns
-    -------
-    rnn_states : np.ndarray
-        Possibly reset actor RNN states.
-    rnn_states_critic : np.ndarray
-        Possibly reset critic RNN states.
-
-    Examples
-    --------
-    >>> a = np.ones((2, 1, 1), dtype=np.float32)
-    >>> b = np.ones((2, 1, 1), dtype=np.float32)
-    >>> a2, b2 = _reset_rnn_states_for_done_env(a, b, True)
-    >>> a2.sum()
-    0.0
+    Creates the simulated env while tolerating different constructor signatures.
     """
-    if done_env:
-        rnn_states[:] = 0.0
-        rnn_states_critic[:] = 0.0
-    return rnn_states, rnn_states_critic
+
+    try:
+        return SimulatedBAR3v3PawnEnv(
+            max_steps=args.max_steps,
+            seed=args.seed,
+            debug=args.debug_env,
+        )
+    except TypeError:
+        pass
+
+    try:
+        return SimulatedBAR3v3PawnEnv(
+            max_steps=args.max_steps,
+            seed=args.seed,
+        )
+    except TypeError:
+        pass
+
+    try:
+        return SimulatedBAR3v3PawnEnv()
+    except TypeError as err:
+        raise RuntimeError(
+            "Could not construct SimulatedBAR3v3PawnEnv. "
+            "Check the constructor in your old test file."
+        ) from err
 
 
-# -----------------------------------------------------------------------------
-# Hauptprogramm
-# -----------------------------------------------------------------------------
+def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any]]:
+    obs_raw = None
+    share_obs_raw = None
+    available_actions_raw = None
+    info: dict[str, Any] = {}
+
+    if isinstance(reset_result, tuple):
+        if len(reset_result) >= 1:
+            obs_raw = reset_result[0]
+
+        if len(reset_result) >= 2:
+            second = reset_result[1]
+
+            if isinstance(second, dict):
+                info = second
+            else:
+                share_obs_raw = second
+
+        if len(reset_result) >= 3:
+            third = reset_result[2]
+
+            if isinstance(third, dict):
+                info = third
+            else:
+                available_actions_raw = third
+
+        if len(reset_result) >= 4:
+            fourth = reset_result[3]
+
+            if isinstance(fourth, dict):
+                info = fourth
+            else:
+                available_actions_raw = fourth
+
+    else:
+        obs_raw = reset_result
+
+    return obs_raw, share_obs_raw, available_actions_raw, info
+
+
+def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+    if not isinstance(step_result, tuple):
+        raise RuntimeError("env.step(...) must return a tuple.")
+
+    next_obs_raw = None
+    next_share_obs_raw = None
+    reward = None
+    terminated = None
+    truncated = None
+    step_info = {}
+    next_available_actions_raw = None
+
+    if len(step_result) == 5:
+        next_obs_raw, reward, terminated, truncated, step_info = step_result
+
+    elif len(step_result) == 6:
+        (
+            next_obs_raw,
+            next_share_obs_raw,
+            reward,
+            terminated,
+            truncated,
+            step_info,
+        ) = step_result
+
+    elif len(step_result) >= 7:
+        (
+            next_obs_raw,
+            next_share_obs_raw,
+            reward,
+            terminated,
+            truncated,
+            step_info,
+            next_available_actions_raw,
+        ) = step_result[:7]
+
+    else:
+        raise RuntimeError(
+            "env.step(...) must return one of:\n"
+            "(obs, reward, terminated, truncated, info)\n"
+            "(obs, share_obs, reward, terminated, truncated, info)\n"
+            "(obs, share_obs, reward, terminated, truncated, info, available_actions)"
+        )
+
+    return (
+        next_obs_raw,
+        next_share_obs_raw,
+        reward,
+        terminated,
+        truncated,
+        step_info,
+        next_available_actions_raw,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main() -> None:
-    """
-    Runs the training loop for the BAR environment using R_MAPPO.
+    parser = argparse.ArgumentParser(
+        description="Train simulated BAR 3v3 pawn environment with R_MAPPO"
+    )
 
-    Parameters
-    ----------
-    None
-
-    Returns
-    -------
-    None
-
-    Examples
-    --------
-    >>> # Run from command line:
-    >>> # PYTHONUNBUFFERED=1 uv run src/train/train.py --num-episodes 10
-    """
-    print("DEBUG: entered main()", flush=True)
-
-    parser = argparse.ArgumentParser(description="Train BAR environment with R_MAPPO")
-    parser.add_argument("--num-episodes", type=int, default=10, help="Number of episodes")
-    parser.add_argument("--num-mini-batch", type=int, default=4, help="Number of mini-batches")
-    parser.add_argument("--buffer-size", type=int, default=256, help="Replay buffer size")
-    parser.add_argument("--num-agents", type=int, default=2, help="Number of agents")
-    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate")
-    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
-    parser.add_argument("--device", type=str, default="cpu", help="Device (cpu/cuda)")
-    parser.add_argument(
-        "--obs-dim",
-        type=int,
-        default=128,
-        help="Observation dimension (Fallback, falls nicht aus Env ableitbar)",
-    )
-    parser.add_argument(
-        "--action-dim",
-        type=int,
-        default=7,
-        help="Action dimension (Fallback, falls nicht aus Env ableitbar)",
-    )
-    parser.add_argument(
-        "--debug-shapes",
-        action="store_true",
-        help="Print tensor/array shapes during rollout",
-    )
-    parser.add_argument(
-        "--use-centralized-v",
-        action="store_true",
-        default=True,
-        help="Use centralized critic input (share_obs).",
-    )
-    parser.add_argument(
-        "--use-wandb",
-        action="store_true",
-        default=False,
-        help="Use Weights & Biases for experiment tracking",
-    )
+    parser.add_argument("--num-episodes", type=int, default=10)
+    parser.add_argument("--num-mini-batch", type=int, default=4)
+    parser.add_argument("--buffer-size", type=int, default=128)
+    parser.add_argument("--num-agents", type=int, default=3)
+    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--obs-dim", type=int, default=32)
+    parser.add_argument("--action-dim", type=int, default=7)
+    parser.add_argument("--max-steps", type=int, default=128)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--debug-env", action="store_true")
+    parser.add_argument("--debug-shapes", action="store_true")
 
     args = parser.parse_args()
-    print("DEBUG: args parsed", flush=True)
+
     print(f"DEBUG: args = {args}", flush=True)
+
+    _set_seed(args.seed)
 
     device = torch.device(args.device)
     print(f"DEBUG: device = {device}", flush=True)
 
-    success = False
     env = None
-
-    if args.use_wandb:
-        wandb.init(project="ki",
-                   name="1",
-                   config=vars(args),
-        )
+    success = False
 
     try:
-        print("Initializing BAR environment...", flush=True)
-        env_config = EngineSessionConfig()
-        print("DEBUG: EngineSessionConfig created", flush=True)
+        print("Initializing simulated BAR 3v3 pawn environment (no shared memory)...", flush=True)
 
-        env = BAR_Environment(env_config)
-        print("DEBUG: BAR_Environment created", flush=True)
+        env = _create_env(args)
+
+        print("DEBUG: SimulatedBAR3v3PawnEnv created", flush=True)
 
         obs_dim = args.obs_dim
         action_dim = args.action_dim
 
-        print(
-            f"Using obs_dim={obs_dim}, action_dim={action_dim}, num_agents={args.num_agents}",
-            flush=True,
+        print("Initializing policy...", flush=True)
+
+        policy = R_MAPPO_Policy(
+            obs_dim,
+            action_dim,
+            device=device,
+            lr=args.lr,
         )
 
-        print("Initializing policy...", flush=True)
-        policy = R_MAPPO_Policy(obs_dim, action_dim, device=device, lr=args.lr)
         print("DEBUG: policy created", flush=True)
 
         print("Initializing replay buffer...", flush=True)
+
         buffer = SharedReplayBuffer(
             num_agents=args.num_agents,
             obs_shape=(obs_dim,),
@@ -849,18 +671,25 @@ def main() -> None:
             buffer_size=args.buffer_size,
             device=device,
         )
+
         print("DEBUG: replay buffer created", flush=True)
 
         insert_mode = _infer_buffer_insert_mode(buffer)
         print(f"DEBUG: buffer insert mode = {insert_mode}", flush=True)
 
         print("Initializing R_MAPPO trainer...", flush=True)
+
         trainer_args = TrainerArgs()
         trainer_args.num_mini_batch = args.num_mini_batch
-        trainer = R_MAPPO(trainer_args, policy, device=device)
-        print("DEBUG: trainer created", flush=True)
 
-        print("\nStarting training loop...", flush=True)
+        trainer = R_MAPPO(
+            trainer_args,
+            policy,
+            device=device,
+        )
+
+        print("DEBUG: trainer created", flush=True)
+        print("\nStarting simulated 3v3 pawn training loop...", flush=True)
 
         recurrent_n = 1
         hidden_size = 1
@@ -869,45 +698,28 @@ def main() -> None:
             print(f"DEBUG: starting episode {episode + 1}", flush=True)
 
             reset_result = env.reset()
+
             print("DEBUG: env.reset() returned", flush=True)
 
-            obs_raw = None
-            share_obs_raw = None
-            info = {}
-            available_actions_raw = None
+            obs_raw, share_obs_raw, available_actions_raw, reset_info = _parse_reset_result(
+                reset_result
+            )
 
-            if isinstance(reset_result, tuple):
-                if len(reset_result) >= 1:
-                    obs_raw = reset_result[0]
-                if len(reset_result) >= 2:
-                    second = reset_result[1]
-                    if isinstance(second, dict):
-                        info = second
-                    else:
-                        share_obs_raw = second
-                if len(reset_result) >= 3:
-                    third = reset_result[2]
-                    if isinstance(third, dict):
-                        info = third
-                    else:
-                        available_actions_raw = third
-                if len(reset_result) >= 4:
-                    fourth = reset_result[3]
-                    if isinstance(fourth, dict):
-                        info = fourth
-                    else:
-                        available_actions_raw = fourth
-            else:
-                obs_raw = reset_result
+            print(f"DEBUG: initial env info = {reset_info}", flush=True)
 
-            obs = _prepare_obs(obs_raw, args.num_agents, obs_dim)
+            obs = _prepare_obs(
+                obs_raw,
+                args.num_agents,
+                obs_dim,
+            )
+
             share_obs = _prepare_share_obs(
                 share_obs_raw,
                 obs,
                 args.num_agents,
                 obs_dim,
-                use_centralized_v=args.use_centralized_v,
             )
+
             available_actions = _prepare_available_actions(
                 available_actions_raw,
                 args.num_agents,
@@ -923,12 +735,28 @@ def main() -> None:
             done = False
             step_count = 0
 
+            # -------------------------------------------------------------
+            # Debug logging: actions, winner, alive counts
+            # -------------------------------------------------------------
+            action_counts = np.zeros(args.action_dim, dtype=np.int64)
+            action_trace: list[list[int]] = []
+
+            episode_won = False
+            episode_lost = False
+            final_ally_alive = None
+            final_enemy_alive = None
+            enemy_damage_done = 0.0
+            own_damage_taken = 0.0
+            last_info_keys: list[str] = []
+            final_step_info: Any = None
+
             rnn_states, rnn_states_critic = _make_rnn_state_arrays(
-                args.num_agents, recurrent_n=recurrent_n, hidden_size=hidden_size
+                args.num_agents,
+                recurrent_n=recurrent_n,
+                hidden_size=hidden_size,
             )
 
             trainer.prep_rollout()
-            print("DEBUG: trainer.prep_rollout() done", flush=True)
 
             while not done and step_count < args.buffer_size:
                 if args.debug_shapes:
@@ -945,82 +773,120 @@ def main() -> None:
 
                 env_actions = actions.reshape(args.num_agents)
 
+                # -------------------------------------------------------------
+                # Log which actions were taken.
+                # -------------------------------------------------------------
+                env_actions_int = [int(a) for a in env_actions]
+                action_trace.append(env_actions_int)
+
+                for a in env_actions_int:
+                    if 0 <= a < args.action_dim:
+                        action_counts[a] += 1
+                    else:
+                        print(
+                            f"WARNING: sampled invalid action {a}, "
+                            f"expected range [0, {args.action_dim - 1}]",
+                            flush=True,
+                        )
+
                 if args.debug_shapes:
-                    print(f"DEBUG: env_actions shape = {env_actions.shape}", flush=True)
+                    print(f"DEBUG: env_actions = {env_actions_int}", flush=True)
 
                 step_result = env.step(env_actions)
 
-                if not isinstance(step_result, tuple):
-                    raise RuntimeError(
-                        "env.step(...) muss ein Tupel liefern."
-                    )
+                (
+                    next_obs_raw,
+                    next_share_obs_raw,
+                    reward,
+                    terminated,
+                    truncated,
+                    step_info,
+                    next_available_actions_raw,
+                ) = _parse_step_result(step_result)
 
-                next_obs_raw = None
-                next_share_obs_raw = None
-                reward = None
-                terminated = None
-                truncated = None
-                step_info = {}
-                next_available_actions_raw = None
+                final_step_info = step_info
 
-                if len(step_result) == 5:
-                    next_obs_raw, reward, terminated, truncated, step_info = step_result
-                elif len(step_result) == 6:
-                    next_obs_raw, next_share_obs_raw, reward, terminated, truncated, step_info = step_result
-                elif len(step_result) >= 7:
-                    (
-                        next_obs_raw,
-                        next_share_obs_raw,
-                        reward,
-                        terminated,
-                        truncated,
-                        step_info,
-                        next_available_actions_raw,
-                    ) = step_result[:7]
-                else:
-                    raise RuntimeError(
-                        "env.step(...) muss eines dieser Tupel liefern:\n"
-                        "(obs, reward, terminated, truncated, info)\n"
-                        "(obs, share_obs, reward, terminated, truncated, info)\n"
-                        "(obs, share_obs, reward, terminated, truncated, info, available_actions)"
-                    )
+                # -------------------------------------------------------------
+                # Extract win/loss/alive/debug info from env info.
+                # -------------------------------------------------------------
+                debug_metrics = _extract_episode_debug_from_info(step_info)
 
-                terminated_arr = _prepare_dones(terminated, args.num_agents)
-                truncated_arr = _prepare_dones(truncated, args.num_agents)
-                dones = np.logical_or(terminated_arr, truncated_arr)
+                if debug_metrics["won"]:
+                    episode_won = True
+
+                if debug_metrics["lost"]:
+                    episode_lost = True
+
+                if debug_metrics["ally_alive"] is not None:
+                    final_ally_alive = debug_metrics["ally_alive"]
+
+                if debug_metrics["enemy_alive"] is not None:
+                    final_enemy_alive = debug_metrics["enemy_alive"]
+
+                enemy_damage_done += debug_metrics["enemy_damage_done"]
+                own_damage_taken += debug_metrics["own_damage_taken"]
+
+                if debug_metrics["info_keys"]:
+                    last_info_keys = debug_metrics["info_keys"]
+
+                terminated_arr = _prepare_dones(
+                    terminated,
+                    args.num_agents,
+                )
+
+                truncated_arr = _prepare_dones(
+                    truncated,
+                    args.num_agents,
+                )
+
+                dones = np.logical_or(
+                    terminated_arr,
+                    truncated_arr,
+                )
 
                 done_env = bool(np.all(dones))
                 done = done_env
 
-                next_obs = _prepare_obs(next_obs_raw, args.num_agents, obs_dim)
+                next_obs = _prepare_obs(
+                    next_obs_raw,
+                    args.num_agents,
+                    obs_dim,
+                )
+
                 next_share_obs = _prepare_share_obs(
                     next_share_obs_raw,
                     next_obs,
                     args.num_agents,
                     obs_dim,
-                    use_centralized_v=args.use_centralized_v,
                 )
+
                 next_available_actions = _prepare_available_actions(
                     next_available_actions_raw,
                     args.num_agents,
                     action_dim,
                 )
 
-                reward_arr = _prepare_reward(reward, args.num_agents)
+                reward_arr = _prepare_reward(
+                    reward,
+                    args.num_agents,
+                )
 
                 masks = np.ones((args.num_agents, 1), dtype=np.float32)
+
                 if done_env:
                     masks[:] = 0.0
+                    rnn_states[:] = 0.0
+                    rnn_states_critic[:] = 0.0
 
                 active_masks = np.ones((args.num_agents, 1), dtype=np.float32)
                 active_masks[dones] = 0.0
+
                 if done_env:
                     active_masks[:] = 1.0
 
-                bad_masks = _extract_bad_masks(step_info, args.num_agents)
-
-                rnn_states, rnn_states_critic = _reset_rnn_states_for_done_env(
-                    rnn_states, rnn_states_critic, done_env
+                bad_masks = _extract_bad_masks(
+                    step_info,
+                    args.num_agents,
                 )
 
                 if args.debug_shapes:
@@ -1035,7 +901,6 @@ def main() -> None:
                     print(f"DEBUG: masks shape = {masks.shape}", flush=True)
                     print(f"DEBUG: active_masks shape = {active_masks.shape}", flush=True)
                     print(f"DEBUG: bad_masks shape = {bad_masks.shape}", flush=True)
-                    print(f"DEBUG: available_actions shape = {available_actions.shape}", flush=True)
 
                 if insert_mode == "extended":
                     try:
@@ -1053,6 +918,7 @@ def main() -> None:
                             active_masks,
                             available_actions,
                         )
+
                     except TypeError:
                         buffer.insert(
                             share_obs=share_obs,
@@ -1068,6 +934,7 @@ def main() -> None:
                             active_masks=active_masks,
                             available_actions=available_actions,
                         )
+
                 else:
                     try:
                         buffer.insert(
@@ -1080,6 +947,7 @@ def main() -> None:
                             masks=masks,
                             active_masks=active_masks,
                         )
+
                     except TypeError:
                         buffer.insert(
                             share_obs,
@@ -1099,19 +967,41 @@ def main() -> None:
                 share_obs = next_share_obs
                 available_actions = next_available_actions
 
-            with torch.no_grad():
-                share_obs_tensor = torch.as_tensor(
-                    share_obs, dtype=torch.float32, device=device
-                ).unsqueeze(0)
-                next_value_tensor = policy.critic(share_obs_tensor)
-
-            next_value = _repeat_value(next_value_tensor, args.num_agents)
-
-            if args.debug_shapes:
-                print(f"DEBUG: next_value shape = {next_value.shape}", flush=True)
+            # -------------------------------------------------------------
+            # If env did not provide won/lost but alive counts exist, infer.
+            # -------------------------------------------------------------
+            try:
+                if final_enemy_alive is not None and int(final_enemy_alive) <= 0:
+                    episode_won = True
+            except Exception:
+                pass
 
             try:
-                buffer.compute_returns(next_value, gamma=args.gamma)
+                if final_ally_alive is not None and int(final_ally_alive) <= 0:
+                    episode_lost = True
+            except Exception:
+                pass
+
+            with torch.no_grad():
+                share_obs_tensor = torch.as_tensor(
+                    share_obs,
+                    dtype=torch.float32,
+                    device=device,
+                ).unsqueeze(0)
+
+                next_value_tensor = policy.critic(share_obs_tensor)
+
+            next_value = _repeat_value(
+                next_value_tensor,
+                args.num_agents,
+            )
+
+            try:
+                buffer.compute_returns(
+                    next_value,
+                    gamma=args.gamma,
+                )
+
             except TypeError:
                 buffer.compute_returns(next_value)
 
@@ -1120,23 +1010,12 @@ def main() -> None:
             trainer.prep_training()
             print("DEBUG: trainer.prep_training() done", flush=True)
 
-            train_info = trainer.train(buffer, update_actor=True)
+            train_info = trainer.train(
+                buffer,
+                update_actor=True,
+            )
+
             print("DEBUG: trainer.train() done", flush=True)
-            if args.use_wandb:
-                wandb.log({
-                    "episode_reward": episode_reward,
-                    "episode_steps": step_count,
-                    "policy_loss": train_info.get("policy_loss", 0.0),
-                    "value_loss": train_info.get("value_loss", 0.0),
-                    "entropy": train_info.get("dist_entropy", 0.0),
-                    "approx_kl": train_info.get("approx_kl", 0.0),
-                    "clip_fraction": train_info.get("clip_fraction", 0.0),
-                    "explained_variance": train_info.get("explained_variance", 0.0),
-                    "learning_rate": args.lr,
-                    "gamma": args.gamma,
-                    "ppo_epoch": trainer_args.ppo_epoch,
-                    "num_mini_batch": trainer_args.num_mini_batch,
-                }, step=episode)
 
             buffer.reset()
             print("DEBUG: buffer.reset() done", flush=True)
@@ -1144,6 +1023,25 @@ def main() -> None:
             print(f"Episode {episode + 1}/{args.num_episodes}", flush=True)
             print(f"  Episode Reward: {episode_reward:.4f}", flush=True)
             print(f"  Steps: {step_count}", flush=True)
+
+            print(f"  Won: {episode_won}", flush=True)
+            print(f"  Lost: {episode_lost}", flush=True)
+            print(f"  Final Ally Alive: {final_ally_alive}", flush=True)
+            print(f"  Final Enemy Alive: {final_enemy_alive}", flush=True)
+            print(f"  Enemy Damage Done: {enemy_damage_done:.4f}", flush=True)
+            print(f"  Own Damage Taken: {own_damage_taken:.4f}", flush=True)
+
+            print(f"  Action Counts: {action_counts.tolist()}", flush=True)
+            print(f"  Action Trace: {action_trace}", flush=True)
+
+            if last_info_keys:
+                print(f"  Last Info Keys: {last_info_keys}", flush=True)
+            else:
+                print("  Last Info Keys: []", flush=True)
+
+            if final_step_info is not None:
+                print(f"  Final Step Info: {final_step_info}", flush=True)
+
             print(f"  Value Loss: {train_info.get('value_loss', 0):.6f}", flush=True)
             print(f"  Policy Loss: {train_info.get('policy_loss', 0):.6f}", flush=True)
             print(f"  Entropy: {train_info.get('dist_entropy', 0):.6f}", flush=True)
@@ -1152,7 +1050,7 @@ def main() -> None:
         success = True
 
     except Exception as e:
-        print("\nERROR: Exception occurred during training!", flush=True)
+        print("\nERROR: Exception occurred during simulated 3v3 training!", flush=True)
         print(f"ERROR TYPE: {type(e).__name__}", flush=True)
         print(f"ERROR MSG : {e}", flush=True)
         print("\nTRACEBACK:", flush=True)
@@ -1168,9 +1066,9 @@ def main() -> None:
                 print(f"WARNING: env.close() failed: {close_err}", flush=True)
 
         if success:
-            print("Training complete!", flush=True)
+            print("Simulated 3v3 pawn training complete!", flush=True)
         else:
-            print("Training aborted due to an error.", flush=True)
+            print("Simulated 3v3 pawn training aborted due to an error.", flush=True)
 
 
 if __name__ == "__main__":

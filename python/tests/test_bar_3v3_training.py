@@ -1,25 +1,7 @@
 """
 Integrationstest OHNE Shared Memory:
-- simuliert Shared-Memory-Daten komplett in Python
-- simuliert einen 3v3 Pawn-Kampf
-- nutzt die normale MAPPO-Trainingspipeline
-- braucht KEIN shared_memory_reader_factory
-- braucht KEINE echte Unit-IPC
-
-Ziel:
-- prüfen, ob Policy + ReplayBuffer + R_MAPPO + Trainingsloop funktionieren
-- mit einer BAR-ähnlichen Unit-/Observation-Struktur
-- ohne vom noch unfertigen Shared Memory abhängig zu sein
-
-Start:
-    PYTHONUNBUFFERED=1 uv run tests/test_bar_3v3_training_no_shm.py
-
-Optional:
-    PYTHONUNBUFFERED=1 uv run tests/test_bar_3v3_training_no_shm.py --num-episodes 10 --buffer-size 128 --debug-env
+- simuliert Shared- simuliert Shared-Memory-Daten komplett in Python
 """
-
-from __future__ import annotations
-
 import argparse
 import inspect
 import math
@@ -34,6 +16,20 @@ from src.environment.engine_session import BARUnitView, EngineSessionConfig
 from src.train.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.r_mappo import R_MAPPO
+
+
+# -----------------------------------------------------------------------------
+# Action names for readable debug output
+# -----------------------------------------------------------------------------
+ACTION_NAMES = {
+    0: "stay",
+    1: "move_up",
+    2: "move_down",
+    3: "move_left",
+    4: "move_right",
+    5: "attack_nearest_enemy",
+    6: "retreat_from_nearest_enemy",
+}
 
 
 # -----------------------------------------------------------------------------
@@ -236,7 +232,9 @@ def _policy_sample_actions(
         action_log_probs = action_dist.log_prob(actions)
 
         share_obs_tensor = torch.as_tensor(
-            share_obs, dtype=torch.float32, device=device
+            share_obs,
+            dtype=torch.float32,
+            device=device,
         ).unsqueeze(0)
         values = policy.critic(share_obs_tensor)
 
@@ -247,6 +245,110 @@ def _policy_sample_actions(
     return value_preds, action_np, action_log_prob_np
 
 
+def _extract_episode_debug_from_info(step_info: Any) -> dict[str, Any]:
+    """
+    Extracts win/loss/alive/damage metrics from the env info.
+
+    step_info is usually a list of dicts, one per agent.
+    This helper merges them into episode-level debug values.
+    """
+    result: dict[str, Any] = {
+        "won": False,
+        "lost": False,
+        "ally_alive": None,
+        "enemy_alive": None,
+        "ally_hp_sum": None,
+        "enemy_hp_sum": None,
+        "enemy_damage_done": 0.0,
+        "own_damage_taken": 0.0,
+        "info_keys": [],
+    }
+
+    infos: list[dict[str, Any]] = []
+
+    if isinstance(step_info, dict):
+        infos = [step_info]
+    elif isinstance(step_info, (list, tuple)):
+        infos = [item for item in step_info if isinstance(item, dict)]
+
+    for info in infos:
+        result["info_keys"].extend(list(info.keys()))
+
+        if bool(info.get("won", False)):
+            result["won"] = True
+
+        if bool(info.get("lost", False)):
+            result["lost"] = True
+
+        if "ally_alive" in info:
+            result["ally_alive"] = info["ally_alive"]
+
+        if "enemy_alive" in info:
+            result["enemy_alive"] = info["enemy_alive"]
+
+        if "ally_hp_sum" in info:
+            result["ally_hp_sum"] = info["ally_hp_sum"]
+
+        if "enemy_hp_sum" in info:
+            result["enemy_hp_sum"] = info["enemy_hp_sum"]
+
+        if "enemy_damage_done" in info:
+            result["enemy_damage_done"] += float(info["enemy_damage_done"])
+
+        if "own_damage_taken" in info:
+            result["own_damage_taken"] += float(info["own_damage_taken"])
+
+    # Fallback inference if env gave alive counts but no explicit won/lost.
+    try:
+        if result["enemy_alive"] is not None and int(result["enemy_alive"]) <= 0:
+            result["won"] = True
+    except Exception:
+        pass
+
+    try:
+        if result["ally_alive"] is not None and int(result["ally_alive"]) <= 0:
+            result["lost"] = True
+    except Exception:
+        pass
+
+    result["info_keys"] = sorted(set(result["info_keys"]))
+    return result
+
+
+def _format_action_counts(action_counts: np.ndarray) -> str:
+    """
+    Builds readable action-count output:
+    action_id:name=count
+    """
+    parts = []
+    for action_id, count in enumerate(action_counts.tolist()):
+        name = ACTION_NAMES.get(action_id, f"action_{action_id}")
+        parts.append(f"{action_id}:{name}={count}")
+    return ", ".join(parts)
+
+
+def _format_action_trace(action_trace: list[list[int]]) -> str:
+    """
+    Builds readable step-wise action trace.
+
+    Example:
+    step_000=[5:attack, 4:move_right, 4:move_right]
+    """
+    formatted_steps = []
+
+    for step_idx, actions in enumerate(action_trace):
+        readable_actions = []
+        for action in actions:
+            name = ACTION_NAMES.get(action, f"action_{action}")
+            readable_actions.append(f"{action}:{name}")
+
+        formatted_steps.append(
+            f"step_{step_idx:03d}=[{', '.join(readable_actions)}]"
+        )
+
+    return "\n    ".join(formatted_steps)
+
+
 # -----------------------------------------------------------------------------
 # Simulierte BAR-Unit-Welt ohne Shared Memory
 # -----------------------------------------------------------------------------
@@ -255,6 +357,7 @@ class SimConfig:
     """
     Konfiguration der simulierten 3v3 Pawn-Welt.
     """
+
     num_agents: int = 3
     obs_dim: int = 32
     action_dim: int = 7
@@ -356,14 +459,12 @@ class SimulatedBAR3v3PawnEnv:
         center = self.cfg.arena_size / 2.0
         spacing = self.cfg.team_spacing
 
-        # Ally links
         ally_positions = [
             (center - spacing, center - 10.0),
             (center - spacing, center),
             (center - spacing, center + 10.0),
         ]
 
-        # Enemy rechts
         enemy_positions = [
             (center + spacing, center - 10.0),
             (center + spacing, center),
@@ -386,6 +487,7 @@ class SimulatedBAR3v3PawnEnv:
             self.ally_agent_unit_ids.append(uid)
 
         next_id = 2000
+
         for i, (x, z) in enumerate(enemy_positions):
             uid = next_id + i
             unit = self._make_unit(
@@ -415,25 +517,30 @@ class SimulatedBAR3v3PawnEnv:
 
     def _distance(self, a: BARUnitView, b: BARUnitView) -> float:
         return math.sqrt(
-            (a.pos_x - b.pos_x) ** 2 +
-            (a.pos_y - b.pos_y) ** 2 +
-            (a.pos_z - b.pos_z) ** 2
+            (a.pos_x - b.pos_x) ** 2
+            + (a.pos_y - b.pos_y) ** 2
+            + (a.pos_z - b.pos_z) ** 2
         )
 
     def _nearest_enemy(self, unit: BARUnitView) -> Optional[BARUnitView]:
         enemies = [u for u in self._alive_units() if u.ally_team_id != unit.ally_team_id]
+
         if not enemies:
             return None
+
         enemies.sort(key=lambda e: self._distance(unit, e))
         return enemies[0]
 
     def _units_in_sight(self, unit: BARUnitView) -> List[BARUnitView]:
         out = []
+
         for other in self._alive_units():
             if other.unit_id == unit.unit_id:
                 continue
+
             if self._distance(unit, other) <= unit.los_radius:
                 out.append(other)
+
         return out
 
     def _replace_unit(self, unit: BARUnitView):
@@ -450,10 +557,14 @@ class SimulatedBAR3v3PawnEnv:
     def _health_pct(self, u: Optional[BARUnitView]) -> float:
         if u is None or u.max_health <= 0:
             return 0.0
+
         return float(u.health / max(1e-6, u.max_health))
 
     def _rel_pos(self, a: BARUnitView, b: BARUnitView) -> np.ndarray:
-        return np.array([b.pos_x - a.pos_x, b.pos_y - a.pos_y, b.pos_z - a.pos_z], dtype=np.float32)
+        return np.array(
+            [b.pos_x - a.pos_x, b.pos_y - a.pos_y, b.pos_z - a.pos_z],
+            dtype=np.float32,
+        )
 
     def _build_agent_obs(self, agent_unit_id: int) -> np.ndarray:
         me = self._get_unit(agent_unit_id)
@@ -523,13 +634,12 @@ class SimulatedBAR3v3PawnEnv:
             ]
         ).astype(np.float32)
 
-        # Sichere obs_dim erzwingen
         if obs.size < self.cfg.obs_dim:
             padded = np.zeros((self.cfg.obs_dim,), dtype=np.float32)
             padded[:obs.size] = obs
             obs = padded
         elif obs.size > self.cfg.obs_dim:
-            obs = obs[:self.cfg.obs_dim]
+            obs = obs[: self.cfg.obs_dim]
 
         return obs.astype(np.float32)
 
@@ -544,9 +654,7 @@ class SimulatedBAR3v3PawnEnv:
         return obs.mean(axis=0).astype(np.float32)
 
     def _build_available_actions(self) -> np.ndarray:
-        # aktuell immer alle Aktionen erlaubt
-        avail = np.ones((self.cfg.num_agents, self.cfg.action_dim), dtype=np.float32)
-        return avail
+        return np.ones((self.cfg.num_agents, self.cfg.action_dim), dtype=np.float32)
 
     # -------------------------------------------------------------------------
     # Reward / Statistiken
@@ -568,72 +676,73 @@ class SimulatedBAR3v3PawnEnv:
     def _move_unit(self, unit: BARUnitView, dx: float, dz: float):
         if unit.is_dead:
             return
+
         new_x, new_z = self._clamp_pos(unit.pos_x + dx, unit.pos_z + dz)
-        self._replace_unit(
-            replace(unit, pos_x=new_x, pos_z=new_z)
-        )
+        self._replace_unit(replace(unit, pos_x=new_x, pos_z=new_z))
 
     def _damage_unit(self, unit: BARUnitView, damage: float):
         if unit.is_dead:
             return
+
         new_hp = max(0.0, unit.health - damage)
         new_dead = new_hp <= 0.0
+
         self._replace_unit(
-            replace(unit, health=new_hp, is_dead=new_dead)
+            replace(
+                unit,
+                health=new_hp,
+                is_dead=new_dead,
+            )
         )
 
     def _apply_agent_action(self, agent_unit_id: int, action: int):
         unit = self._get_unit(agent_unit_id)
+
         if unit is None or unit.is_dead:
             return
 
         enemy = self._nearest_enemy(unit)
 
-        # 0 = stay
         if action == 0:
             return
 
-        # 1 = move_up (+z)
         if action == 1:
             self._move_unit(unit, 0.0, self.cfg.move_step)
             return
 
-        # 2 = move_down (-z)
         if action == 2:
             self._move_unit(unit, 0.0, -self.cfg.move_step)
             return
 
-        # 3 = move_left (-x)
         if action == 3:
             self._move_unit(unit, -self.cfg.move_step, 0.0)
             return
 
-        # 4 = move_right (+x)
         if action == 4:
             self._move_unit(unit, self.cfg.move_step, 0.0)
             return
 
-        # 5 = attack nearest enemy
         if action == 5:
             if enemy is None or enemy.is_dead:
                 return
 
             dist = self._distance(unit, enemy)
+
             if dist <= self.cfg.attack_range:
                 self._damage_unit(enemy, self.cfg.attack_damage)
             else:
-                # wenn außerhalb Range: ein Stück auf Gegner zu
                 dx = enemy.pos_x - unit.pos_x
                 dz = enemy.pos_z - unit.pos_z
                 norm = max(1e-6, math.sqrt(dx * dx + dz * dz))
+
                 self._move_unit(
                     unit,
                     self.cfg.move_step * dx / norm,
                     self.cfg.move_step * dz / norm,
                 )
+
             return
 
-        # 6 = retreat from nearest enemy
         if action == 6:
             if enemy is None or enemy.is_dead:
                 return
@@ -641,11 +750,13 @@ class SimulatedBAR3v3PawnEnv:
             dx = unit.pos_x - enemy.pos_x
             dz = unit.pos_z - enemy.pos_z
             norm = max(1e-6, math.sqrt(dx * dx + dz * dz))
+
             self._move_unit(
                 unit,
                 self.cfg.move_step * dx / norm,
                 self.cfg.move_step * dz / norm,
             )
+
             return
 
     def _enemy_policy_step(self):
@@ -656,10 +767,12 @@ class SimulatedBAR3v3PawnEnv:
         """
         for enemy_id in self.enemy_unit_ids:
             enemy = self._get_unit(enemy_id)
+
             if enemy is None or enemy.is_dead:
                 continue
 
             allies = [u for u in self._alive_units() if u.ally_team_id != enemy.ally_team_id]
+
             if not allies:
                 continue
 
@@ -673,6 +786,7 @@ class SimulatedBAR3v3PawnEnv:
                 dx = target.pos_x - enemy.pos_x
                 dz = target.pos_z - enemy.pos_z
                 norm = max(1e-6, math.sqrt(dx * dx + dz * dz))
+
                 self._move_unit(
                     enemy,
                     self.cfg.move_step * 0.9 * dx / norm,
@@ -705,7 +819,6 @@ class SimulatedBAR3v3PawnEnv:
         if self.debug_env:
             print("DEBUG ENV RESET:", info, flush=True)
 
-        # kompatibel zu deinem train/test-code:
         return obs, share_obs, info, available_actions
 
     def step(self, action):
@@ -713,6 +826,7 @@ class SimulatedBAR3v3PawnEnv:
         self.frame += 30
 
         actions = np.asarray(action).reshape(-1)
+
         if actions.size != self.cfg.num_agents:
             fixed = np.zeros((self.cfg.num_agents,), dtype=np.int64)
             n = min(self.cfg.num_agents, actions.size)
@@ -721,25 +835,40 @@ class SimulatedBAR3v3PawnEnv:
 
         prev_ally_alive, prev_enemy_alive, prev_ally_hp, prev_enemy_hp = self.prev_stats
 
-        # 1) Ally-Agenten-Aktionen
+        # ---------------------------------------------------------------------
+        # 1) Ally-Agenten-Aktionen ausführen
+        # ---------------------------------------------------------------------
         for i, unit_id in enumerate(self.ally_agent_unit_ids):
             self._apply_agent_action(unit_id, int(actions[i]))
 
-        # 2) Gegner-KI
+        # ---------------------------------------------------------------------
+        # 2) Gegner-KI ausführen
+        # ---------------------------------------------------------------------
         self._enemy_policy_step()
 
-        # 3) Neue Stats
+        # ---------------------------------------------------------------------
+        # 3) Neue Team-Stats berechnen
+        # ---------------------------------------------------------------------
         ally_alive, enemy_alive, ally_hp, enemy_hp = self._team_stats()
         self.prev_stats = (ally_alive, enemy_alive, ally_hp, enemy_hp)
 
+        # ---------------------------------------------------------------------
+        # Damage-Debugwerte.
+        # Diese Werte sind pro Step, damit man später Episode-Summen bilden kann.
+        # ---------------------------------------------------------------------
+        enemy_damage_done = max(0.0, prev_enemy_hp - enemy_hp)
+        own_damage_taken = max(0.0, prev_ally_hp - ally_hp)
+
+        # ---------------------------------------------------------------------
         # Reward:
         # + für enemy damage/deaths
         # - für own damage/deaths
+        # ---------------------------------------------------------------------
         reward_scalar = 0.0
         reward_scalar += (prev_enemy_alive - enemy_alive) * 2.0
         reward_scalar -= (prev_ally_alive - ally_alive) * 2.0
-        reward_scalar += (prev_enemy_hp - enemy_hp) * 0.05
-        reward_scalar -= (prev_ally_hp - ally_hp) * 0.05
+        reward_scalar += enemy_damage_done * 0.05
+        reward_scalar -= own_damage_taken * 0.05
 
         rewards = np.full((self.cfg.num_agents,), reward_scalar, dtype=np.float32)
 
@@ -747,43 +876,60 @@ class SimulatedBAR3v3PawnEnv:
         enemy_dead = enemy_alive == 0
         max_steps_reached = self.step_count >= self.cfg.max_steps
 
+        won = enemy_dead and not ally_dead
+        lost = ally_dead and not enemy_dead
+        draw = ally_dead and enemy_dead
+        timeout = max_steps_reached and not (ally_dead or enemy_dead)
+
         terminated = np.full((self.cfg.num_agents,), ally_dead or enemy_dead, dtype=bool)
-        truncated = np.full((self.cfg.num_agents,), max_steps_reached and not (ally_dead or enemy_dead), dtype=bool)
+        truncated = np.full((self.cfg.num_agents,), timeout, dtype=bool)
 
         obs = self._build_obs()
         share_obs = self._build_share_obs(obs)
         available_actions = self._build_available_actions()
 
         infos = []
-        won = enemy_dead and not ally_dead
+
         for i in range(self.cfg.num_agents):
             unit = self._get_unit(self.ally_agent_unit_ids[i])
+
             infos.append(
                 {
                     "bad_transition": bool(truncated[i]),
                     "won": bool(won),
+                    "lost": bool(lost),
+                    "draw": bool(draw),
+                    "timeout": bool(timeout),
                     "ally_alive": int(ally_alive),
                     "enemy_alive": int(enemy_alive),
                     "ally_hp_sum": float(ally_hp),
                     "enemy_hp_sum": float(enemy_hp),
+                    "enemy_damage_done": float(enemy_damage_done),
+                    "own_damage_taken": float(own_damage_taken),
                     "frame": int(self.frame),
+                    "step_count": int(self.step_count),
                     "agent_unit_id": int(self.ally_agent_unit_ids[i]),
                     "agent_dead": bool(unit.is_dead if unit is not None else True),
+                    "actions_this_step": [int(a) for a in actions.tolist()],
                 }
             )
 
         if self.debug_env:
             print(
                 f"DEBUG ENV STEP={self.step_count} frame={self.frame} "
+                f"actions={[int(a) for a in actions.tolist()]} "
                 f"ally_alive={ally_alive} enemy_alive={enemy_alive} "
-                f"ally_hp={ally_hp:.2f} enemy_hp={enemy_hp:.2f} reward={reward_scalar:.4f}",
+                f"ally_hp={ally_hp:.2f} enemy_hp={enemy_hp:.2f} "
+                f"enemy_damage_done={enemy_damage_done:.2f} "
+                f"own_damage_taken={own_damage_taken:.2f} "
+                f"won={won} lost={lost} timeout={timeout} "
+                f"reward={reward_scalar:.4f}",
                 flush=True,
             )
 
         return obs, share_obs, rewards, terminated, truncated, infos, available_actions
 
     def close(self):
-        # keine echten Ressourcen offen
         pass
 
 
@@ -794,6 +940,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="BAR 3v3 Pawn test WITHOUT shared memory (simulated unit snapshot)"
     )
+
     parser.add_argument("--num-episodes", type=int, default=10, help="Number of episodes")
     parser.add_argument("--num-mini-batch", type=int, default=4, help="Number of mini-batches")
     parser.add_argument("--buffer-size", type=int, default=128, help="Replay buffer size / max steps")
@@ -807,6 +954,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--debug-env", action="store_true", help="Print simulated env debug info")
     parser.add_argument("--debug-shapes", action="store_true", help="Print tensor/array shapes")
+
     args = parser.parse_args()
 
     print(f"DEBUG: args = {args}", flush=True)
@@ -821,7 +969,6 @@ def main() -> None:
     env = None
 
     try:
-        # rein kompatibel / projekt-nah importiert, aber OHNE Shared Memory Nutzung
         engine_cfg = EngineSessionConfig(
             startscript="startscripts/3PawnVs3Pawn.txt",
         )
@@ -835,11 +982,13 @@ def main() -> None:
         )
 
         print("Initializing simulated BAR 3v3 pawn environment (no shared memory)...", flush=True)
+
         env = SimulatedBAR3v3PawnEnv(
             sim_cfg=sim_cfg,
             engine_cfg=engine_cfg,
             debug_env=args.debug_env,
         )
+
         print("DEBUG: SimulatedBAR3v3PawnEnv created", flush=True)
 
         print("Initializing policy...", flush=True)
@@ -847,6 +996,7 @@ def main() -> None:
         print("DEBUG: policy created", flush=True)
 
         print("Initializing replay buffer...", flush=True)
+
         buffer = SharedReplayBuffer(
             num_agents=args.num_agents,
             obs_shape=(args.obs_dim,),
@@ -854,17 +1004,20 @@ def main() -> None:
             buffer_size=args.buffer_size,
             device=device,
         )
+
         print("DEBUG: replay buffer created", flush=True)
 
         insert_mode = _infer_buffer_insert_mode(buffer)
         print(f"DEBUG: buffer insert mode = {insert_mode}", flush=True)
 
         print("Initializing R_MAPPO trainer...", flush=True)
+
         trainer_args = TrainerArgs()
         trainer_args.num_mini_batch = args.num_mini_batch
-        trainer = R_MAPPO(trainer_args, policy, device=device)
-        print("DEBUG: trainer created", flush=True)
 
+        trainer = R_MAPPO(trainer_args, policy, device=device)
+
+        print("DEBUG: trainer created", flush=True)
         print("\nStarting simulated 3v3 pawn training loop...", flush=True)
 
         recurrent_n = 1
@@ -882,8 +1035,34 @@ def main() -> None:
             episode_reward = 0.0
             done = False
             step_count = 0
+
+            # -----------------------------------------------------------------
+            # Episode-level debug metrics.
+            # These are reset every episode.
+            # -----------------------------------------------------------------
+            action_counts = np.zeros(args.action_dim, dtype=np.int64)
+            action_trace: list[list[int]] = []
+
+            episode_won = False
+            episode_lost = False
+            episode_draw = False
+            episode_timeout = False
+
+            final_ally_alive = None
+            final_enemy_alive = None
+            final_ally_hp_sum = None
+            final_enemy_hp_sum = None
+
+            enemy_damage_done_total = 0.0
+            own_damage_taken_total = 0.0
+
+            last_info_keys: list[str] = []
+            final_step_info: Any = None
+
             rnn_states, rnn_states_critic = _make_rnn_state_arrays(
-                args.num_agents, recurrent_n=recurrent_n, hidden_size=hidden_size
+                args.num_agents,
+                recurrent_n=recurrent_n,
+                hidden_size=hidden_size,
             )
 
             trainer.prep_rollout()
@@ -899,6 +1078,24 @@ def main() -> None:
                 )
 
                 env_actions = actions.reshape(args.num_agents)
+
+                # -------------------------------------------------------------
+                # Action distribution logging.
+                # This tells us whether the policy collapsed to one action.
+                # -------------------------------------------------------------
+                env_actions_int = [int(a) for a in env_actions.tolist()]
+                action_trace.append(env_actions_int)
+
+                for a in env_actions_int:
+                    if 0 <= a < args.action_dim:
+                        action_counts[a] += 1
+                    else:
+                        print(
+                            f"WARNING: sampled invalid action {a}, "
+                            f"expected range [0, {args.action_dim - 1}]",
+                            flush=True,
+                        )
+
                 step_result = env.step(env_actions)
 
                 (
@@ -911,6 +1108,42 @@ def main() -> None:
                     next_available_actions,
                 ) = step_result
 
+                final_step_info = step_info
+
+                # -------------------------------------------------------------
+                # Win/loss/alive/damage debug extraction from step_info.
+                # -------------------------------------------------------------
+                debug_metrics = _extract_episode_debug_from_info(step_info)
+
+                if debug_metrics["won"]:
+                    episode_won = True
+
+                if debug_metrics["lost"]:
+                    episode_lost = True
+
+                if isinstance(step_info, list) and len(step_info) > 0:
+                    if isinstance(step_info[0], dict):
+                        episode_draw = bool(step_info[0].get("draw", episode_draw))
+                        episode_timeout = bool(step_info[0].get("timeout", episode_timeout))
+
+                if debug_metrics["ally_alive"] is not None:
+                    final_ally_alive = debug_metrics["ally_alive"]
+
+                if debug_metrics["enemy_alive"] is not None:
+                    final_enemy_alive = debug_metrics["enemy_alive"]
+
+                if debug_metrics["ally_hp_sum"] is not None:
+                    final_ally_hp_sum = debug_metrics["ally_hp_sum"]
+
+                if debug_metrics["enemy_hp_sum"] is not None:
+                    final_enemy_hp_sum = debug_metrics["enemy_hp_sum"]
+
+                enemy_damage_done_total += float(debug_metrics["enemy_damage_done"])
+                own_damage_taken_total += float(debug_metrics["own_damage_taken"])
+
+                if debug_metrics["info_keys"]:
+                    last_info_keys = debug_metrics["info_keys"]
+
                 terminated_arr = _prepare_dones(terminated, args.num_agents)
                 truncated_arr = _prepare_dones(truncated, args.num_agents)
                 dones = np.logical_or(terminated_arr, truncated_arr)
@@ -921,11 +1154,13 @@ def main() -> None:
                 reward_arr = _prepare_reward(reward, args.num_agents)
 
                 masks = np.ones((args.num_agents, 1), dtype=np.float32)
+
                 if done_env:
                     masks[:] = 0.0
 
                 active_masks = np.ones((args.num_agents, 1), dtype=np.float32)
                 active_masks[dones] = 0.0
+
                 if done_env:
                     active_masks[:] = 1.0
 
@@ -939,6 +1174,7 @@ def main() -> None:
                     print(f"DEBUG obs shape = {obs.shape}", flush=True)
                     print(f"DEBUG share_obs shape = {share_obs.shape}", flush=True)
                     print(f"DEBUG actions shape = {actions.shape}", flush=True)
+                    print(f"DEBUG env_actions = {env_actions_int}", flush=True)
                     print(f"DEBUG reward_arr shape = {reward_arr.shape}", flush=True)
                     print(f"DEBUG masks shape = {masks.shape}", flush=True)
                     print(f"DEBUG active_masks shape = {active_masks.shape}", flush=True)
@@ -1010,10 +1246,39 @@ def main() -> None:
                     if args.debug_env:
                         print(f"DEBUG ENV INFO[0]: {step_info[0]}", flush=True)
 
+            # -----------------------------------------------------------------
+            # Winner fallback inference.
+            # -----------------------------------------------------------------
+            try:
+                if final_enemy_alive is not None and int(final_enemy_alive) <= 0:
+                    episode_won = True
+            except Exception:
+                pass
+
+            try:
+                if final_ally_alive is not None and int(final_ally_alive) <= 0:
+                    episode_lost = True
+            except Exception:
+                pass
+
+            if episode_won:
+                winner = "ALLY"
+            elif episode_lost:
+                winner = "ENEMY"
+            elif episode_draw:
+                winner = "DRAW"
+            elif episode_timeout:
+                winner = "TIMEOUT"
+            else:
+                winner = "UNKNOWN"
+
             with torch.no_grad():
                 share_obs_tensor = torch.as_tensor(
-                    share_obs, dtype=torch.float32, device=device
+                    share_obs,
+                    dtype=torch.float32,
+                    device=device,
                 ).unsqueeze(0)
+
                 next_value_tensor = policy.critic(share_obs_tensor)
 
             next_value = _repeat_value(next_value_tensor, args.num_agents)
@@ -1037,6 +1302,32 @@ def main() -> None:
             print(f"Episode {episode + 1}/{args.num_episodes}", flush=True)
             print(f"  Episode Reward: {episode_reward:.4f}", flush=True)
             print(f"  Steps: {step_count}", flush=True)
+
+            print(f"  Winner: {winner}", flush=True)
+            print(f"  Won: {episode_won}", flush=True)
+            print(f"  Lost: {episode_lost}", flush=True)
+            print(f"  Draw: {episode_draw}", flush=True)
+            print(f"  Timeout: {episode_timeout}", flush=True)
+
+            print(f"  Final Ally Alive: {final_ally_alive}", flush=True)
+            print(f"  Final Enemy Alive: {final_enemy_alive}", flush=True)
+            print(f"  Final Ally HP Sum: {final_ally_hp_sum}", flush=True)
+            print(f"  Final Enemy HP Sum: {final_enemy_hp_sum}", flush=True)
+
+            print(f"  Enemy Damage Done: {enemy_damage_done_total:.4f}", flush=True)
+            print(f"  Own Damage Taken: {own_damage_taken_total:.4f}", flush=True)
+
+            print(f"  Action Counts Raw: {action_counts.tolist()}", flush=True)
+            print(f"  Action Counts Named: {_format_action_counts(action_counts)}", flush=True)
+
+            print("  Action Trace:", flush=True)
+            print(f"    {_format_action_trace(action_trace)}", flush=True)
+
+            print(f"  Last Info Keys: {last_info_keys}", flush=True)
+
+            if final_step_info is not None:
+                print(f"  Final Step Info: {final_step_info}", flush=True)
+
             print(f"  Value Loss: {train_info.get('value_loss', 0):.6f}", flush=True)
             print(f"  Policy Loss: {train_info.get('policy_loss', 0):.6f}", flush=True)
             print(f"  Entropy: {train_info.get('dist_entropy', 0):.6f}", flush=True)
@@ -1068,3 +1359,21 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+"""
+- simuliert einen 3v3 Pawn-Kampf
+- nutzt die normale MAPPO-Trainingspipeline
+- braucht KEIN shared_memory_reader_factory
+- braucht KEINE echte Unit-IPC
+
+Ziel:
+- prüfen, ob Policy + ReplayBuffer + R_MAPPO + Trainingsloop funktionieren
+- mit einer BAR-ähnlichen Unit-/Observation-Struktur
+- ohne vom noch unfertigen Shared Memory abhängig zu sein
+
+Start:
+    PYTHONUNBUFFERED=1 uv run tests/test_bar_3v3_training.py
+
+Optional:
+    PYTHONUNBUFFERED=1 uv run tests/test_bar_3v3_training.py --num-episodes 10 --buffer-size 128 --debug-env
+"""
+
