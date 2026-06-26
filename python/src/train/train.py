@@ -66,7 +66,7 @@ class TrainerArgs:
         self.num_mini_batch = 4
         self.data_chunk_length = 4
         self.value_loss_coef = 1.0
-        self.entropy_coef = 0.01
+        self.entropy_coef = 0.05
         self.max_grad_norm = 0.5
         self.huber_delta = 10.0
 
@@ -619,7 +619,7 @@ def main() -> None:
     parser.add_argument("--num-mini-batch", type=int, default=4)
     parser.add_argument("--buffer-size", type=int, default=128)
     parser.add_argument("--num-agents", type=int, default=3)
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--obs-dim", type=int, default=32)

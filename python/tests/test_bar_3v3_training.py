@@ -44,7 +44,7 @@ class TrainerArgs:
         self.num_mini_batch = 4
         self.data_chunk_length = 4
         self.value_loss_coef = 1.0
-        self.entropy_coef = 0.01
+        self.entropy_coef = 0.05
         self.max_grad_norm = 0.5
         self.huber_delta = 10.0
 
@@ -870,6 +870,16 @@ class SimulatedBAR3v3PawnEnv:
         reward_scalar += enemy_damage_done * 0.05
         reward_scalar -= own_damage_taken * 0.05
 
+        
+        num_stay_actions = int(np.sum(actions == 0))
+        reward_scalar -= 0.03 * num_stay_actions
+
+        
+        num_attack_actions = int(np.sum(actions == 5))
+        reward_scalar += 0.02 * num_attack_actions
+
+
+
         rewards = np.full((self.cfg.num_agents,), reward_scalar, dtype=np.float32)
 
         ally_dead = ally_alive == 0
@@ -945,7 +955,7 @@ def main() -> None:
     parser.add_argument("--num-mini-batch", type=int, default=4, help="Number of mini-batches")
     parser.add_argument("--buffer-size", type=int, default=128, help="Replay buffer size / max steps")
     parser.add_argument("--num-agents", type=int, default=3, help="Number of agents (3 for 3v3)")
-    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu/cuda)")
     parser.add_argument("--obs-dim", type=int, default=32, help="Observation dimension")
@@ -954,6 +964,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--debug-env", action="store_true", help="Print simulated env debug info")
     parser.add_argument("--debug-shapes", action="store_true", help="Print tensor/array shapes")
+    
+    parser.add_argument("--exploration-eps", type=float, default=0.15, help="Probability of replacing sampled policy action with random legal action during rollout",)
+
 
     args = parser.parse_args()
 
@@ -1078,6 +1091,23 @@ def main() -> None:
                 )
 
                 env_actions = actions.reshape(args.num_agents)
+
+
+                # -------------------------------------------------------------
+                # Forced exploration.
+                # Keeps rollout actions diverse while the policy is still unstable.
+                # This prevents very early collapse to one bad action, e.g. always stay.
+                # -------------------------------------------------------------
+                if args.exploration_eps > 0.0:
+                    for i in range(args.num_agents):
+                        if np.random.rand() < args.exploration_eps:
+                            legal_actions = np.where(available_actions[i] > 0.0)[0]
+
+                            if legal_actions.size > 0:
+                                env_actions[i] = int(np.random.choice(legal_actions))
+                            else:
+                                env_actions[i] = int(np.random.randint(args.action_dim))
+
 
                 # -------------------------------------------------------------
                 # Action distribution logging.
