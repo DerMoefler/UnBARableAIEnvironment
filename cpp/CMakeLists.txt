@@ -183,15 +183,12 @@ install(DIRECTORY include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-# Falls öffentliche Header künftig direkt generierte *.pb.h / *.grpc.pb.h
-# inkludieren sollten, müssen diese Header ebenfalls installiert werden.
-# Im aktuellen Setup ist das nur nötig, wenn eure Public-API diese Dateien
-# tatsächlich nach außen exponiert.
-# install(FILES
-#     "${GENERATED_DIR}/UnBARableAI.pb.h"
-#     "${GENERATED_DIR}/UnBARableAI.grpc.pb.h"
-#     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI
-# )
+
+install(FILES
+    "${GENERATED_DIR}/UnBARableAI.pb.h"
+    "${GENERATED_DIR}/UnBARableAI.grpc.pb.h"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI
+)
 
 install(EXPORT UnBARableAITargets
     FILE UnBARableAITargets.cmake

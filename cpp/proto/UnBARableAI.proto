@@ -3,6 +3,6 @@ syntax = "proto3";
 import "google/protobuf/empty.proto";
 
 // Service for communication between engine and rl environment
-service UnBARableAI {
+service UnBARableAIService {
     rpc handleEventUpdate (google.protobuf.Empty) returns (google.protobuf.Empty);
 }
