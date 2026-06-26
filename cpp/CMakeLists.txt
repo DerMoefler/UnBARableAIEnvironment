@@ -92,6 +92,7 @@ if(UNBARABLEAI_BUILD_TESTS)
         "tests/memory/segment_information_test.cpp"
         "tests/serialization/serialization_test.cpp"
         "src/memory/shared_memory_posix.cpp"
+        "src/memory/partially_linked_list_information.cpp"
     )
 
     target_include_directories(tests

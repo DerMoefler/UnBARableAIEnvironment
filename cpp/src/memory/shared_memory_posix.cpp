@@ -1,5 +1,4 @@
 #include "shared_memory_posix.h"
-#include "memory/shared_memory_impl.h"
 
 #include <stdexcept>
 #include <sys/mman.h>
@@ -63,16 +62,15 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
     return newSegmentId;
 }
 
+void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
+
+}
 
 id_t SharedMemoryPosix::writeSegment(DataView data) {
     id_t newSegmentId = createSegment(data.size());
     SegmentInformation& sInformation = m_segmentsInformation[newSegmentId];
     for(size_t i = 0; i < data.size(); i++) {
         write(static_cast<uint8_t>(data[i]), sInformation.getHead());
-        // TODO: FIX ASAP -> allow the head to move to the last partial segment's link (which is then necessarily 0x00), meaning the Segment is fully used
-        if (i == data.size() -1) {
-            break;
-        }
         sInformation.advanceHead(1);
     }
     return newSegmentId;
@@ -135,95 +133,6 @@ void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position
                       + (id % c_contiguous_segment_count) * 2 * sizeof(id_t) 
                       + sizeof(id_t);
     write(position, writeOffset);
-}
-
-SharedMemoryPosix::PartiallyLinkedListInformation::PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize, const size_t dataSize)
-    : m_memoryStart(memoryStart)
-{
-    extend(memoryStart, headerSize, dataSize);
-    m_head = memoryStart + headerSize;
-}
-
-void SharedMemoryPosix::PartiallyLinkedListInformation::extend(const position_t offset, const size_t headerSize, const size_t dataSize) {
-    const size_t totalSize = headerSize + dataSize + c_link_size;
-    m_offsets.push_back(offset);
-    m_dataSizes.push_back(dataSize);
-    m_sizes.push_back(totalSize);
-    m_size += totalSize;
-}
-
-position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataPosition(const position_t index) const {
-    if(index >= getCapacity()) {
-        throw std::out_of_range("Index exceeds capacity");
-    }
-    size_t partialSegmentIndex = 0;
-    size_t previousDataSize = 0;
-    for(int i = 0; i < m_dataSizes.size(); i++) {
-        if (previousDataSize + m_dataSizes[i] > index) {
-            break;
-        }
-        partialSegmentIndex++;
-        previousDataSize += m_dataSizes[i];
-    }
-    const size_t indexInSegment = index - previousDataSize;
-    return getDataStart(partialSegmentIndex) + indexInSegment;
-}
-
-position_t SharedMemoryPosix::PartiallyLinkedListInformation::getIndexPosition(const position_t position) const {
-    // Get the first partial segment offset larger than position
-    auto it = std::lower_bound(m_offsets.begin(), m_offsets.end(), position);
-    if (it == m_offsets.begin()) {
-        throw std::out_of_range("Position not within any partial segments.");
-    }
-    --it;
-    const size_t partialSegmentIndex = std::distance(m_offsets.begin(), it);
-    const size_t dataOffset = position - *it;
-    if (dataOffset >= m_sizes[partialSegmentIndex]) {
-        throw std::out_of_range("Position not within any partial segments.");
-    }
-    const size_t headerSize = getHeaderSize(partialSegmentIndex);
-    if (dataOffset < headerSize || dataOffset >= (headerSize + m_dataSizes[partialSegmentIndex])) {
-        throw std::invalid_argument("Position lies within header / link section of partial segment.");
-    }
-    position_t dataIndex = 0;
-    for (int i = 0; i < partialSegmentIndex; i++) {
-        dataIndex += m_dataSizes[i];
-    }
-    return dataIndex + dataOffset - headerSize;
-}
-
-position_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderStart(const size_t partialSegmentIndex) const {
-    validatePartialSegmentIndex(partialSegmentIndex);
-    return m_offsets[partialSegmentIndex];
-}
-
-position_t SharedMemoryPosix::PartiallyLinkedListInformation::getDataStart(const size_t partialSegmentIndex) const {
-    validatePartialSegmentIndex(partialSegmentIndex);
-    return m_offsets[partialSegmentIndex] + getHeaderSize(partialSegmentIndex);
-}
-
-void SharedMemoryPosix::PartiallyLinkedListInformation::advanceHead(size_t increment) {
-    position_t index = getIndexPosition(m_head);
-    index += increment;
-    m_head = getDataPosition(index);
-}
-
-size_t SharedMemoryPosix::PartiallyLinkedListInformation::getHeaderSize(const size_t partialSegmentIndex) const {
-    validatePartialSegmentIndex(partialSegmentIndex);
-    return m_sizes[partialSegmentIndex] - m_dataSizes[partialSegmentIndex] - c_link_size;
-}
-
-size_t SharedMemoryPosix::PartiallyLinkedListInformation::getCapacity(void) const {
-    size_t capacity = 0;
-    for(const auto& size : m_dataSizes)
-        capacity += size;
-    return capacity;
-}
-
-void SharedMemoryPosix::PartiallyLinkedListInformation::validatePartialSegmentIndex(const size_t partialSegmentIndex) const {
-    if(partialSegmentIndex >= m_offsets.size()) {
-        throw std::out_of_range("PartialSegmentIndex is out of range");
-    }
 }
 
 SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id)

@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
-#include "memory/shared_memory_posix.h"
+#include "memory/partially_linked_list_information.h"
 
 namespace UnBARableAINS {
 
 using namespace memory;
 
-using PllInformation = SharedMemoryPosix::PartiallyLinkedListInformation;
+using PllInformation = PartiallyLinkedListInformation;
 
 
 TEST(PartiallyLinkedListInformationTest, SingleSegment) {
@@ -39,6 +39,23 @@ TEST(PartiallyLinkedListInformationTest, getIndexPosition) {
     plli.extend(memoryStartC, headerSize, dataSize);
 
     EXPECT_EQ(plli.getIndexPosition(memoryStartC + 12), 2 * dataSize + 2);
+}
+
+TEST(PartiallyLinkedListInformationTest, FullHead) {
+    constexpr position_t    memoryStart = 0;
+    constexpr size_t        headerSize  = 2;
+    constexpr size_t        dataSize    = 14;
+    PllInformation plli{memoryStart, headerSize, dataSize};
+    plli.advanceHead(dataSize);
+    EXPECT_TRUE(plli.isListFull());
+    
+    constexpr position_t    extensionMemoryStart = 30;
+    constexpr size_t        extensionHeaderSize  = 5;
+    constexpr size_t        extensionDataSize    = 17;
+    
+    plli.extend(extensionMemoryStart, extensionHeaderSize, extensionDataSize);
+    EXPECT_FALSE(plli.isListFull());
+    EXPECT_EQ(plli.getHead(), extensionMemoryStart + extensionHeaderSize);
 }
 
 } // namespace UnBARableAI

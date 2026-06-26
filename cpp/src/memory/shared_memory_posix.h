@@ -9,6 +9,7 @@
 #include <endian.h>
 
 #include "../memory/shared_memory_types.h"
+#include "partially_linked_list_information.h"
 
 namespace UnBARableAINS {
 
@@ -29,122 +30,6 @@ class SharedMemoryPosix {
 public:
     /// \brief Alias for a view to some data (e.g. to write to a segment).
     using DataView = const std::span<const std::byte>;
-
-    /**
-     * \brief Stores positional information about a partially linked list in shared memory.
-     */
-    class PartiallyLinkedListInformation {
-    public:
-        /// \brief Length of the link at the end of each partial segment so link to the next.
-        inline static constexpr size_t c_link_size = sizeof(position_t);
-        /**
-         * \brief Construct a partially linked list, starting with one partial segment at the memory start.
-         * \param memoryStart Start of the list which is therefore also the start of the first partial segment.
-         * \param headerSize Size of the header for the first partial segement.
-         * \param dataSize Size of the data for the first partial segement.
-         */
-        PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize, const size_t dataSize);
-        
-        /**
-         * \brief Add a new partial segment.
-         * \param offset Offset in shared memory for the new partial segment.
-         * \param headerSize Size of the header for the new partial segement.
-         * \param dataSize Size of the data for the new partial segement.
-         */
-        void extend(const position_t offset, const size_t headerSize, const size_t dataSize);
-
-        /**
-         * \brief Find the position_t (relative to the shared memory's start) from the position of the data inside the list.
-         * \param index Data position inside the entire list.
-         * \return The position in shared memory.
-         * \throws std::out_of_range If the index is larger than the data size.
-         * \see Inverse: \ref getIndexPosition.
-         */
-        position_t getDataPosition(const position_t index) const;
-
-        /**
-         * \brief Find the index (into the data portion of the Segment) from a position into shared memory.
-         * \param position Position in the shared memory.
-         * \return The index into the Segment's data portion.
-         * \throws std::out_of_range If the position is not within a partial segment.
-         * \throws std::invalid_argument If the position is within the header or trailer of a partial segment.
-         * \see Inverse: \ref getDataPosition.
-         */
-        position_t getIndexPosition(const position_t position) const;
-
-        /**
-         * \brief Find the position_t (relative to the shared memory's start) of the header of some partial segment.
-         * \param partialSegmentIndex The partial segment's index.
-         */
-        position_t getHeaderStart(const size_t partialSegmentIndex) const;
-        
-        /**
-         * \brief Find the position_t (relative to the shared memory's start) of the data of some partial segment.
-         * \param partialSegmentIndex The partial segment's index.
-         */
-        position_t getDataStart(const size_t partialSegmentIndex) const;
-
-        /**
-         * \brief Advance the list's head by the given amount.
-         * \param increment Amount to advance the head by.
-         */
-        void advanceHead(size_t increment);
-
-        /**
-         * \brief Set the head's position.
-         * \param index Index into the data part of the list to move the head to.
-         */
-        void setHead(position_t index);
-
-        /**
-         * \brief Get the head's position.
-         * \return The head's position_t.
-         */
-        inline position_t getHead(void) const { return m_head; };
-
-        /**
-         * \brief Find the size of a partial segment.
-         * \param partialSegmentIndex The partial segment's index.
-         */
-        size_t getHeaderSize(const size_t partialSegmentIndex) const;
-
-        /**
-         * \brief Get the entire size the list occupies in memory.
-         * \return Size.
-         */
-        inline size_t getSize(void) const { return m_size; };
-        
-        /**
-         * \brief Get the memory start of the List.
-         * \return Memory start.
-         */
-        inline position_t getMemoryStart(void) const { return m_memoryStart; };
-
-        /**
-         * \brief Get the data capacity of the list.
-         */
-        size_t getCapacity(void) const;
-        
-    private:
-        /**
-         * \brief Simple validation that the partial segment with that index exists.
-         * \throws std::out_of_range If the index does not exist.
-         */ 
-        void validatePartialSegmentIndex(const size_t partialSegmentIndex) const;
-        
-        /// \brief The position of the head
-        position_t                  m_head;
-        /// \brief 
-        position_t                  m_memoryStart;
-        /// \brief The total size occupied in memory
-        size_t                      m_size          = 0;
-        /// \brief Offsets of the partial elements.
-        std::vector<position_t>     m_offsets       = {};
-        /// \brief Sizes of the partial elements.
-        std::vector<size_t>         m_sizes         = {};
-        /// \brief Data sizes (capacity) of the partial elements.
-        std::vector<size_t>         m_dataSizes     = {};
-    };
 
     /**
      * \brief Hold information about a Segment in shared memory.
@@ -289,7 +174,7 @@ public:
      * This method writes data to the Segment and moves the head along with it. No data will be written if
      * the Segment's remaining capacity (total capcaity - head) is too small to fit the entire data.
      */
-    void    appendToSegment(id_t id, DataView data);
+    void    appendToSegment(const id_t id, DataView data);
 
     /**
      * \brief Writes data into a Segment starting at the specified position.
