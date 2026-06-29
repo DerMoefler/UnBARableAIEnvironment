@@ -77,6 +77,8 @@ class BAR_Environment:
         self.reward_clip_min = -10.0
         self.reward_clip_max = 10.0
 
+        # grpc_server für handleEventUpdate() starten.
+        self.current_update_id = 0
         self.grpc_server = UnBARableAIGRPCServer()
         self.grpc_server.start()
 
@@ -90,16 +92,21 @@ class BAR_Environment:
         if self.session is not None:
             self.session.stop()
 
-        # Ganz wichtig: altes Event zurücksetzen,
-        # damit reset() nicht wegen eines alten Signals sofort weiterläuft
-        self.grpc_server.clear_event_update()
 
         # Neue Session erstellen + starten
         self.session = EngineSession(self.session_cfg)
         info = self.session.start()
 
-        # Warten bis die Engine / das Spiel einmal handleEventUpdate geschickt hat
-        got_update = self.grpc_server.wait_for_event_update(timeout=50.0)
+        update_id = self.grpc_server.wait_for_next_update(
+            previous_count=0,
+            timeout=30.0,
+        )
+        if update_id is None:
+            raise TimeoutError("Kein erstes handleEventUpdate nach reset().")
+        else:
+            got_update = True
+
+        self.current_update_id = update_id
 
         # Episode-Zähler zurücksetzen
         self.episode_step = 0
@@ -124,11 +131,6 @@ class BAR_Environment:
         info["reward_state_initialized"] = self.reward_state_initialized
         info["received_handle_event_update"] = got_update
 
-        if not got_update:
-            raise TimeoutError(
-                "Timeout in BAR_Environment.reset(): "
-                "Kein handleEventUpdate vom gRPC-Server empfangen."
-            )
 
         return observation, info
 
@@ -143,6 +145,20 @@ class BAR_Environment:
         #
         # Danach sollte die Engine einige Frames weiterlaufen:
         # self.wait_for_engine_frames(num_frames=8)
+
+
+        # 1) das aktuelle offene Update freigeben
+        self.grpc_server.ack_update(self.current_update_id)
+
+        # 2) auf das nächste Update warten
+        next_update_id = self.grpc_server.wait_for_next_update(
+            previous_count=self.current_update_id,
+            timeout=30.0,
+        )
+        if next_update_id is None:
+            raise TimeoutError("Kein neues handleEventUpdate nach step().")
+
+        self.current_update_id = next_update_id
 
         session = self._require_session()
 
