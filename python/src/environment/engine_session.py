@@ -87,7 +87,7 @@ class EngineSession:
         if isinstance(stream_spec, (str, Path)):
             p = Path(stream_spec).expanduser()
             p.parent.mkdir(parents=True, exist_ok=True)
-            return open(p, "ab")
+            return open(p, "wb")
         return stream_spec
 
     def _connect_ipc(self) -> None:

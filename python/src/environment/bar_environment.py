@@ -90,9 +90,16 @@ class BAR_Environment:
         if self.session is not None:
             self.session.stop()
 
+        # Ganz wichtig: altes Event zurücksetzen,
+        # damit reset() nicht wegen eines alten Signals sofort weiterläuft
+        self.grpc_server.clear_event_update()
+
         # Neue Session erstellen + starten
         self.session = EngineSession(self.session_cfg)
         info = self.session.start()
+
+        # Warten bis die Engine / das Spiel einmal handleEventUpdate geschickt hat
+        got_update = self.grpc_server.wait_for_event_update(timeout=50.0)
 
         # Episode-Zähler zurücksetzen
         self.episode_step = 0
@@ -115,6 +122,13 @@ class BAR_Environment:
         info["max_episode_steps"] = self.max_episode_steps
         info["max_episode_frames"] = self.max_episode_frames
         info["reward_state_initialized"] = self.reward_state_initialized
+        info["received_handle_event_update"] = got_update
+
+        if not got_update:
+            raise TimeoutError(
+                "Timeout in BAR_Environment.reset(): "
+                "Kein handleEventUpdate vom gRPC-Server empfangen."
+            )
 
         return observation, info
 

@@ -24,7 +24,7 @@ find_package(Python REQUIRED)
 
 # protoc über Python ausführen
 set(GENERATED_DIR ${CMAKE_SOURCE_DIR}/generated)
-set(PROTO_DIR ${CMAKE_SOURCE_DIR}/../proto)
+set(PROTO_DIR ${CMAKE_SOURCE_DIR}/../cpp/proto)
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
