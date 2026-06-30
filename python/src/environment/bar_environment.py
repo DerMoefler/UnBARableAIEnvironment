@@ -115,7 +115,7 @@ class BAR_Environment:
         # Falls der Frame noch nicht gelesen werden kann, bleibt er -1.
         self.episode_start_frame = self._safe_get_world_frame(self.session)
 
-        # TODO: Observation aus Engine/Logs/IPC ableiten
+        # TODO: hier observation aus shared memory auslesen
         observation = self.get_obs()
 
         # Reward-State initialisieren.
@@ -142,9 +142,8 @@ class BAR_Environment:
         # for agent_idx, action_id in enumerate(actions):
         #     unit_id = ...
         #     self.send_action_to_engine(unit_id, int(action_id))
-        #
-        # Danach sollte die Engine einige Frames weiterlaufen:
-        # self.wait_for_engine_frames(num_frames=8)
+
+        # TODO: hier action in shared memory schreiben
 
 
         # 1) das aktuelle offene Update freigeben
@@ -159,6 +158,8 @@ class BAR_Environment:
             raise TimeoutError("Kein neues handleEventUpdate nach step().")
 
         self.current_update_id = next_update_id
+
+        # TODO: hier observation aus shared memory auslesen
 
         session = self._require_session()
 
