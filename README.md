@@ -53,12 +53,17 @@ git checkout UnBARableAI
 in Recoilengine:
 
 ```console
-./docker-build-v2/build.sh linux
+CONTAINER_IMAGE=localhost/recoil-build-amd64-linux:latest docker-build-v2/build.sh linux
 ```
+if you dont have the image check the Readme in UnBARableAIEnvironment/RecoilEngine/docker-build-v2/README.md
+
 ## Engine run
 if you want to run the engine (e.g. via env_reset)
 
 you need the bar-data folder in your ~ dictonary,
+
+### how to get the bar-data folder:
+
 on server:
 ```console
 cd ~
