@@ -408,6 +408,7 @@ private:
             // Compute a layout for each element of the multifield.
             if constexpr (detail::MultiField<F>) {
                 node.deepSize = 0;
+                // TODO does this work as intended?
                 node.children.reserve(node.count);
                 for (int i = 0; i < node.count; i++) {
                     decltype(auto) fieldValue = ParentValueSI::get(fieldKey, parentValue, i);
