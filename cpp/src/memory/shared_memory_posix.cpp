@@ -112,7 +112,7 @@ void SharedMemoryPosix::extendSegmentTable(void) {
         id_t writePositionPreviousOffset = previousOffset + c_segment_table_size - sizeof(id_t);
         write(static_cast<link_t>(m_head), writePositionPreviousOffset);
     }
-
+    // TODO doesnt work as intended I believe
     m_segmentsInformation.reserve(c_contiguous_segment_count + 1);
     id_t firstId = partialSegmentTablesCount * c_contiguous_segment_count;
     m_segmentTableOffsets.push_back(m_head);
