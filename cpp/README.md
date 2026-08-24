@@ -25,6 +25,20 @@ Then, you are ready to run conan:
 ```console
 conan install . --build=missing -s build_type=Release
 ```
+#### Certificates
+If your are working behind a proxy and have installed the certificates into /etc/ssl/certs/ca-certificates.crt and run
+```console
+uv tool install conan
+```
+those certificates will not be used by the python environment uv creates somewhere like ~/.local/share/uv/tools/conan/bin/python. Instead, it will use ~/.local/share/uv/tools/conan/lib/python3.13/site-packages/certifi/cacert.pem or something like that, which ignoes the certificates you installed on your system. One possible though ugly workound is to remove that file and replace it with a symlink to your global certificates:
+
+``` console
+rm ~/.local/share/uv/tools/conan/lib/python3.13/site-packages/certifi/cacert.pem
+
+ln -s /etc/ssl/certs/ca-certificates.crt \
+~/.local/share/uv/tools/conan/lib/python3.13/site-packages/certifi/cacert.pem
+```
+
 ### CMake
 Conan generates build instructions for CMake, which CMake has to be told about. To do that, run:
 ```console
