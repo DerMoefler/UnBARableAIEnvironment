@@ -1,7 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "../unit_data/unit_data.h"
+#include "../../include/UnBARableAI/unit_data.h"
 
 namespace py = pybind11;
 

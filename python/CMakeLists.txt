@@ -9,7 +9,7 @@ find_package(pybind11 CONFIG REQUIRED)
 
 pybind11_add_module(bar_ai
     ../cpp/src/bindings/bindings.cpp
-    ../cpp/src/unit_data/unit_data.h
+    ../cpp/include/UnBARableAI/unit_data.h
 )
 
 target_include_directories(bar_ai PRIVATE

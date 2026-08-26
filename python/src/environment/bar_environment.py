@@ -99,7 +99,7 @@ class BAR_Environment:
 
         update_id = self.grpc_server.wait_for_next_update(
             previous_count=0,
-            timeout=30.0,
+            timeout=60.0,
         )
         if update_id is None:
             raise TimeoutError("Kein erstes handleEventUpdate nach reset().")
@@ -116,7 +116,8 @@ class BAR_Environment:
         self.episode_start_frame = self._safe_get_world_frame(self.session)
 
         # TODO: hier observation aus shared memory auslesen
-        observation = self.get_obs()
+        observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
+        #observation = self.get_obs()
 
         # Reward-State initialisieren.
         # Das ist wichtig, damit compute_reward() später Deltas berechnen kann:
@@ -152,7 +153,7 @@ class BAR_Environment:
         # 2) auf das nächste Update warten
         next_update_id = self.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
-            timeout=30.0,
+            timeout=60.0,
         )
         if next_update_id is None:
             raise TimeoutError("Kein neues handleEventUpdate nach step().")
@@ -167,7 +168,8 @@ class BAR_Environment:
         self.episode_step += 1
 
         # Neue Observation auslesen
-        observation = self.get_obs()
+        observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # Placeholder for actual observation
+        #observation = self.get_obs()
 
         # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
         reward = self.compute_reward()
