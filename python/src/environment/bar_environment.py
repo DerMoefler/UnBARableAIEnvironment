@@ -166,8 +166,8 @@ class BAR_Environment:
         self.episode_step += 1
 
         # Neue Observation auslesen
-        observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # Placeholder for actual observation
-        #observation = self.get_obs()
+        #observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # Placeholder for actual observation
+        observation = self.get_obs()
 
         # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
         reward = self.compute_reward()
@@ -888,7 +888,7 @@ class BAR_Environment:
 
         return n_agents
 
-    def get_obs(self, engine_session):
+    def get_obs(self):
         """
         Returns the global observation for all agents
 
@@ -912,5 +912,5 @@ class BAR_Environment:
         0. 0. 0. 0. 0. 0. 0. 0.]
         )]
         """
-        agents_obs = [self.get_obs_agent(i, engine_session) for i in range(self.get_n_agents())]
+        agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]
         return agents_obs
