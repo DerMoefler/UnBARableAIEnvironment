@@ -160,8 +160,6 @@ class BAR_Environment:
 
         self.current_update_id = next_update_id
 
-        # TODO: hier observation aus shared memory auslesen
-
         session = self._require_session()
 
         # Ein RL-Step wurde ausgeführt
@@ -213,7 +211,7 @@ class BAR_Environment:
         except Exception:
             pass
 
-    def get_obs_agent(self, agent_id):
+    def get_obs_agent(self, agent_id, engine_session=None):
         """
         Returns the observation for a specific agent
 
@@ -236,85 +234,78 @@ class BAR_Environment:
         0. 0. 0. 0. 0. 0. 0. 0.]
         """
 
-        data = bar_ai.UnitData()  # should include date about every existing unit
-        pawn = bar_ai.Pawn(data)  # need to reference the unit
-
-        # placeholder for all information
         enemy_max, enemy_feat = self.get_enemy_feat_size()  # (max_enemies, features_per_enemy)
         ally_max, ally_feat = self.get_ally_feat_size()     # (max_allies, features_per_ally)
         own_feat_size = self.get_own_feat_size()            # number of features for own unit
 
-        own_feats = np.zeros(own_feat_size, dtype=np.float32)
+        own_features = np.zeros(own_feat_size, dtype=np.float32)
         enemy_features = np.zeros((enemy_max, enemy_feat), dtype=np.float32)
         ally_features = np.zeros((ally_max, ally_feat), dtype=np.float32)
 
-        unit_type = pawn.getUnitType()
-        # available_actions = self.get_available_actions(unit_type).flatten()
-        health = pawn.getHealth()
+        obs_session = engine_session or self._require_session()
+        reader = obs_session.reader
+        own_unit = reader.get_unit_by_id(agent_id)
 
-        if health > 0:  # otherwise dead, returns all zeros
-            pos_x = pawn.getXPosition()
-            pos_y = pawn.getYPosition()
-            pos_z = pawn.getZPosition()
-            health_percentage = self.get_health_percentage(health, pawn.getMaxHealth())
-            sight_radius = pawn.getSightRange()
-
-            own_feats[:7] = np.array(
+        if own_unit is not None and not own_unit.is_dead:
+            own_features[:] = np.array(
                 [
-                    float(unit_type),
-                    float(pos_x),
-                    float(pos_y),
-                    float(pos_z),
-                    float(health),
-                    float(health_percentage),
-                    float(sight_radius),
+                    float(own_unit.unit_def_id),
+                    float(own_unit.pos_x),
+                    float(own_unit.pos_y),
+                    float(own_unit.pos_z),
+                    float(own_unit.health),
+                    self.get_health_percentage(
+                        own_unit.health,
+                        own_unit.max_health,
+                    ),
+                    float(own_unit.los_radius),
                 ],
                 dtype=np.float32,
             )
 
-            enemy_idx = 0
-            for enemy_unit in pawn.getUnitsInSight():  # pawn.getEnemyUnitsInSight(): should get an array of unit objects
-                if enemy_unit.getTeam() != pawn.getTeam():
-                    # Prevent writing outside the fixed observation array
-                    if enemy_idx >= enemy_max:
-                        break
+            def distance(unit):
+                return (
+                    (unit.pos_x - own_unit.pos_x) ** 2
+                    + (unit.pos_y - own_unit.pos_y) ** 2
+                    + (unit.pos_z - own_unit.pos_z) ** 2
+                )
 
-                    enemy_unit_type = enemy_unit.getUnitType()
-                    enemy_pos = np.asarray(self.get_relative_pos(pawn, enemy_unit)).flatten()
-                    enemy_health = enemy_unit.getHealth()
+            enemies = sorted(
+                reader.get_enemy_units_in_sight(agent_id),
+                key=lambda unit: (distance(unit), unit.unit_id),
+            )[:enemy_max]
+            allies = sorted(
+                reader.get_ally_units_in_sight(agent_id),
+                key=lambda unit: (distance(unit), unit.unit_id),
+            )[:ally_max]
 
-                    enemy_features[enemy_idx, :5] = [
-                        float(enemy_unit_type),
-                        float(enemy_pos[0]),
-                        float(enemy_pos[1]),
-                        float(enemy_pos[2]),
-                        float(enemy_health),
-                    ]
-                    enemy_idx += 1
+            for index, unit in enumerate(enemies):
+                enemy_features[index] = np.array(
+                    [
+                        float(unit.unit_def_id),
+                        float(unit.pos_x - own_unit.pos_x),
+                        float(unit.pos_y - own_unit.pos_y),
+                        float(unit.pos_z - own_unit.pos_z),
+                        float(unit.health),
+                    ],
+                    dtype=np.float32,
+                )
 
-            ally_idx = 0
-            for ally_unit in pawn.getUnitsInSight():
-                if ally_unit.getTeam() == pawn.getTeam():
-                    # Prevent writing outside the fixed observation array
-                    if ally_idx >= ally_max:
-                        break
-
-                    ally_unit_type = ally_unit.getUnitType()
-                    ally_pos = np.asarray(self.get_relative_pos(pawn, ally_unit)).flatten()
-                    ally_health = ally_unit.getHealth()
-
-                    ally_features[ally_idx, :5] = [
-                        float(ally_unit_type),
-                        float(ally_pos[0]),
-                        float(ally_pos[1]),
-                        float(ally_pos[2]),
-                        float(ally_health),
-                    ]
-                    ally_idx += 1
+            for index, unit in enumerate(allies):
+                ally_features[index] = np.array(
+                    [
+                        float(unit.unit_def_id),
+                        float(unit.pos_x - own_unit.pos_x),
+                        float(unit.pos_y - own_unit.pos_y),
+                        float(unit.pos_z - own_unit.pos_z),
+                        float(unit.health),
+                    ],
+                    dtype=np.float32,
+                )
 
         local_obs = np.concatenate(
             (
-                own_feats.flatten(),
+                own_features.flatten(),
                 enemy_features.flatten(),
                 ally_features.flatten(),
             )
@@ -897,7 +888,7 @@ class BAR_Environment:
 
         return n_agents
 
-    def get_obs(self):
+    def get_obs(self, engine_session):
         """
         Returns the global observation for all agents
 
@@ -921,5 +912,5 @@ class BAR_Environment:
         0. 0. 0. 0. 0. 0. 0. 0.]
         )]
         """
-        agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]
+        agents_obs = [self.get_obs_agent(i, engine_session) for i in range(self.get_n_agents())]
         return agents_obs
