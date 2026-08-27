@@ -153,7 +153,7 @@ def test_r_mappo_basic():
     args = Args()
 
     obs_dim = 128
-    action_dim = 7
+    action_dim = 5  # 0:north, 1:south, 2:east, 3:west, 4:attack
     policy = R_MAPPO_Policy(obs_dim, action_dim, device=device)
     trainer = R_MAPPO(args, policy, device=device)
 
@@ -197,19 +197,22 @@ def test_ppo_update():
 
     device = torch.device("cpu")
     args = Args()
-    policy = R_MAPPO_Policy(64, 4, device=device)
+    policy = R_MAPPO_Policy(64, 5, device=device)  # 0:north, 1:south, 2:east, 3:west, 4:attack
     trainer = R_MAPPO(args, policy, device=device)
 
     batch_size = 8
     obs_dim = 64
-    action_dim = 4
+    action_dim = 5
 
     sample = (
         np.random.randn(batch_size, obs_dim).astype(np.float32),      # share_obs_batch
         np.random.randn(batch_size, obs_dim).astype(np.float32),      # obs_batch
         np.zeros((batch_size, 1), dtype=np.float32),                  # rnn_states_batch
         np.zeros((batch_size, 1), dtype=np.float32),                  # rnn_states_critic_batch
-        np.random.randint(0, action_dim, (batch_size, 1)).astype(np.float32),  # actions_batch
+        np.column_stack((
+            np.random.randint(0, action_dim, batch_size),
+            np.random.randint(0, 3, batch_size),
+        )).astype(np.float32),  # actions_batch: [action_type, target_id]
         np.random.randn(batch_size, 1).astype(np.float32),            # value_preds_batch
         np.random.randn(batch_size, 1).astype(np.float32),            # return_batch
         np.ones((batch_size, 1), dtype=np.float32),                   # masks_batch
@@ -219,7 +222,7 @@ def test_ppo_update():
         np.ones((batch_size, 1), dtype=np.float32),                   # available_actions_batch
     )
 
-    value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = trainer.ppo_update(sample)
+    value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, decoded_actions = trainer.ppo_update(sample)
 
     print("✓ PPO update completed successfully")
     print(f"  - Value Loss:      {value_loss.item():.6f}")
@@ -228,6 +231,7 @@ def test_ppo_update():
     print(f"  - Actor Grad Norm: {float(actor_grad_norm):.6f}")
     print(f"  - Critic Grad Norm:{float(critic_grad_norm):.6f}")
     print(f"  - Importance Weights Mean: {imp_weights.mean().item():.6f}")
+    print(f"  - Decoded Actions: {len(decoded_actions)} actions")
     print()
 
 
@@ -283,7 +287,10 @@ def test_gradient_clipping():
         (np.random.randn(batch_size, obs_dim) * 10).astype(np.float32),
         np.zeros((batch_size, 1), dtype=np.float32),
         np.zeros((batch_size, 1), dtype=np.float32),
-        np.random.randint(0, action_dim, (batch_size, 1)).astype(np.float32),
+        np.column_stack((
+            np.random.randint(0, action_dim, batch_size),
+            np.random.randint(0, 3, batch_size),
+        )).astype(np.float32),
         (np.random.randn(batch_size, 1) * 100).astype(np.float32),
         (np.random.randn(batch_size, 1) * 100).astype(np.float32),
         np.ones((batch_size, 1), dtype=np.float32),
@@ -293,7 +300,7 @@ def test_gradient_clipping():
         np.ones((batch_size, 1), dtype=np.float32),
     )
 
-    value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = trainer.ppo_update(sample)
+    value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, decoded_actions = trainer.ppo_update(sample)
 
     assert isinstance(actor_grad_norm, (float, torch.Tensor)), "Actor grad norm should be computed"
     assert isinstance(critic_grad_norm, (float, torch.Tensor)), "Critic grad norm should be computed"
@@ -302,6 +309,7 @@ def test_gradient_clipping():
     print(f"  - Max grad norm limit: {trainer.max_grad_norm}")
     print(f"  - Actor grad norm (reported):  {float(actor_grad_norm):.6f}")
     print(f"  - Critic grad norm (reported): {float(critic_grad_norm):.6f}")
+    print(f"  - Decoded Actions: {len(decoded_actions)} actions")
     print()
 
 
@@ -313,13 +321,13 @@ def test_multi_agent_ppo_update():
 
     device = torch.device("cpu")
     args = Args()
-    policy = R_MAPPO_Policy(64, 4, device=device)
+    policy = R_MAPPO_Policy(64, 5, device=device)  # 0:north, 1:south, 2:east, 3:west, 4:attack
     trainer = R_MAPPO(args, policy, device=device)
 
     batch_size = 8
     num_agents = 2
     obs_dim = 64
-    action_dim = 4
+    action_dim = 5
 
     # share_obs is global per timestep: (B, D)
     # obs is per-agent: (B, A, D)
@@ -328,7 +336,10 @@ def test_multi_agent_ppo_update():
         np.random.randn(batch_size, num_agents, obs_dim).astype(np.float32),   # obs_batch
         np.zeros((batch_size, num_agents, 1), dtype=np.float32),               # rnn_states_batch
         np.zeros((batch_size, num_agents, 1), dtype=np.float32),               # rnn_states_critic_batch
-        np.random.randint(0, action_dim, (batch_size, num_agents, 1)).astype(np.float32),  # actions_batch
+        np.stack((
+            np.random.randint(0, action_dim, (batch_size, num_agents)),
+            np.random.randint(0, 3, (batch_size, num_agents)),
+        ), axis=-1).astype(np.float32),  # actions_batch: [action_type, target_id]
         np.random.randn(batch_size, num_agents, 1).astype(np.float32),         # value_preds_batch
         np.random.randn(batch_size, num_agents, 1).astype(np.float32),         # return_batch
         np.ones((batch_size, num_agents, 1), dtype=np.float32),                # masks_batch
@@ -338,7 +349,7 @@ def test_multi_agent_ppo_update():
         np.ones((batch_size, num_agents, 1), dtype=np.float32),                # available_actions_batch
     )
 
-    value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = trainer.ppo_update(sample)
+    value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, decoded_actions = trainer.ppo_update(sample)
 
     print("✓ Multi-agent PPO update completed successfully")
     print(f"  - Value Loss:      {value_loss.item():.6f}")
@@ -347,6 +358,7 @@ def test_multi_agent_ppo_update():
     print(f"  - Actor Grad Norm: {float(actor_grad_norm):.6f}")
     print(f"  - Critic Grad Norm:{float(critic_grad_norm):.6f}")
     print(f"  - Importance Weights Mean: {imp_weights.mean().item():.6f}")
+    print(f"  - Decoded Actions: {len(decoded_actions)} actions")
     print()
 
 
@@ -362,7 +374,7 @@ def test_training_loop_multi_agent():
 
     num_agents = 2
     obs_dim = 64
-    action_dim = 4
+    action_dim = 5  # 0:north, 1:south, 2:east, 3:west, 4:attack
     buffer_size = 16
 
     policy = R_MAPPO_Policy(obs_dim, action_dim, device=device)
@@ -370,7 +382,8 @@ def test_training_loop_multi_agent():
     buffer = SharedReplayBuffer(
         num_agents=num_agents,
         obs_shape=(obs_dim,),
-        action_shape=(1,),
+        action_shape=(2,),
+        action_dim=action_dim,
         buffer_size=buffer_size,
         device=device,
     )
@@ -390,9 +403,10 @@ def test_training_loop_multi_agent():
         share_obs = np.random.randn(*buffer.share_obs[0].shape).astype(np.float32)
         obs = np.random.randn(*buffer.obs[0].shape).astype(np.float32)
 
-        actions = np.random.randint(
-            0, action_dim, size=buffer.actions[0].shape
-        ).astype(np.float32)
+        actions = np.column_stack((
+            np.random.randint(0, action_dim, buffer.actions[0].shape[0]),
+            np.random.randint(0, 3, buffer.actions[0].shape[0]),
+        )).astype(np.float32)
 
         action_log_probs = np.random.randn(*buffer.action_log_probs[0].shape).astype(np.float32)
         value_preds = np.random.randn(*buffer.value_preds[0].shape).astype(np.float32)
@@ -440,7 +454,35 @@ def test_training_loop_multi_agent():
     print("✓ Multi-agent training completed")
     print(f"\nTraining Statistics (averaged over {args.ppo_epoch} epochs):")
     for key, val in train_info.items():
-        print(f"  - {key:20s}: {val:.6f}")
+        if isinstance(val, (int, float)):
+            print(f"  - {key:20s}: {val:.6f}")
+        elif isinstance(val, list):
+            print(f"  - {key:20s}: {len(val)} actions decoded")
+    
+    # Print the most recent decoded actions
+    recent_actions = train_info["actions"][-10:]
+    print("\nLast 10 Taken Actions:")
+    start_index = len(train_info["actions"]) - len(recent_actions)
+    for i, action in enumerate(recent_actions, start=start_index):
+        print(f"  [{i}] {action}")
+    
+    # Calculate action statistics
+    action_counts = {
+        "move_north": 0,
+        "move_south": 0,
+        "move_east": 0,
+        "move_west": 0,
+        "attack": 0,
+    }
+    
+    for action in train_info["actions"]:
+        action_counts[action["action"]] += 1
+    
+    total_actions = len(train_info["actions"])
+    print("\nAction Distribution:")
+    for action_name, count in action_counts.items():
+        percentage = (count / total_actions * 100) if total_actions > 0 else 0
+        print(f"  - {action_name:15s}: {count:3d} ({percentage:5.1f}%)")
     print()
 
 

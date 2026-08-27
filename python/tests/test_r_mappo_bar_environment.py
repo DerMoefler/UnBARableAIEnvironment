@@ -58,6 +58,67 @@ class DummyPawn(DummyUnit):
         return self.units_in_sight
 
 
+class DummyReader:
+    def __init__(self):
+        self.own_units = [
+            SimpleNamespace(
+                unit_id=index,
+                unit_def_id=1,
+                pos_x=10.0 + index,
+                pos_y=20.0,
+                pos_z=0.0,
+                health=100.0,
+                max_health=100.0,
+                los_radius=500.0,
+                is_dead=False,
+                team_id=0,
+            )
+            for index in range(3)
+        ]
+        self.enemy_units = [
+            SimpleNamespace(
+                unit_id=10,
+                unit_def_id=2,
+                pos_x=12.0,
+                pos_y=20.0,
+                pos_z=0.0,
+                health=80.0,
+                team_id=1,
+            )
+        ]
+        self.ally_units = [
+            SimpleNamespace(
+                unit_id=20,
+                unit_def_id=1,
+                pos_x=11.0,
+                pos_y=20.0,
+                pos_z=0.0,
+                health=90.0,
+                team_id=0,
+            )
+        ]
+
+    def get_unit_by_id(self, unit_id):
+        return self.own_units[unit_id] if 0 <= unit_id < len(self.own_units) else None
+
+    def get_enemy_units_in_sight(self, unit_id):
+        return self.enemy_units
+
+    def get_ally_units_in_sight(self, unit_id):
+        return self.ally_units
+
+
+class DummySession:
+    def __init__(self):
+        self.reader = DummyReader()
+
+    def is_running(self):
+        return True
+
+    def stop(self):
+        pass
+
+
 class DummyGRPCServer:
     def start(self):
         pass
@@ -105,6 +166,7 @@ def test_r_mappo_consumes_bar_environment_dummy_observations(monkeypatch):
     )
 
     env = BAR_Environment()
+    env.session = DummySession()
     try:
         observations = np.asarray(env.get_obs(), dtype=np.float32)
 
@@ -119,14 +181,14 @@ def test_r_mappo_consumes_bar_environment_dummy_observations(monkeypatch):
 
         device = torch.device("cpu")
         num_agents = 2
-        action_dim = 4
+        action_dim = 5
         buffer_size = 4
         policy = R_MAPPO_Policy(obs_dim=32, action_dim=action_dim, device=device)
         trainer = R_MAPPO(trainer_args(), policy, device=device)
         buffer = SharedReplayBuffer(
             num_agents=num_agents,
             obs_shape=(32,),
-            action_shape=(1,),
+            action_shape=(2,),
             action_dim=action_dim,
             buffer_size=buffer_size,
             device=device,
@@ -156,7 +218,7 @@ def test_r_mappo_consumes_bar_environment_dummy_observations(monkeypatch):
             buffer.insert(
                 share_obs=shared_observation,
                 obs=agent_observations,
-                actions=actions.reshape(num_agents, 1).astype(np.float32),
+                actions=actions.astype(np.float32),
                 action_log_probs=log_probs.reshape(num_agents, 1).astype(np.float32),
                 value_preds=values,
                 rewards=np.ones((num_agents, 1), dtype=np.float32),
@@ -190,13 +252,21 @@ def test_r_mappo_consumes_bar_environment_dummy_observations(monkeypatch):
             "actor_grad_norm",
             "critic_grad_norm",
             "ratio",
+            "actions",
         }
-        assert all(np.isfinite(value) for value in train_info.values())
+        # Check numeric values are finite (skip "actions" list)
+        numeric_keys = {"value_loss", "policy_loss", "dist_entropy", "actor_grad_norm", "critic_grad_norm", "ratio"}
+        assert all(np.isfinite(train_info[key]) for key in numeric_keys)
+        # Check actions is a list
+        assert isinstance(train_info["actions"], list)
         assert buffer.obs.shape == (buffer_size + 1, num_agents, 32)
         print("✓ Multi-agent training completed")
         print(f"\nTraining Statistics (averaged over {trainer.ppo_epoch} epochs):")
         for key, value in train_info.items():
-            print(f"  - {key:20s}: {value:.6f}")
+            if isinstance(value, list):
+                print(f"  - {key:20s}: {len(value)} actions decoded")
+            else:
+                print(f"  - {key:20s}: {value:.6f}")
         print("\n" + "=" * 60)
         print("✓ ALL TESTS PASSED!")
         print("=" * 60)

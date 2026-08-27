@@ -125,7 +125,7 @@ class MockPolicy:
         action_logits = self.actor(torch.FloatTensor(obs_batch).to(self.device))
         action_dist = torch.distributions.Categorical(logits=action_logits)
         action_log_probs = action_dist.log_prob(
-            torch.LongTensor(actions_batch.squeeze(-1)).to(self.device)
+            torch.as_tensor(actions_batch.squeeze(-1), dtype=torch.long, device=self.device)
         )
         dist_entropy = action_dist.entropy().mean()
         
@@ -187,13 +187,14 @@ class TestR_MAPPO:
         )
         
         (value_loss, critic_grad_norm, policy_loss, 
-         dist_entropy, actor_grad_norm, imp_weights) = self.trainer.ppo_update(sample)
+         dist_entropy, actor_grad_norm, imp_weights, decoded_actions) = self.trainer.ppo_update(sample)
         
         assert isinstance(value_loss, torch.Tensor)
         assert isinstance(policy_loss, torch.Tensor)
         assert isinstance(dist_entropy, torch.Tensor)
         assert isinstance(actor_grad_norm, (float, torch.Tensor))
         assert isinstance(critic_grad_norm, (float, torch.Tensor))
+        assert isinstance(decoded_actions, list)
     
     def test_ppo_update_13_sample(self):
         """Test ppo_update with 13-element sample"""
@@ -218,9 +219,10 @@ class TestR_MAPPO:
         )
         
         (value_loss, critic_grad_norm, policy_loss,
-         dist_entropy, actor_grad_norm, imp_weights) = self.trainer.ppo_update(sample)
+         dist_entropy, actor_grad_norm, imp_weights, decoded_actions) = self.trainer.ppo_update(sample)
         
         assert isinstance(value_loss, torch.Tensor)
+        assert isinstance(decoded_actions, list)
     
     def test_ppo_update_no_actor_update(self):
         """Test ppo_update with update_actor=False"""
@@ -245,11 +247,12 @@ class TestR_MAPPO:
         
         # Should not raise error with update_actor=False
         (value_loss, critic_grad_norm, policy_loss,
-         dist_entropy, actor_grad_norm, imp_weights) = self.trainer.ppo_update(
+         dist_entropy, actor_grad_norm, imp_weights, decoded_actions) = self.trainer.ppo_update(
             sample, update_actor=False
         )
         
         assert isinstance(value_loss, torch.Tensor)
+        assert isinstance(decoded_actions, list)
     
     def test_prep_modes(self):
         """Test prep_training and prep_rollout"""
@@ -285,7 +288,7 @@ class TestR_MAPPO:
             np.ones((batch_size, 1)),
         )
         
-        value_loss, critic_grad_norm, _, _, actor_grad_norm, _ = self.trainer.ppo_update(sample)
+        value_loss, critic_grad_norm, _, _, actor_grad_norm, _, _ = self.trainer.ppo_update(sample)
         
         # Just verify gradient norms are computed (they may exceed max_grad_norm before clipping)
         assert isinstance(actor_grad_norm, (float, torch.Tensor))
@@ -353,6 +356,8 @@ class TestR_MAPPO_MockBuffer:
         assert 'value_loss' in train_info
         assert 'policy_loss' in train_info
         assert 'dist_entropy' in train_info
+        assert 'actions' in train_info  # New: check that actions are included
+        assert isinstance(train_info['actions'], list)  # New: verify actions is a list
         assert train_info['value_loss'] >= 0
         assert train_info['policy_loss'] >= 0
 

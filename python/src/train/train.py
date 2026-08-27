@@ -445,7 +445,7 @@ def _policy_sample_actions(
         )
 
         value_np = value.detach().cpu().numpy().reshape(-1)
-        action_np = action.detach().cpu().numpy().reshape(num_agents, 1)
+        action_np = action.detach().cpu().numpy().reshape(num_agents, 2)
         action_log_prob_np = action_log_prob.detach().cpu().numpy().reshape(num_agents, 1)
 
         if value_np.size == 1:
@@ -457,6 +457,21 @@ def _policy_sample_actions(
             values = fixed.reshape(num_agents, 1)
 
         return values, action_np, action_log_prob_np
+
+    if hasattr(policy, "get_action") and callable(policy.get_action):
+        actions, action_log_probs = policy.get_action(
+            torch.as_tensor(obs, dtype=torch.float32, device=device)
+        )
+        action_np = np.asarray(actions, dtype=np.float32).reshape(num_agents, 2)
+        action_log_prob_np = np.asarray(action_log_probs, dtype=np.float32).reshape(num_agents, 1)
+
+        with torch.no_grad():
+            share_obs_tensor = torch.as_tensor(
+                share_obs, dtype=torch.float32, device=device
+            ).unsqueeze(0)
+            values = policy.critic(share_obs_tensor)
+
+        return _repeat_value(values, num_agents), action_np, action_log_prob_np
 
     obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device)
 
@@ -667,7 +682,7 @@ def main() -> None:
         buffer = SharedReplayBuffer(
             num_agents=args.num_agents,
             obs_shape=(obs_dim,),
-            action_shape=(1,),
+            action_shape=(2,),
             buffer_size=args.buffer_size,
             device=device,
         )
@@ -771,15 +786,15 @@ def main() -> None:
                     num_agents=args.num_agents,
                 )
 
-                env_actions = actions.reshape(args.num_agents)
+                env_actions = actions
 
                 # -------------------------------------------------------------
                 # Log which actions were taken.
                 # -------------------------------------------------------------
-                env_actions_int = [int(a) for a in env_actions]
-                action_trace.append(env_actions_int)
+                env_action_types = [int(a) for a in env_actions[:, 0]]
+                action_trace.append(env_action_types)
 
-                for a in env_actions_int:
+                for a in env_action_types:
                     if 0 <= a < args.action_dim:
                         action_counts[a] += 1
                     else:
@@ -790,7 +805,7 @@ def main() -> None:
                         )
 
                 if args.debug_shapes:
-                    print(f"DEBUG: env_actions = {env_actions_int}", flush=True)
+                    print(f"DEBUG: env_actions = {env_actions.tolist()}", flush=True)
 
                 step_result = env.step(env_actions)
 

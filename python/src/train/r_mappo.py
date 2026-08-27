@@ -420,6 +420,96 @@ class R_MAPPO:
         else:
             self.value_normalizer = None
 
+    def decode_action(self, action_id, enemy_id=None):
+        """
+        Decodes a discrete action ID into a human-readable command.
+
+        Action mapping:
+        - 0: move north
+        - 1: move south
+        - 2: move east
+        - 3: move west
+        - 4: attack the selected enemy
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        action_id : int or torch.Tensor
+            The action ID to decode.
+        enemy_id : int, optional
+            Enemy ID for attack actions. If None, derived from action_id.
+
+        Returns
+        -------
+        action_command : dict
+            Dictionary with key:
+            - "action": str - Action command (move_north, move_south, move_east, move_west, or attack)
+            - "target_id": int or None - Target enemy ID for attack actions
+
+        Examples
+        --------
+        >>> trainer.decode_action(0)
+        {'action': 'move_north'}
+        >>> trainer.decode_action(4, enemy_id=5)
+        {'action': 'attack', 'target_id': 5}
+        """
+        if torch.is_tensor(action_id):
+            action_id = action_id.item()
+        action_id = int(action_id)
+
+        if action_id == 0:
+            return {"action": "move_north"}
+        elif action_id == 1:
+            return {"action": "move_south"}
+        elif action_id == 2:
+            return {"action": "move_east"}
+        elif action_id == 3:
+            return {"action": "move_west"}
+        else:  # action_id == 4 (attack)
+            if enemy_id is None:
+                enemy_id = 0
+            return {"action": "attack", "target_id": int(enemy_id)}
+
+    def decode_actions_batch(self, actions_batch):
+        """
+        Decodes a batch of actions into human-readable commands.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        actions_batch : torch.Tensor or np.ndarray
+            Batch of action IDs with shape (batch_size,) or (batch_size, 1).
+
+        Returns
+        -------
+        decoded_actions : list of dict
+            List of decoded action commands, each with 'action' and optionally 'target_id'.
+
+        Examples
+        --------
+        >>> actions = torch.tensor([[0], [4], [2]])
+        >>> decoded = trainer.decode_actions_batch(actions)
+        >>> decoded[0]  # {'action': 'move_north'}
+        >>> decoded[1]  # {'action': 'attack', 'target_id': 0}
+        """
+        if torch.is_tensor(actions_batch):
+            actions_batch = actions_batch.detach().cpu().numpy()
+
+        actions_batch = np.asarray(actions_batch)
+        if actions_batch.ndim == 1:
+            actions_batch = actions_batch.reshape(-1, 1)
+
+        decoded = [
+            self.decode_action(
+                int(action[0]),
+                enemy_id=int(action[1]) if action.shape[0] > 1 else None,
+            )
+            for action in actions_batch
+        ]
+        return decoded
+
     def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
         """
         Calculates the critic value loss.
@@ -722,10 +812,13 @@ class R_MAPPO:
             - dist_entropy : torch.Tensor
             - actor_grad_norm : torch.Tensor or float
             - imp_weights : torch.Tensor
+            - decoded_actions : list of dict - Decoded action commands for engine
 
         Examples
         --------
-        >>> # value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = trainer.ppo_update(sample)
+        >>> # results = trainer.ppo_update(sample)
+        >>> # len(results) == 7
+        >>> # results[6][0]  # {'action': 'move_north'} or {'action': 'attack', 'target_id': 5}
         """
         if len(sample) == 12:
             (
@@ -819,15 +912,19 @@ class R_MAPPO:
 
         self.policy.actor_optimizer.zero_grad()
 
+        actor_parameters = list(self.policy.actor.parameters())
+        if hasattr(self.policy, "target_actor"):
+            actor_parameters.extend(self.policy.target_actor.parameters())
+
         if update_actor:
             (policy_loss - dist_entropy * self.entropy_coef).backward()
 
         if self._use_max_grad_norm:
             actor_grad_norm = nn.utils.clip_grad_norm_(
-                self.policy.actor.parameters(), self.max_grad_norm
+                actor_parameters, self.max_grad_norm
             )
         else:
-            actor_grad_norm = get_grad_norm(self.policy.actor.parameters())
+            actor_grad_norm = get_grad_norm(actor_parameters)
 
         self.policy.actor_optimizer.step()
 
@@ -847,6 +944,9 @@ class R_MAPPO:
 
         self.policy.critic_optimizer.step()
 
+        # Decode actions for engine output
+        decoded_actions = self.decode_actions_batch(actions_batch)
+
         return (
             value_loss,
             critic_grad_norm,
@@ -854,6 +954,7 @@ class R_MAPPO:
             dist_entropy,
             actor_grad_norm,
             imp_weights,
+            decoded_actions,
         )
 
     def train(self, buffer, update_actor=True):
@@ -862,7 +963,7 @@ class R_MAPPO:
 
         The method computes normalized advantages, iterates over PPO epochs,
         generates mini-batches from the replay buffer, and aggregates training
-        statistics.
+        statistics with decoded actions for the game engine.
 
         Parameters
         ----------
@@ -877,13 +978,20 @@ class R_MAPPO:
         -------
         train_info : dict
             Dictionary containing averaged training statistics:
-            `value_loss`, `policy_loss`, `dist_entropy`,
-            `actor_grad_norm`, `critic_grad_norm`, and `ratio`.
+            - `value_loss`: Average critic loss
+            - `policy_loss`: Average actor loss
+            - `dist_entropy`: Average policy entropy
+            - `actor_grad_norm`: Average actor gradient norm
+            - `critic_grad_norm`: Average critic gradient norm
+            - `ratio`: Average importance weight ratio
+            - `actions`: List of all decoded action commands (dicts with 'action' and optional 'target_id')
 
         Examples
         --------
-        >>> # train_info = trainer.train(buffer)
-        >>> # train_info["value_loss"]
+        >>> train_info = trainer.train(buffer)
+        >>> train_info["value_loss"]  # 0.125
+        >>> train_info["actions"][0]  # {'action': 'move_north'}
+        >>> train_info["actions"][1]  # {'action': 'attack', 'target_id': 3}
         """
         if self._use_popart or self._use_valuenorm:
             advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(
@@ -908,6 +1016,8 @@ class R_MAPPO:
             "ratio": 0,
         }
 
+        all_actions = []
+
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
                 data_generator = buffer.recurrent_generator(
@@ -930,6 +1040,7 @@ class R_MAPPO:
                     dist_entropy,
                     actor_grad_norm,
                     imp_weights,
+                    decoded_actions,
                 ) = self.ppo_update(sample, update_actor)
 
                 train_info["value_loss"] += value_loss.item()
@@ -938,11 +1049,14 @@ class R_MAPPO:
                 train_info["actor_grad_norm"] += float(actor_grad_norm)
                 train_info["critic_grad_norm"] += float(critic_grad_norm)
                 train_info["ratio"] += imp_weights.mean().item()
+                all_actions.extend(decoded_actions)
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 
         for k in train_info.keys():
             train_info[k] /= num_updates
+
+        train_info["actions"] = all_actions
 
         return train_info
 
@@ -964,6 +1078,8 @@ class R_MAPPO:
         >>> # trainer.prep_training()
         """
         self.policy.actor.train()
+        if hasattr(self.policy, "target_actor"):
+            self.policy.target_actor.train()
         self.policy.critic.train()
 
     def prep_rollout(self):
@@ -984,4 +1100,6 @@ class R_MAPPO:
         >>> # trainer.prep_rollout()
         """
         self.policy.actor.eval()
+        if hasattr(self.policy, "target_actor"):
+            self.policy.target_actor.eval()
         self.policy.critic.eval()

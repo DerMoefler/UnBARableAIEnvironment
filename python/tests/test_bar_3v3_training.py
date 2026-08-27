@@ -360,7 +360,7 @@ class SimConfig:
 
     num_agents: int = 3
     obs_dim: int = 32
-    action_dim: int = 7
+    action_dim: int = 5
     arena_size: float = 100.0
     max_steps: int = 128
     move_step: float = 4.0
@@ -695,23 +695,22 @@ class SimulatedBAR3v3PawnEnv:
             )
         )
 
-    def _apply_agent_action(self, agent_unit_id: int, action: int):
+    def _apply_agent_action(self, agent_unit_id: int, action: int, target_id: int = 0):
         unit = self._get_unit(agent_unit_id)
 
         if unit is None or unit.is_dead:
             return
 
-        enemy = self._nearest_enemy(unit)
-
         if action == 0:
-            return
-
-        if action == 1:
             self._move_unit(unit, 0.0, self.cfg.move_step)
             return
 
-        if action == 2:
+        if action == 1:
             self._move_unit(unit, 0.0, -self.cfg.move_step)
+            return
+
+        if action == 2:
+            self._move_unit(unit, self.cfg.move_step, 0.0)
             return
 
         if action == 3:
@@ -719,10 +718,7 @@ class SimulatedBAR3v3PawnEnv:
             return
 
         if action == 4:
-            self._move_unit(unit, self.cfg.move_step, 0.0)
-            return
-
-        if action == 5:
+            enemy = self._get_unit(self.enemy_unit_ids[target_id % len(self.enemy_unit_ids)])
             if enemy is None or enemy.is_dead:
                 return
 
@@ -825,13 +821,20 @@ class SimulatedBAR3v3PawnEnv:
         self.step_count += 1
         self.frame += 30
 
-        actions = np.asarray(action).reshape(-1)
+        actions = np.asarray(action)
+        if actions.ndim == 2 and actions.shape[1] >= 2:
+            action_types = actions[:, 0].astype(np.int64)
+            target_ids = actions[:, 1].astype(np.int64)
+        else:
+            action_types = actions.reshape(-1).astype(np.int64)
+            target_ids = np.zeros_like(action_types)
 
-        if actions.size != self.cfg.num_agents:
+        if action_types.size != self.cfg.num_agents:
             fixed = np.zeros((self.cfg.num_agents,), dtype=np.int64)
-            n = min(self.cfg.num_agents, actions.size)
-            fixed[:n] = actions[:n]
-            actions = fixed
+            n = min(self.cfg.num_agents, action_types.size)
+            fixed[:n] = action_types[:n]
+            action_types = fixed
+            target_ids = np.zeros_like(action_types)
 
         prev_ally_alive, prev_enemy_alive, prev_ally_hp, prev_enemy_hp = self.prev_stats
 
@@ -839,7 +842,7 @@ class SimulatedBAR3v3PawnEnv:
         # 1) Ally-Agenten-Aktionen ausführen
         # ---------------------------------------------------------------------
         for i, unit_id in enumerate(self.ally_agent_unit_ids):
-            self._apply_agent_action(unit_id, int(actions[i]))
+            self._apply_agent_action(unit_id, int(action_types[i]), int(target_ids[i]))
 
         # ---------------------------------------------------------------------
         # 2) Gegner-KI ausführen
@@ -871,11 +874,7 @@ class SimulatedBAR3v3PawnEnv:
         reward_scalar -= own_damage_taken * 0.05
 
         
-        num_stay_actions = int(np.sum(actions == 0))
-        reward_scalar -= 0.03 * num_stay_actions
-
-        
-        num_attack_actions = int(np.sum(actions == 5))
+        num_attack_actions = int(np.sum(action_types == 4))
         reward_scalar += 0.02 * num_attack_actions
 
 
@@ -1013,7 +1012,8 @@ def main() -> None:
         buffer = SharedReplayBuffer(
             num_agents=args.num_agents,
             obs_shape=(args.obs_dim,),
-            action_shape=(1,),
+            action_shape=(2,),
+            action_dim=args.action_dim,
             buffer_size=args.buffer_size,
             device=device,
         )

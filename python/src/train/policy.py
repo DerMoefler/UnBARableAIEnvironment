@@ -215,7 +215,7 @@ class R_MAPPO_Policy:
     7
     """
 
-    def __init__(self, obs_dim: int, action_dim: int, device=torch.device("cpu"), lr: float = 5e-4):
+    def __init__(self, obs_dim: int, action_dim: int, device=torch.device("cpu"), lr: float = 5e-4, target_dim: int = 3):
         """
         Initializes the MAPPO policy wrapper.
 
@@ -248,11 +248,16 @@ class R_MAPPO_Policy:
         self.device = device
         self.obs_dim = obs_dim
         self.action_dim = action_dim
+        self.target_dim = target_dim
 
         self.actor = Actor(obs_dim, action_dim).to(device)
+        self.target_actor = Actor(obs_dim, target_dim).to(device)
         self.critic = Critic(obs_dim).to(device)
 
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr)
+        self.actor_optimizer = torch.optim.Adam(
+            list(self.actor.parameters()) + list(self.target_actor.parameters()),
+            lr=lr,
+        )
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr)
 
     def evaluate_actions(self, share_obs_batch, obs_batch, rnn_states_batch,
@@ -317,20 +322,38 @@ class R_MAPPO_Policy:
         if isinstance(obs_batch, np.ndarray):
             obs_batch = torch.FloatTensor(obs_batch).to(self.device)
         if isinstance(actions_batch, np.ndarray):
-            actions_batch = torch.LongTensor(actions_batch).to(self.device)
+            actions_batch = torch.as_tensor(
+                actions_batch, dtype=torch.long, device=self.device
+            )
+        elif not torch.is_tensor(actions_batch):
+            actions_batch = torch.as_tensor(
+                actions_batch, dtype=torch.long, device=self.device
+            )
+        else:
+            actions_batch = actions_batch.to(device=self.device, dtype=torch.long)
 
         # Get value predictions from critic
         values = self.critic(share_obs_batch)
 
         # Get action logits from actor
         action_logits = self.actor(obs_batch)
+        target_logits = self.target_actor(obs_batch)
 
-        # Create action distribution (simplified - use categorical)
         action_dist = torch.distributions.Categorical(logits=action_logits)
+        target_dist = torch.distributions.Categorical(logits=target_logits)
 
-        # Evaluate given actions
-        action_log_probs = action_dist.log_prob(actions_batch.squeeze(-1))
-        dist_entropy = action_dist.entropy().mean()
+        if actions_batch.ndim == 1:
+            action_types = actions_batch
+            target_ids = torch.zeros_like(action_types)
+        else:
+            action_types = actions_batch[..., 0]
+            target_ids = actions_batch[..., 1]
+
+        action_log_probs = (
+            action_dist.log_prob(action_types)
+            + target_dist.log_prob(target_ids)
+        )
+        dist_entropy = (action_dist.entropy() + target_dist.entropy()).mean()
 
         return values, action_log_probs.unsqueeze(-1), dist_entropy
 
@@ -366,7 +389,14 @@ class R_MAPPO_Policy:
         """
         with torch.no_grad():
             action_logits = self.actor(obs)
+            target_logits = self.target_actor(obs)
             action_dist = torch.distributions.Categorical(logits=action_logits)
-            action = action_dist.sample()
-            action_log_prob = action_dist.log_prob(action)
+            target_dist = torch.distributions.Categorical(logits=target_logits)
+            action_type = action_dist.sample()
+            target_id = target_dist.sample()
+            action_log_prob = (
+                action_dist.log_prob(action_type)
+                + target_dist.log_prob(target_id)
+            )
+        action = torch.stack((action_type, target_id), dim=-1)
         return action.cpu().numpy(), action_log_prob.cpu().numpy()
