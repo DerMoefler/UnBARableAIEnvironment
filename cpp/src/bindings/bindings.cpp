@@ -1,17 +1,13 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "../unit/unit.h"
-#include "../unit/pawn.h"
-#include "../unit_data/unit_data.h"
+#include "../../include/UnBARableAI/unit_data.h"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(bar_ai, m) {
     m.doc() = "Python bindings for UnBARableAI";
 
-    using UnBARableAINS::unit::Unit;
-    using UnBARableAINS::unit::Pawn;
     using UnBARableAINS::unit::UnitData;
 
     // -------------------------
@@ -21,51 +17,29 @@ PYBIND11_MODULE(bar_ai, m) {
     // Solche Typen bindet man direkt mit def_readwrite. [1](https://pybind11.readthedocs.io/en/stable/classes.html)
     py::class_<UnitData>(m, "UnitData")
         .def(py::init<>())
+
+        .def_readwrite("unit_id", &UnitData::unit_id)
+        .def_readwrite("unit_def_id", &UnitData::unit_def_id)
+        .def_readwrite("unit_def_name", &UnitData::unit_def_name)
+        .def_readwrite("human_name", &UnitData::human_name)
+
+        .def_readwrite("team_id", &UnitData::team_id)
+        .def_readwrite("ally_team_id", &UnitData::ally_team_id)
+
         .def_readwrite("health", &UnitData::health)
-        .def_readwrite("team", &UnitData::team)
-        .def_readwrite("xPosition", &UnitData::xPosition)
-        .def_readwrite("yPosition", &UnitData::yPosition)
-        .def_readwrite("zPosition", &UnitData::zPosition)
-        .def_readwrite("hasCurrentCommand", &UnitData::hasCurrentCommand)
-        .def_readwrite("unitID", &UnitData::unitID)
-        .def_readwrite("unitType", &UnitData::unitType);
+        .def_readwrite("max_health", &UnitData::max_health)
 
-    // -------------------------
-    // Unit (abstrakte Basisklasse)
-    // -------------------------
-    // Keine .def(py::init<>()) !
-    // Unit ist abstrakt und nicht direkt konstruierbar. [2](https://pybind11.readthedocs.io/en/stable/advanced/classes.html)
-    py::class_<Unit>(m, "Unit")
-        .def("getHealth", &Unit::getHealth)
-        .def("getTeam", &Unit::getTeam)
-        .def("getMaxHealth", &Unit::getMaxHealth)
-        .def("getSightRange", &Unit::getSightRange)
-        .def("getXPosition", &Unit::getXPosition)
-        .def("getYPosition", &Unit::getYPosition)
-        .def("getZPosition", &Unit::getZPosition)
-        .def("hasCurrentCommand", &Unit::hasCurrentCommand)
-        .def("getUnitID", &Unit::getUnitID)
-        .def("getUnitType", &Unit::getUnitType)
-        .def("getUnitsInSight", &Unit::getUnitsInSight)
-        .def("getEnemyUnitsInSight", &Unit::getEnemyUnitsInSight);
+        .def_readwrite("pos_x", &UnitData::pos_x)
+        .def_readwrite("pos_y", &UnitData::pos_y)
+        .def_readwrite("pos_z", &UnitData::pos_z)
 
-    // -------------------------
-    // Pawn : Unit
-    // -------------------------
-    // Vererbung wird mit py::class_<Pawn, Unit> angegeben. [1](https://pybind11.readthedocs.io/en/stable/classes.html)[2](https://pybind11.readthedocs.io/en/stable/advanced/classes.html)
-    py::class_<Pawn, Unit>(m, "Pawn")
-        .def(py::init<UnitData>(), py::arg("data"))
-        .def("getHealth", &Pawn::getHealth)
-        .def("getMaxHealth", &Pawn::getMaxHealth)
-        .def("getSightRange", &Pawn::getSightRange)
-        .def("getTeam", &Pawn::getTeam)
-        .def("getXPosition", &Pawn::getXPosition)
-        .def("getYPosition", &Pawn::getYPosition)
-        .def("getZPosition", &Pawn::getZPosition)
-        .def("hasCurrentCommand", &Pawn::hasCurrentCommand)
-        .def("getUnitID", &Pawn::getUnitID)
-        .def("getUnitType", &Pawn::getUnitType)
-        .def("getUnitsInSight", &Pawn::getUnitsInSight)
-        .def("getEnemyUnitsInSight", &Pawn::getEnemyUnitsInSight);
+        .def_readwrite("los_radius", &UnitData::los_radius)
+        .def_readwrite("air_los_radius", &UnitData::air_los_radius)
 
+        .def_readwrite("is_dead", &UnitData::is_dead)
+        .def_readwrite("being_built", &UnitData::being_built)
+
+        .def_readwrite("build_progress", &UnitData::build_progress)
+        .def_readwrite("capture_progress", &UnitData::capture_progress)
+        .def_readwrite("paralyze_damage", &UnitData::paralyze_damage);
 }

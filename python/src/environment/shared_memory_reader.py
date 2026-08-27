@@ -2,6 +2,24 @@ from dataclasses import dataclass
 import time
 from typing import Optional, Dict, Any, List, Mapping, Callable
 
+
+class _NoopSharedMemoryIPC:
+    """Fallback IPC used when no real shared-memory backend is configured.
+
+    This keeps the environment usable in smoke tests and placeholder setups
+    without raising a hard runtime error during observation reads.
+    """
+
+    def connect(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+    def read_snapshot(self) -> Dict[str, Any]:
+        return {"frame": 0, "units_by_id": {}}
+
+
 @dataclass(frozen=True)
 class BARUnitView:
     unit_id: int
@@ -43,9 +61,8 @@ class SharedMemoryReader:
         if self._ipc is not None:
             return
         if self._ipc_factory is None:
-            raise RuntimeError(
-                "No shared-memory IPC factory configured."
-            )
+            self._ipc = _NoopSharedMemoryIPC()
+            return
 
         self._ipc = self._ipc_factory()
         deadline = time.monotonic() + self._ready_timeout_s

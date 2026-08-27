@@ -26,14 +26,7 @@ uv sync
 
 and it should work
 
-if it does not work run:
-
-```console
-uv build --wheel
-uv sync
-```
-
-if you changed something in the cpp files and want to rebuild run:
+otherwise try:
 
 ```console
 uv sync --reinstall
