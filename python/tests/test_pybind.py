@@ -1,6 +1,6 @@
 import sys
 
-print("🚀 Starte bar_ai UnitData-Test...")
+print("🚀 Starte bar_ai UnitData- und Action-Test...")
 
 # ----------------------------------------------------
 # Modul importieren
@@ -17,17 +17,18 @@ except Exception as e:
 print("📦 Modul:", bar_ai)
 
 # ----------------------------------------------------
-# Prüfen, ob UnitData exportiert wurde
+# Prüfen, ob Klassen exportiert wurden
 # ----------------------------------------------------
 
-if not hasattr(bar_ai, "UnitData"):
-    print("❌ Fehlende Klasse: UnitData")
-    sys.exit(1)
+for class_name in ("UnitData", "Action"):
+    if not hasattr(bar_ai, class_name):
+        print(f"❌ Fehlende Klasse: {class_name}")
+        sys.exit(1)
 
-print("✅ Klasse vorhanden: UnitData")
+    print(f"✅ Klasse vorhanden: {class_name}")
 
 # ----------------------------------------------------
-# UnitData direkt testen
+# UnitData testen
 # ----------------------------------------------------
 
 try:
@@ -67,11 +68,7 @@ try:
 
     print("✅ UnitData erstellt und beschrieben")
 
-    # ------------------------------------------------
-    # Daten direkt aus bar_data auslesen
-    # ------------------------------------------------
-
-    print("\n📊 bar_data:")
+    print("\n📊 UnitData:")
 
     print("unit_id:", bar_data.unit_id)
     print("unit_def_id:", bar_data.unit_def_id)
@@ -107,10 +104,10 @@ except Exception as e:
     sys.exit(1)
 
 # ----------------------------------------------------
-# Werte automatisch überprüfen
+# UnitData validieren
 # ----------------------------------------------------
 
-expected_values = {
+unit_expected_values = {
     "unit_id": 42,
     "unit_def_id": 3,
     "unit_def_name": "armmex",
@@ -132,7 +129,7 @@ expected_values = {
 }
 
 try:
-    for field_name, expected_value in expected_values.items():
+    for field_name, expected_value in unit_expected_values.items():
         actual_value = getattr(bar_data, field_name)
 
         assert actual_value == expected_value, (
@@ -140,14 +137,66 @@ try:
             f"erhalten {actual_value!r}"
         )
 
-        print(
-            f"✅ {field_name}: "
-            f"{actual_value!r}"
-        )
+        print(f"✅ {field_name}: {actual_value!r}")
 
 except (AttributeError, AssertionError) as e:
     print("❌ UnitData-Validierung fehlgeschlagen:")
     print(e)
     sys.exit(1)
 
-print("\n🎉 bar_ai UnitData-Test erfolgreich abgeschlossen!")
+# ----------------------------------------------------
+# Action testen
+# ----------------------------------------------------
+
+try:
+    action = bar_ai.Action()
+
+    action.unit_id = 42
+    action.team_id = 1
+    action.ally_team_id = 0
+    action.action_id = 5
+    action.target_unit_id = 99
+
+    print("\n✅ Action erstellt und beschrieben")
+
+    print("\n📊 Action:")
+    print("unit_id:", action.unit_id)
+    print("team_id:", action.team_id)
+    print("ally_team_id:", action.ally_team_id)
+    print("action_id:", action.action_id)
+    print("target_unit_id:", action.target_unit_id)
+
+except Exception as e:
+    print("❌ Fehler beim Erstellen oder Auslesen von Action:")
+    print(f"{type(e).__name__}: {e}")
+    sys.exit(1)
+
+# ----------------------------------------------------
+# Action validieren
+# ----------------------------------------------------
+
+action_expected_values = {
+    "unit_id": 42,
+    "team_id": 1,
+    "ally_team_id": 0,
+    "action_id": 5,
+    "target_unit_id": 99,
+}
+
+try:
+    for field_name, expected_value in action_expected_values.items():
+        actual_value = getattr(action, field_name)
+
+        assert actual_value == expected_value, (
+            f"{field_name}: Erwartet {expected_value!r}, "
+            f"erhalten {actual_value!r}"
+        )
+
+        print(f"✅ {field_name}: {actual_value!r}")
+
+except (AttributeError, AssertionError) as e:
+    print("❌ Action-Validierung fehlgeschlagen:")
+    print(e)
+    sys.exit(1)
+
+print("\n🎉 bar_ai UnitData- und Action-Test erfolgreich abgeschlossen!")
