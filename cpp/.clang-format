@@ -1,0 +1,16 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+IndentAccessModifiers: false
+AccessModifierOffset: -4
+
+
+ColumnLimit: 100
+
+# Keep the declaration following "template <...>" on a new line.
+BreakTemplateDeclarations: Yes
