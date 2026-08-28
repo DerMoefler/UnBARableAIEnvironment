@@ -3,6 +3,7 @@
 #include <concepts>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
@@ -314,8 +315,6 @@ public:
      * \param value An instance of Type \p T for which to compute the layout.
      */
     Layout(const T& value)
-        : m_inlinedSize(0)
-        , m_deepSize(0)
     {
         buildNodes(value, m_nodes, m_inlinedSize, m_deepSize);
     }
@@ -330,13 +329,25 @@ public:
      * \brief Getter for deepSize, i.e. the entire size for the serialization for the given value of \p T in memory.
      * \returns Deep size  for \p T.
      */
-    inline size_t getDeepSize(void)     const { return m_deepSize; };
+    inline size_t getDeepSize(void) const { return m_deepSize; };
+
+    /**
+     * \brief Getter for (optional) segmentId.
+     * \returns (optional) segmentId.
+     */
+    inline std::optional<memory::id_t> getSegmentId(void) const { return m_segmentId; }
+
+    /**
+     * \brief Setter for (optional) segmentId.
+     * \param segmentId New segmentId.
+     */
+    inline void setSegmentId(std::optional<memory::id_t> segmentId) { m_segmentId = segmentId; }
 
     /**
      * \brief Getter for all nodes.
      * \returns Tuple of all nodes.
      */
-    inline decltype(auto) getNodes(void) const { return m_nodes; }
+    inline decltype(auto) getNodes(void) { return m_nodes; }
 
     /**
      * \brief Getter for a specific \ref FieldNode.
@@ -448,9 +459,9 @@ private:
         return node;
     }
 
-    size_t      m_inlinedSize;
-    size_t      m_deepSize;
-
+    size_t      m_inlinedSize = 0;
+    size_t      m_deepSize = 0;
+    std::optional<memory::id_t> m_segmentId = std::nullopt;
 
     Nodes       m_nodes;
 };
