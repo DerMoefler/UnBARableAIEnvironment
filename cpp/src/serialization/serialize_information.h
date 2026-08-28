@@ -278,6 +278,32 @@ struct FieldNode<F> : FieldNodeCommon<F> {
     std::vector<std::shared_ptr<Layout<ValueType>>>     children;
 };
 
+// TODO could just as well be implemented as a member function
+template <typename N, typename F>
+void applyToFieldNodeChildren(N& node, F&& func) {
+    using Tag = typename std::remove_cvref_t<decltype(node)>::Tag;
+    if constexpr (!detail::Fieldlike<Tag>) {
+        static_assert(AlwaysFalse_MF<Tag>::value, "Tag is not a Fieldlike.");
+    }
+    if constexpr (serialization::detail::MultiField<Tag>) {
+        const auto& children = node.children;
+        for (const auto& child : children) {
+            if (child) {
+                func(child);
+            }
+        }
+    }
+    else if constexpr (serialization::detail::Field<Tag>) {
+        if (node.child) {
+            func(node.child);
+        }
+    }
+    else {
+        static_assert(AlwaysFalse_MF<Tag>::value, "The Fieltype of 'Tag' is not currently implemented for this function.");
+    }
+
+}
+
 /**
  * \brief Holds information about the memory layout for a Serializable Type.
  * \tparam T A \ref Serializable.

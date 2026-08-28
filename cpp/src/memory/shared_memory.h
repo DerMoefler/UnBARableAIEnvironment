@@ -1,7 +1,11 @@
 #pragma once
-// #include <asm-generic/errno.h>
+#include <cstdint>
+#include <memory>
 #include <string_view>
+#include <variant>
+#include <vector>
 
+#include "memory/shared_memory_types.h"
 #include "shared_memory_impl.h"
 #include "serialization/serialize_information.h"
 
@@ -9,8 +13,11 @@ namespace UnBARableAINS {
 
 namespace memory {
 
-template<SharedMemoryImpl T>
+template<SharedMemoryImpl T, typename... SupportedTypes>
 class SharedMemory {
+private:
+    using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
+
 public:
     /**
      * \brief Creates a shared memory region.
@@ -19,43 +26,53 @@ public:
         : m_sharedMemoryImpl(name)
     {}
 
-    template<serialization::Serializable S>
+    template <serialization::Serializable S>
     void write(const S& value) {
-        auto layout = serialization::Layout<S>{value};
+        auto layout = std::make_shared<serialization::Layout<S>>(value);
+
         createSegments(layout);
+
+        m_layouts.push_back(*layout);
     }
 
 private:
-    template<serialization::Serializable S>
-    void createSegments(const serialization::Layout<S>& layout) {
-        decltype(auto) nodes = layout.getNodes();
-        size_t inlinedSize;
-        std::apply([&](const auto&... node){
-            auto forEachNode = [&](const auto& node) {
-                using Tag = typename std::remove_cvref_t<decltype(node)>::Tag;
-                // --- Recursion ---
-                if constexpr (serialization::detail::MultiField<Tag>) {
-                    const auto& children = node.children;
-                    for (const auto& child : children) {
-                        if (child) {
-                            createSegments(*child);
-                        }
-                    }
+    template <serialization::Serializable S>
+    void createSegments(std::shared_ptr<serialization::Layout<S>> layout) {
+        memory::id_t segmentId = m_sharedMemoryImpl.createSegment(layout->getInlinedSize());
+        layout->setSegmentId(segmentId);
+
+        decltype(auto) nodes = layout->getNodes();
+        std::apply([&](const auto& ...node) {
+            auto forEachNode = [&](const auto& node) -> void {
+                // --- End of recusion ---
+                // The node is entirely inlined within parent layout, set each childs segmentId to the parent's segmentId
+                if (node.inlineSize == node.deepSize) {
+                    applyToFieldNodeChildren(node, [segmentId](auto& child){
+                        child->setSegmentId(segmentId);
+                    });
                 }
+                /// --- (possible) Recusion ---
                 else {
-                    if (node.child) {
-                        createSegments(*node.child);
-                    }
+                    applyToFieldNodeChildren(node, [this, segmentId](auto &child) {
+                        /// --- End of recursion ---
+                        // if inlinedSize == deepSize -> child is inlined in parent's segmentId
+                        if (child->getInlinedSize() == child->getDeepSize()) {
+                            child->setSegmentId(segmentId);
+                        }
+                        /// --- Recursion ---
+                        else {
+                            createSegments(child);
+                        }
+                    });
                 }
-                // --- end recursion ---
-                inlinedSize = node.inlineSize;
-                m_sharedMemoryImpl.createSegment(inlinedSize);
             };
 
             (forEachNode(node), ...);
             
         }, nodes);
     }
+
+    std::vector<LayoutVariant> m_layouts;
 
     T m_sharedMemoryImpl;
 

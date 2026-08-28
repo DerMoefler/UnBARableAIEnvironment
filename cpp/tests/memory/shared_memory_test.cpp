@@ -8,7 +8,7 @@ namespace UnBARableAINS {
 using namespace memory;
 
 TEST(SharedMemoryTest, Constructor) {
-    SharedMemory<SharedMemoryPosix> shm{"/shm-test"};
+    SharedMemory<SharedMemoryPosix, serialization::test::ComplexB> shm{"/shm-test"};
     serialization::test::ComplexB data{
         {{
             // Matrix 0: 2 x 4
