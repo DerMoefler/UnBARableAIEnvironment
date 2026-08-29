@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <system_error>
 
@@ -60,16 +61,40 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
     return newSegmentId;
 }
 
-void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {}
+void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
+    SegmentInformation& segmentInformation = findSegmentInformation(id);
+    for (size_t i = 0; i < data.size(); i++) {
+        write(static_cast<uint8_t>(data[i]), segmentInformation.getHead());
+        segmentInformation.advanceHead(1);
+    }
+}
 
 id_t SharedMemoryPosix::writeSegment(DataView data) {
-    id_t newSegmentId = createSegment(data.size());
-    SegmentInformation& sInformation = m_segmentsInformation[newSegmentId];
-    for (size_t i = 0; i < data.size(); i++) {
-        write(static_cast<uint8_t>(data[i]), sInformation.getHead());
-        sInformation.advanceHead(1);
+    id_t segmentId = createSegment(data.size());
+    appendToSegment(segmentId, data);
+    return segmentId;
+}
+
+auto SharedMemoryPosix::findSegmentInformation(id_t segmentId) -> SegmentInformation& {
+    auto indexOpt = findSegmentInformationIndex(segmentId);
+    if (!indexOpt.has_value()) {
+        throw std::runtime_error("No segment with that id");
     }
-    return newSegmentId;
+    SegmentInformation& segmentInformation = m_segmentsInformation[indexOpt.value()];
+    return segmentInformation;
+}
+
+std::optional<size_t> SharedMemoryPosix::findSegmentInformationIndex(id_t segmentId) const {
+    auto it = std::find_if(m_segmentsInformation.begin(), m_segmentsInformation.end(),
+                           [segmentId](const SegmentInformation& segInfo) -> bool {
+                               return segInfo.getId() == segmentId;
+                           });
+    if (it == m_segmentsInformation.end()) {
+        return std::nullopt;
+    }
+    else {
+        return std::distance(m_segmentsInformation.begin(), it);
+    }
 }
 
 void SharedMemoryPosix::increaseSize(const size_t size) {

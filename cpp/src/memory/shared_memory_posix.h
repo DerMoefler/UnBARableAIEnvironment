@@ -248,6 +248,22 @@ public:
     // void    deleteSegment(const id_t id);
 
 private:
+    /**
+     * \brief Finds a segmentInformation for the id or throws if it doesnt exist.
+     */
+    SegmentInformation& findSegmentInformation(id_t segmentId);
+
+    /// \brief Const overload for findSegmentInformation.
+    inline const SegmentInformation& findSegmentInformation(id_t segmentId) const {
+        return findSegmentInformation(segmentId);
+    }
+
+    /**
+     * \brief Returns the associated SegmentInformation's index in m_segmentsInformation for the
+     * specified id, if present. Otherwise, returns std::nullopt.
+     */
+    std::optional<size_t> findSegmentInformationIndex(id_t segmentId) const;
+
     /// \brief Increase the size of the shared memory region by some amount.
     void increaseSize(const size_t size = c_size_increase);
 
