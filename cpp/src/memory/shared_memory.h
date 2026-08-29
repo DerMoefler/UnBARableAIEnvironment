@@ -6,14 +6,14 @@
 #include <vector>
 
 #include "memory/shared_memory_types.h"
-#include "shared_memory_impl.h"
 #include "serialization/serialize_information.h"
+#include "shared_memory_impl.h"
 
 namespace UnBARableAINS {
 
 namespace memory {
 
-template<SharedMemoryImpl T, typename... SupportedTypes>
+template <SharedMemoryImpl T, typename... SupportedTypes>
 class SharedMemory {
 private:
     using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
@@ -22,9 +22,7 @@ public:
     /**
      * \brief Creates a shared memory region.
      */
-    SharedMemory(std::string_view name)
-        : m_sharedMemoryImpl(name)
-    {}
+    SharedMemory(std::string_view name) : m_sharedMemoryImpl(name) {}
 
     template <serialization::Serializable S>
     void write(const S& value) {
@@ -41,43 +39,17 @@ private:
         memory::id_t segmentId = m_sharedMemoryImpl.createSegment(layout->getInlinedSize());
         layout->setSegmentId(segmentId);
 
-        decltype(auto) nodes = layout->getNodes();
-        std::apply([&](const auto& ...node) {
-            auto forEachNode = [&](const auto& node) -> void {
-                // --- End of recusion ---
-                // The node is entirely inlined within parent layout, set each childs segmentId to the parent's segmentId
-                if (node.inlineSize == node.deepSize) {
-                    applyToFieldNodeChildren(node, [segmentId](auto& child){
-                        child->setSegmentId(segmentId);
-                    });
-                }
-                /// --- (possible) Recusion ---
-                else {
-                    applyToFieldNodeChildren(node, [this, segmentId](auto &child) {
-                        /// --- End of recursion ---
-                        // if inlinedSize == deepSize -> child is inlined in parent's segmentId
-                        if (child->getInlinedSize() == child->getDeepSize()) {
-                            child->setSegmentId(segmentId);
-                        }
-                        /// --- Recursion ---
-                        else {
-                            createSegments(child);
-                        }
-                    });
-                }
-            };
+        auto funcBase = [segmentId](auto& child) { child->setSegmentId(segmentId); };
+        auto funcRecursive = [&](auto& child) { createSegments(child); };
 
-            (forEachNode(node), ...);
-            
-        }, nodes);
+        layout->applyToNodes(funcBase, funcRecursive);
     }
 
     std::vector<LayoutVariant> m_layouts;
 
     T m_sharedMemoryImpl;
-
 };
 
-}; // namespace memory
+};  // namespace memory
 
-}; // namespace UnBARableAI
+};  // namespace UnBARableAINS
