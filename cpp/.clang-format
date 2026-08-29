@@ -9,6 +9,10 @@ UseTab: Never
 IndentAccessModifiers: false
 AccessModifierOffset: -4
 
+BreakBeforeBraces: Custom
+BraceWrapping:
+    BeforeElse: true
+
 
 ColumnLimit: 100
 
