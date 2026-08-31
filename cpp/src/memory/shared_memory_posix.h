@@ -321,6 +321,19 @@ private:
         return true;
     }
 
+    template <std::unsigned_integral T>
+    static T dataViewToUnsigned(DataView serializedData) {
+        if (serializedData.size() != sizeof(T)) {
+            throw std::runtime_error(
+                "Size mismatch between unsigned type and serializedData.size()");
+        }
+        T value{};
+        for (size_t i = 0; i < sizeof(T); i++) {
+            value |= static_cast<T>(serializedData[i]) << ((sizeof(T) - 1 - i) * 8);
+        }
+        return value;
+    }
+
     /**
      * \brief Read raw data bytes.
      * \param position Position to start reading from.
@@ -385,6 +398,22 @@ private:
 
     /// \brief Checks that magic and version are valid at the start of the shm.
     bool isStartValid(void) const;
+
+    /**
+     * \brief Checks that the segment table is (structurally valid).
+     * \param start Start withing the shared memory.
+     * \param firstId FirstId within the partial table (do not specify, used internally for
+     * recursion).
+     *
+     * This method does check that the segment table is structurally intact, i.e. that it reads
+     * sequentially, each partial segment is \ref c_contiguous_segment_count elements big and links
+     * correctly within itself.
+     *
+     * However, it explicitly does NOT check whether the segment's offsets actually make sense. For
+     * all this function cares, they could point to somewhere inside the segment table (which would
+     * obviously not be a good thing, if that were the case).
+     */
+    bool isSegmentTableValid(position_t start, id_t firstId = 0) const;
 
     /// \brief Constant by which the shared memory's size is increased when more memory is needed
     /// (should be the size of one page).

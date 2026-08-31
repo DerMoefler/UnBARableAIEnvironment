@@ -45,6 +45,9 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
         throw std::runtime_error("Shared memory's start is invalid.");
     }
     vThis.m_head += 8;
+    if (!vThis.isSegmentTableValid(vThis.m_head)) {
+        throw std::runtime_error("Shared memory's segment table is invalid.");
+    }
 
     return vThis;
 }
@@ -183,6 +186,26 @@ std::vector<std::byte> SharedMemoryPosix::read(position_t position, size_t numBy
 bool SharedMemoryPosix::isStartValid(void) const {
     std::vector<std::byte> shmStart = read(0, 8);
     return isContainedAt(shmStart, c_UnBARableAI_magic) && isContainedAt(shmStart, c_version, 4);
+}
+
+bool SharedMemoryPosix::isSegmentTableValid(position_t start, id_t firstId) const {
+    std::vector<std::byte> partialSegmentTable = read(start, c_segment_table_size);
+    constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
+    for (id_t i = 0; i < c_contiguous_segment_count; i++) {
+        if (!isContainedAt(partialSegmentTable, firstId + i, i * c_entry_size)) {
+            std::cout << dataViewToUnsigned<position_t>(
+                std::span{partialSegmentTable}.subspan(i * c_entry_size));
+            return false;
+        }
+    }
+    if (!isContainedAt(partialSegmentTable, c_partial_table_link_id,
+                       c_segment_table_size - c_entry_size)) {
+        return false;
+    }
+    position_t continuation = dataViewToUnsigned<position_t>(
+        std::span{partialSegmentTable}.subspan(c_segment_table_size - sizeof(link_t)));
+    return continuation ? isSegmentTableValid(continuation, firstId + c_contiguous_segment_count)
+                        : true;
 }
 
 SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id)
