@@ -9,6 +9,7 @@
 #include <iostream>  // TODO remove
 #include <stdexcept>
 #include <system_error>
+#include "memory/shared_memory_types.h"
 
 namespace UnBARableAINS {
 
@@ -27,15 +28,26 @@ SharedMemoryPosix SharedMemoryPosix::create(std::string_view name) {
     return vThis;
 }
 
-// SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
-//     SharedMemoryPosix vThis(name);
-//     vThis.m_id = shm_open(vThis.m_name.c_str(), O_RDWR, 0600);
-//     if (vThis.m_id == -1) {
-//         throw std::system_error(errno, std::generic_category(), "shm_open failed");
-//     }
-//
-//     return vThis;
-// }
+SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
+    SharedMemoryPosix vThis(name);
+    vThis.m_id = shm_open(vThis.m_name.c_str(), O_RDWR, 0600);
+    if (vThis.m_id == -1) {
+        throw std::system_error(errno, std::generic_category(), "shm_open failed");
+    }
+    struct stat info{};
+    if (fstat(vThis.m_id, &info) == -1) {
+        throw std::system_error(errno, std::generic_category(), "fstat failed");
+    }
+    vThis.m_size = info.st_size;
+    vThis.map();
+
+    if (!vThis.isStartValid()) {
+        throw std::runtime_error("Shared memory's start is invalid.");
+    }
+    vThis.m_head += 8;
+
+    return vThis;
+}
 
 SharedMemoryPosix::~SharedMemoryPosix(void) { shm_unlink(m_name.c_str()); }
 
@@ -159,6 +171,18 @@ void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position
     id_t writeOffset =
         partialTableStart + (id % c_contiguous_segment_count) * 2 * sizeof(id_t) + sizeof(id_t);
     write(position, writeOffset);
+}
+
+std::vector<std::byte> SharedMemoryPosix::read(position_t position, size_t numBytes) const {
+    if ((position + numBytes) > m_size) {
+        throw std::out_of_range("End position to read is outside the shm region");
+    }
+    return {m_memoryStart + position, m_memoryStart + position + numBytes};
+}
+
+bool SharedMemoryPosix::isStartValid(void) const {
+    std::vector<std::byte> shmStart = read(0, 8);
+    return isContainedAt(shmStart, c_UnBARableAI_magic) && isContainedAt(shmStart, c_version, 4);
 }
 
 SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id)

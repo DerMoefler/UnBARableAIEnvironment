@@ -20,4 +20,9 @@ TEST(SharedMemoryPosixTest, writeSegment) {
     shm.createSegment(0xFF);
 }
 
+TEST(SharedMemoryPosixTest, Open) {
+    SharedMemoryPosix shm = SharedMemoryPosix::create("/posix-open-test");
+    SharedMemoryPosix shmOpen = SharedMemoryPosix::open("/posix-open-test");
+}
+
 }  // namespace UnBARableAINS

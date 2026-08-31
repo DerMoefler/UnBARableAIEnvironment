@@ -62,7 +62,7 @@ public:
         SegmentInformation(const id_t id, const position_t memoryStart, const size_t dataSize);
 
         /**
-         * \brief Initialize an invalid segment.
+         * \brief Initialize a (previously) invalid segment.
          * \param memoryStart Start of the segment in shared memory.
          * \param dataSize Data size for the first partial segment.
          * \pre The instance must be invalid.
@@ -134,6 +134,7 @@ public:
     /**
      * \brief Number of contiguous segments in the partially linked list.
      * The last element is a relative pointer to next array. \todo image
+     * \todo possibly better as a runtime, not a compile time constant
      */
     inline static constexpr uint32_t c_contiguous_segment_count = 32;
 
@@ -261,6 +262,7 @@ public:
 private:
     /// \brief Trivial ctor.
     SharedMemoryPosix(std::string_view name);
+
     /**
      * \brief Finds a segmentInformation for the id or throws if it doesnt exist.
      */
@@ -299,6 +301,33 @@ private:
     inline static constexpr size_t calculatePartialSegmentSize(const size_t dataSize) {
         return dataSize + sizeof(size_t) + sizeof(id_t) + sizeof(link_t);
     }
+
+    /**
+     * \brief Helper function to check if serialized data contains a value (at some position).
+     * \param serialized Serialized data to search in.
+     * \param value Value to check.
+     * \param start Start inside \p serialized.
+     *
+     * Checks if \p serialized, beginning at \p start, is the serialized version of \p value.
+     */
+    template <std::unsigned_integral T>
+    static bool isContainedAt(DataView serialized, T value, position_t start = 0) {
+        for (size_t i = 0; i < sizeof(T); i++) {
+            if (serialized[start + i] !=
+                static_cast<std::byte>((value >> ((sizeof(T) - 1 - i) * 8)) & 0xFF)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * \brief Read raw data bytes.
+     * \param position Position to start reading from.
+     * \param numBytes Number of bytes to read.
+     * \returns A std::vector<std::byte> containing the read data.
+     */
+    std::vector<std::byte> read(position_t position, size_t numBytes) const;
 
     /**
      * \brief Helper method to convert a value into big endian.
@@ -353,6 +382,9 @@ private:
         T endianizedValue = getBigEndian(value);
         std::memcpy(m_memoryStart + position, &endianizedValue, sizeof(T));
     }
+
+    /// \brief Checks that magic and version are valid at the start of the shm.
+    bool isStartValid(void) const;
 
     /// \brief Constant by which the shared memory's size is increased when more memory is needed
     /// (should be the size of one page).
