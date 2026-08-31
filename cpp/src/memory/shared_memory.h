@@ -2,11 +2,13 @@
 #include <cassert>
 #include <iostream>  // TODO remove
 #include <memory>
+#include <stdexcept>
 #include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
 
+#include "id/id_allocator.hpp"
 #include "memory/shared_memory_types.h"
 #include "serialization/serialize_information.h"
 #include "shared_memory_impl.h"
@@ -17,24 +19,28 @@ namespace memory {
 
 template <SharedMemoryImpl T, typename... SupportedTypes>
 class SharedMemory {
-private:
+public:
+    /// \brief Variant able to hold a Layout for any of the \ref SupportedTypes.
     using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
 
-public:
     /**
      * \brief Creates a shared memory region.
      */
     SharedMemory(std::string_view name) : m_sharedMemoryImpl(name) {}
 
     template <serialization::Serializable S>
-    void write(const S& value) {
+    id::id_t write(const S& value) {
         auto layout = std::make_shared<serialization::Layout<S>>(value);
 
         createSegments(layout);
         writeOnCreation(value, layout);
 
+        id::id_t serializableId = m_idAllocator.allocate();
         m_layouts.push_back(*layout);
+        return serializableId;
     }
+
+    LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
 
 private:
     template <serialization::Serializable S>
@@ -144,7 +150,16 @@ private:
 
         layout->visitNodesByInlining(funcBase, funcRecursive);
     }
+
+    LayoutVariant& getLayoutVariant(id::id_t serializableId) {
+        // TODO currently no deletion possible, change when implemented
+        if (serializableId >= m_layouts.size())
+            throw std::out_of_range("Serializable ID out of range");
+        return m_layouts[serializableId];
+    }
+
     std::vector<LayoutVariant> m_layouts;
+    id::IdAllocator m_idAllocator;
 
     T m_sharedMemoryImpl;
 };

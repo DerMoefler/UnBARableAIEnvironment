@@ -9,8 +9,10 @@ namespace UnBARableAINS {
 
 using namespace memory;
 
-TEST(SharedMemoryTest, Write) {
-    SharedMemory<SharedMemoryPosix, serialization::test::ComplexB> shm{"/shm-test"};
+class SharedMemoryTest : public ::testing::Test {
+protected:
+    using ComplexB = serialization::test::ComplexB;
+    using SharedMemoryType = SharedMemory<SharedMemoryPosix, ComplexB>;
     serialization::test::ComplexB data{{{// Matrix 0: 2 x 4
                                          {{1, 2, 3, 4}, {5, 6, 7, 8}},
                                          // Matrix 1: 3 x 3
@@ -26,7 +28,20 @@ TEST(SharedMemoryTest, Write) {
                                              {300},
                                              {400},
                                          }}}};
-    shm.write(data);
+};
+
+TEST_F(SharedMemoryTest, Write) {
+    using SI = serialization::SerializeInformation<ComplexB>;
+    SharedMemoryType shm{"/shm-test"};
+    id::id_t serializableId = shm.write(data);
+
+    serialization::Layout<ComplexB>& mainLayout =
+        std::get<serialization::Layout<ComplexB>>(shm.getLayout(serializableId));
+
+    auto mainSegmentId = mainLayout.getSegmentId();
+    ASSERT_TRUE(mainSegmentId.has_value());
+
+
 }
 
 }  // namespace UnBARableAINS
