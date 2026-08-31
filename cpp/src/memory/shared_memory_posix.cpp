@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <iostream>  // TODO remove
 #include <stdexcept>
 #include <system_error>
 
@@ -62,6 +63,7 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
 }
 
 void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
+    std::cout << "SharedMemoryPosix::apendToSegment" << std::endl;
     SegmentInformation& segmentInformation = findSegmentInformation(id);
     for (size_t i = 0; i < data.size(); i++) {
         write(static_cast<uint8_t>(data[i]), segmentInformation.getHead());
@@ -180,7 +182,5 @@ void SharedMemoryPosix::SegmentInformation::validateState(bool state) const {
         throw std::logic_error(message.data());
     }
 }
-
 };  // namespace memory
-
 };  // namespace UnBARableAINS

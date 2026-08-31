@@ -218,6 +218,22 @@ template <MultiField F>
 struct GetFieldlikeValueType_MF<F> {
     using Type = F::Field::Type;
 };
+
+template <typename T>
+struct IsByteArray_MF : std::false_type {};
+
+template <size_t N>
+struct IsByteArray_MF<std::array<std::byte, N>> : std::true_type {};
+
+template <typename T>
+concept ByteContainer = IsByteArray_MF<std::remove_cvref_t<T>>::value ||
+                        std::same_as<std::remove_cvref_t<T>, std::vector<std::byte>>;
+
+template <typename S>
+concept SerializeMethodAvailable = Serializable<S> && requires(const S value) {
+    { SerializeInformation<S>::serialize(value) } -> ByteContainer;
+};
+
 }  // namespace detail
 
 // Forward declaration for the shared_ptr in FieldNode.
@@ -291,7 +307,7 @@ consteval bool isNodeInlined(void) {
 
 // TODO could just as well be implemented as a member function
 template <typename N, typename F>
-void applyToFieldNodeChildren(N& node, F&& func) {
+void visitNodeChildLayouts(N& node, F&& func) {
     using Tag = typename std::remove_cvref_t<decltype(node)>::Tag;
     if constexpr (!detail::Fieldlike<Tag>) {
         static_assert(AlwaysFalse_MF<Tag>::value, "Tag is not a Fieldlike.");
@@ -364,38 +380,60 @@ public:
      ```cpp
      template <Serializable S>
      void foo(Layout<S> layout) {
-         auto funcBase = [&](auto& child) { ... Stuff to do when inlined ... };
-         auto funcRecursive = [&](auto& child) { foo(child); };
+         auto funcBase = [&](auto& node) { ... Stuff to do when inlined ... };
+         auto funcRecursive = [&](auto& node) { foo(child); };
 
-         layout.applyToNodes(funcBase, funcRecursive);
+         layout.visitNodesByInlining(funcBase, funcRecursive);
      }
      ```
      */
     template <typename Func_Inlined, typename Func_NonInlined>
-    void applyToNodes(Func_Inlined&& funcInlined, Func_NonInlined&& funcNonInlined) {
+    void visitNodesByInlining(Func_Inlined&& funcInlined, Func_NonInlined&& funcNonInlined) {
         std::apply(
             [&](const auto&... node) {
                 auto forEachNode = [&](const auto& node) -> void {
-                    if (isNodeInlined<decltype(node)>()) {
+                    if constexpr (isNodeInlined<decltype(node)>()) {
                         // --- Node entirely inlined ---
-                        applyToFieldNodeChildren(node, funcInlined);
+                        funcInlined(node);
                     }
                     else {
-                        applyToFieldNodeChildren(node, [&](auto& child) {
-                            // --- Check for each child whether its inlined in its parent ---
-                            if (child->isInlined()) {
-                                applyToFieldNodeChildren(node, funcInlined);
-                            }
-                            else {
-                                applyToFieldNodeChildren(node, funcNonInlined);
-                            }
-                        });
+                        funcNonInlined(node);
                     }
                 };
 
                 (forEachNode(node), ...);
             },
             m_nodes);
+    }
+
+    /**
+     * \brief A generic function to execute functions on every nodes' child layouts, based on
+     * whether the child is inlined.
+     * \param funcInlined A function taking in (parentNode, [shared_ptr] childLayout), executed when
+     * child is inlined.
+     * \param funcNoninlined A function taking in (parentNode, [shared_ptr] childLayout), executed
+     * when child is not inlined.
+     *
+     * This method uses \ref visitNodesByInlining to visit the children based on their inlining.
+     */
+    template <typename Func_Inlined, typename Func_NonInlined>
+    void visitChildLayoutsByInlining(Func_Inlined&& funcInlined, Func_NonInlined&& funcNonInlined) {
+        auto parentFuncInlined = [&](auto& parentNode) {
+            visitNodeChildLayouts(parentNode,
+                                  [&](auto& childLayout) { funcInlined(parentNode, childLayout); });
+        };
+        auto parentFuncNonInlined = [&](auto& parentNode) {
+            visitNodeChildLayouts(parentNode, [&](auto& childLayout) {
+                if (childLayout->isInlined()) {
+                    funcInlined(parentNode, childLayout);
+                }
+                else {
+                    funcNonInlined(parentNode, childLayout);
+                }
+            });
+        };
+
+        visitNodesByInlining(parentFuncInlined, parentFuncNonInlined);
     }
 
     inline bool isInlined(void) const { return m_inlinedSize == m_deepSize; }
@@ -624,6 +662,8 @@ struct SerializeInformation<std::vector<T, Alloc>> {
         return v.size();
     }
 };
+
+static_assert(detail::SerializeMethodAvailable<int>, "Cannot serialize integers!");
 
 };  // namespace serialization
 
