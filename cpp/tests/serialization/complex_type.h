@@ -1,3 +1,4 @@
+#pragma once
 #include "serialization/serialize_information.h"
 
 namespace UnBARableAINS {
@@ -12,7 +13,8 @@ namespace test {
  * essentially the same data can be constructed and tested/verified against each other.
  */
 struct ComplexBase {
-    /// \brief A tensor of third order (storing ints) to test nesting multiple vector's in each other.
+    /// \brief A tensor of third order (storing ints) to test nesting multiple vector's in each
+    /// other.
     std::vector<std::vector<std::vector<int>>> tensor3;
 };
 
@@ -22,9 +24,9 @@ struct ComplexA : ComplexBase {};
 /// \brief Object specifying to not inline \ref ComplexBase::tensor3
 struct ComplexB : ComplexBase {};
 
-} // namespace test
+}  // namespace test
 
-template<>
+template <>
 struct SerializeInformation<test::ComplexA> {
     inline static constexpr bool c_serializable = true;
 
@@ -35,13 +37,14 @@ struct SerializeInformation<test::ComplexA> {
     };
 
     using Fields = detail::Fields<F_Tensor3>;
-    
-    inline static constexpr decltype(auto) get(std::type_identity<F_Tensor3>, const Type& v) noexcept {
+
+    inline static constexpr decltype(auto) get(std::type_identity<F_Tensor3>,
+                                               const Type& v) noexcept {
         return v.tensor3;
     }
 };
 
-template<>
+template <>
 struct SerializeInformation<test::ComplexB> {
     inline static constexpr bool c_serializable = true;
 
@@ -53,12 +56,13 @@ struct SerializeInformation<test::ComplexB> {
     };
 
     using Fields = detail::Fields<F_Tensor3>;
-    
-    inline static constexpr decltype(auto) get(std::type_identity<F_Tensor3>, const Type& v) noexcept {
+
+    inline static constexpr decltype(auto) get(std::type_identity<F_Tensor3>,
+                                               const Type& v) noexcept {
         return v.tensor3;
     }
 };
 
-} // namespace serialization
+}  // namespace serialization
 
-} // namespace UnBARableAI
+}  // namespace UnBARableAINS

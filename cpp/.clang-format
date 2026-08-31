@@ -1,0 +1,21 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+IndentAccessModifiers: false
+AccessModifierOffset: -4
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+    BeforeElse: true
+
+
+ColumnLimit: 100
+SortIncludes: false
+
+# Keep the declaration following "template <...>" on a new line.
+BreakTemplateDeclarations: Yes

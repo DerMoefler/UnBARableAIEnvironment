@@ -6,9 +6,9 @@ namespace UnBARableAINS {
 using namespace memory;
 
 TEST(SharedMemoryPosixTest, writeSegment) {
-    SharedMemoryPosix shm("/posix-test");
-    
-    std::vector<std::byte> data {
+    SharedMemoryPosix shm = SharedMemoryPosix::create("/posix-test");
+
+    std::vector<std::byte> data{
         std::byte{0xba},
         std::byte{0x52},
         std::byte{0xab},
@@ -20,4 +20,9 @@ TEST(SharedMemoryPosixTest, writeSegment) {
     shm.createSegment(0xFF);
 }
 
-} // namespace UnBARableAI
+TEST(SharedMemoryPosixTest, Open) {
+    SharedMemoryPosix shm = SharedMemoryPosix::create("/posix-open-test");
+    SharedMemoryPosix shmOpen = SharedMemoryPosix::open("/posix-open-test");
+}
+
+}  // namespace UnBARableAINS

@@ -91,6 +91,7 @@ if(UNBARABLEAI_BUILD_TESTS)
         "tests/memory/partially_linked_list_information_test.cpp"
         "tests/memory/segment_information_test.cpp"
         "tests/serialization/serialization_test.cpp"
+        "src/id/id_allocator.cpp"
         "src/memory/shared_memory_posix.cpp"
         "src/memory/partially_linked_list_information.cpp"
     )
