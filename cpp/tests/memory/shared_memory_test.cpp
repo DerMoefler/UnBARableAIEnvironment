@@ -32,7 +32,7 @@ protected:
 
 TEST_F(SharedMemoryTest, Write) {
     using SI = serialization::SerializeInformation<ComplexB>;
-    SharedMemoryType shm{"/shm-test"};
+    SharedMemoryType shm = SharedMemoryType::create("/shm-test");
     id::id_t serializableId = shm.write(data);
 
     serialization::Layout<ComplexB>& mainLayout =
@@ -40,8 +40,6 @@ TEST_F(SharedMemoryTest, Write) {
 
     auto mainSegmentId = mainLayout.getSegmentId();
     ASSERT_TRUE(mainSegmentId.has_value());
-
-
 }
 
 }  // namespace UnBARableAINS

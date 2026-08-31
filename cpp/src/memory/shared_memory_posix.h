@@ -142,13 +142,24 @@ public:
     inline static constexpr id_t c_segment_link_id = 0xAA'AA'AA'AA;
 
     /**
-     * \brief Acquire shared memory using shm_open().
-     * \param name The name of the shared memory region.
+     * \brief Create shared memory using shm_open().
+     * \param name Name of the shared memory region to create.
+     * \returns SharedMemoryPosix object to access the shm region.
      *
      * The \p name must be unique (i.e. cannot exist already), otherwise an error occurs.
-     * \throws std::system_error on shmp_open fail.
+     * \throws std::system_error on shm_open fail.
      */
-    SharedMemoryPosix(std::string_view name);
+    static SharedMemoryPosix create(std::string_view name);
+
+    /**
+     * \brief Open an existing shared memory region using shm_open().
+     * \param Name of the exisiting shared memory region to open.
+     * \returns SharedMemoryPosix object to access the shm region.
+     *
+     * A region with the \p name must already exist, otherwise an error occurs.
+     * \throws std::system_error on shm_open fail.
+     */
+    static SharedMemoryPosix open(std::string_view name);
 
     /**
      * \brief Unlink POSIX memory using shm_unlink().
@@ -248,6 +259,8 @@ public:
     // void    deleteSegment(const id_t id);
 
 private:
+    /// \brief Trivial ctor.
+    SharedMemoryPosix(std::string_view name);
     /**
      * \brief Finds a segmentInformation for the id or throws if it doesnt exist.
      */

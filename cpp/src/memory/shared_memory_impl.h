@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <concepts>
 #include <span>
+#include <string_view>
 
 #include "../memory/shared_memory_types.h"
 
@@ -16,13 +17,16 @@ namespace memory {
  * An implementation should at least provide a version (for its own ABI) at the start
  * of the shared memory.
  */
-template<class T>
-concept SharedMemoryImpl = requires (T t, std::span<const std::byte> data, id_t id, size_t size) {
-    { t.writeSegment(data) }        -> std::convertible_to<id_t>;
-    { t.createSegment(size) }       -> std::convertible_to<id_t>;
-    // { t.deleteSegment(id) }     -> std::same_as<void>;
-};
+template <class T>
+concept SharedMemoryImpl =
+    requires(std::string_view name, T t, std::span<const std::byte> data, id_t id, size_t size) {
+        { T::create(name) } -> std::same_as<T>;
+        { T::open(name) } -> std::same_as<T>;
+        { t.writeSegment(data) } -> std::convertible_to<id_t>;
+        { t.createSegment(size) } -> std::convertible_to<id_t>;
+        // { t.deleteSegment(id) }     -> std::same_as<void>;
+    };
 
-}; // namespace memory
+};  // namespace memory
 
-}; // namespace UnBARableAI
+};  // namespace UnBARableAINS

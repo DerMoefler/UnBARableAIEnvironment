@@ -14,16 +14,28 @@ namespace UnBARableAINS {
 
 namespace memory {
 
-SharedMemoryPosix::SharedMemoryPosix(std::string_view name) : m_name(name) {
-    m_id = shm_open(m_name.c_str(), O_CREAT | O_RDWR | O_EXCL, 0600);
-    if (m_id == -1) {
+SharedMemoryPosix SharedMemoryPosix::create(std::string_view name) {
+    SharedMemoryPosix vThis(name);
+    vThis.m_id = shm_open(vThis.m_name.c_str(), O_CREAT | O_RDWR | O_EXCL, 0600);
+    if (vThis.m_id == -1) {
         throw std::system_error(errno, std::generic_category(), "shm_open failed");
     }
-    increaseSize();
-    write(c_UnBARableAI_magic);
-    write(c_version);
-    extendSegmentTable();
+    vThis.increaseSize();
+    vThis.write(c_UnBARableAI_magic);
+    vThis.write(c_version);
+    vThis.extendSegmentTable();
+    return vThis;
 }
+
+// SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
+//     SharedMemoryPosix vThis(name);
+//     vThis.m_id = shm_open(vThis.m_name.c_str(), O_RDWR, 0600);
+//     if (vThis.m_id == -1) {
+//         throw std::system_error(errno, std::generic_category(), "shm_open failed");
+//     }
+//
+//     return vThis;
+// }
 
 SharedMemoryPosix::~SharedMemoryPosix(void) { shm_unlink(m_name.c_str()); }
 
@@ -76,6 +88,8 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
     appendToSegment(segmentId, data);
     return segmentId;
 }
+
+SharedMemoryPosix::SharedMemoryPosix(std::string_view name) : m_name(name) {}
 
 auto SharedMemoryPosix::findSegmentInformation(id_t segmentId) -> SegmentInformation& {
     auto indexOpt = findSegmentInformationIndex(segmentId);
