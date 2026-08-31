@@ -10,6 +10,8 @@ import torch.nn as nn
 import sys
 from pathlib import Path
 
+import bar_ai
+
 # Add parent directory to path to import r_mappo
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "train"))
 from r_mappo import R_MAPPO
@@ -165,6 +167,23 @@ class TestR_MAPPO:
         assert isinstance(value_loss, torch.Tensor)
         assert value_loss.item() >= 0
     
+    def test_decode_action_returns_bar_ai_action_contract(self):
+        """PPO output should encode the engine Action contract, not just debug strings."""
+        action = self.trainer.decode_action_to_engine_action(
+            action_id=5,
+            unit_id=42,
+            team_id=1,
+            ally_team_id=0,
+            target_unit_id=99,
+        )
+
+        assert isinstance(action, bar_ai.Action)
+        assert action.unit_id == 42
+        assert action.team_id == 1
+        assert action.ally_team_id == 0
+        assert action.action_id == 5
+        assert action.target_unit_id == 99
+
     def test_ppo_update_12_sample(self):
         """Test ppo_update with 12-element sample"""
         batch_size = 4

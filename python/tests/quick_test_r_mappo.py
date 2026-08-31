@@ -464,26 +464,59 @@ def test_training_loop_multi_agent():
     print("\nLast 10 Taken Actions:")
     start_index = len(train_info["actions"]) - len(recent_actions)
     for i, action in enumerate(recent_actions, start=start_index):
-        print(f"  [{i}] {action}")
+        print(f"  [{i}] {describe_action(action)}")
     
     # Calculate action statistics
     action_counts = {
-        "move_north": 0,
-        "move_south": 0,
-        "move_east": 0,
-        "move_west": 0,
+        "move_right": 0,
+        "move_left": 0,
+        "move_up": 0,
+        "move_down": 0,
         "attack": 0,
     }
-    
+
     for action in train_info["actions"]:
-        action_counts[action["action"]] += 1
-    
+        if hasattr(action, "action_id"):
+            action_name = {
+                1: "move_right",
+                2: "move_left",
+                3: "move_up",
+                4: "move_down",
+                5: "attack",
+            }.get(int(action.action_id), "attack")
+        else:
+            action_name = action["action"]
+        action_counts[action_name] += 1
+
     total_actions = len(train_info["actions"])
     print("\nAction Distribution:")
     for action_name, count in action_counts.items():
         percentage = (count / total_actions * 100) if total_actions > 0 else 0
         print(f"  - {action_name:15s}: {count:3d} ({percentage:5.1f}%)")
     print()
+
+
+def describe_action(action):
+    """Return a readable summary for a pybind Action object or fallback compatibility object."""
+    if hasattr(action, "action_id"):
+        return {
+            "unit_id": int(getattr(action, "unit_id", 0)),
+            "team_id": int(getattr(action, "team_id", 0)),
+            "ally_team_id": int(getattr(action, "ally_team_id", 0)),
+            "action_id": int(getattr(action, "action_id", 0)),
+            "target_unit_id": int(getattr(action, "target_unit_id", 0)),
+        }
+
+    if isinstance(action, dict):
+        return {
+            "unit_id": int(action.get("unit_id", 0)),
+            "team_id": int(action.get("team_id", 0)),
+            "ally_team_id": int(action.get("ally_team_id", 0)),
+            "action_id": int(action.get("action_id", action.get("action", 0))),
+            "target_unit_id": int(action.get("target_unit_id", 0)),
+        }
+
+    return {"value": str(action)}
 
 
 # -------------------------------------------------------------------

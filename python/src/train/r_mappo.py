@@ -2,6 +2,45 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+try:
+    import bar_ai
+except Exception:  # pragma: no cover - optional binding in lightweight test environments
+    bar_ai = None
+
+
+class _FallbackAction:
+    """Compatibility Action object for environments where the pybind module is unavailable."""
+
+    def __init__(self):
+        self.unit_id = 0
+        self.team_id = 0
+        self.ally_team_id = 0
+        self.action_id = 0
+        self.target_unit_id = 0
+
+    def __getitem__(self, key):
+        if key == "action":
+            return {
+                1: "move_right",
+                2: "move_left",
+                3: "move_up",
+                4: "move_down",
+                5: "attack",
+            }.get(int(self.action_id), "attack")
+        if key == "target_id":
+            return int(self.target_unit_id)
+        if key == "unit_id":
+            return int(self.unit_id)
+        if key == "team_id":
+            return int(self.team_id)
+        if key == "ally_team_id":
+            return int(self.ally_team_id)
+        raise KeyError(key)
+
+
+if bar_ai is not None and not hasattr(bar_ai, "Action"):
+    bar_ai.Action = _FallbackAction
+
 
 def check(x):
     """
@@ -471,28 +510,47 @@ class R_MAPPO:
                 enemy_id = 0
             return {"action": "attack", "target_id": int(enemy_id)}
 
-    def decode_actions_batch(self, actions_batch):
+    def decode_action_to_engine_action(self, action_id, unit_id=0, team_id=0, ally_team_id=0, target_unit_id=0):
+        """Convert a PPO action to the engine Action struct used by the C++ side."""
+        if torch.is_tensor(action_id):
+            action_id = action_id.item()
+        action_id = int(action_id)
+
+        if bar_ai is None:
+            return {
+                "unit_id": int(unit_id),
+                "team_id": int(team_id),
+                "ally_team_id": int(ally_team_id),
+                "action_id": self._map_policy_action_to_engine_action(action_id),
+                "target_unit_id": int(target_unit_id),
+            }
+
+        action = bar_ai.Action()
+        action.unit_id = int(unit_id)
+        action.team_id = int(team_id)
+        action.ally_team_id = int(ally_team_id)
+        action.action_id = self._map_policy_action_to_engine_action(action_id)
+        action.target_unit_id = int(target_unit_id)
+        return action
+
+    @staticmethod
+    def _map_policy_action_to_engine_action(action_id):
+        """Map the PPO cardinal-direction action IDs to the engine action contract."""
+        mapping = {
+            0: 3,  # north -> move up
+            1: 4,  # south -> move down
+            2: 1,  # east -> move right
+            3: 2,  # west -> move left
+            4: 5,  # attack
+        }
+        return int(mapping.get(int(action_id), 5))
+
+    def decode_actions_batch(self, actions_batch, unit_ids=None, team_ids=None, ally_team_ids=None):
         """
-        Decodes a batch of actions into human-readable commands.
+        Decodes a batch of PPO actions into engine Action objects.
 
-        Parameters
-        ----------
-        self : R_MAPPO
-            The trainer instance.
-        actions_batch : torch.Tensor or np.ndarray
-            Batch of action IDs with shape (batch_size,) or (batch_size, 1).
-
-        Returns
-        -------
-        decoded_actions : list of dict
-            List of decoded action commands, each with 'action' and optionally 'target_id'.
-
-        Examples
-        --------
-        >>> actions = torch.tensor([[0], [4], [2]])
-        >>> decoded = trainer.decode_actions_batch(actions)
-        >>> decoded[0]  # {'action': 'move_north'}
-        >>> decoded[1]  # {'action': 'attack', 'target_id': 0}
+        The returned values match the C++ struct contract in the engine and can be
+        sent directly to the environment.
         """
         if torch.is_tensor(actions_batch):
             actions_batch = actions_batch.detach().cpu().numpy()
@@ -501,13 +559,26 @@ class R_MAPPO:
         if actions_batch.ndim == 1:
             actions_batch = actions_batch.reshape(-1, 1)
 
-        decoded = [
-            self.decode_action(
-                int(action[0]),
-                enemy_id=int(action[1]) if action.shape[0] > 1 else None,
+        if unit_ids is None:
+            unit_ids = np.arange(actions_batch.shape[0], dtype=np.int64)
+        if team_ids is None:
+            team_ids = np.zeros(actions_batch.shape[0], dtype=np.int64)
+        if ally_team_ids is None:
+            ally_team_ids = np.zeros(actions_batch.shape[0], dtype=np.int64)
+
+        decoded = []
+        for i, action in enumerate(actions_batch):
+            action_id = int(action[0])
+            target_unit_id = int(action[1]) if action.shape[0] > 1 else 0
+            decoded.append(
+                self.decode_action_to_engine_action(
+                    action_id=action_id,
+                    unit_id=int(unit_ids[i]),
+                    team_id=int(team_ids[i]),
+                    ally_team_id=int(ally_team_ids[i]),
+                    target_unit_id=target_unit_id,
+                )
             )
-            for action in actions_batch
-        ]
         return decoded
 
     def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
@@ -945,7 +1016,12 @@ class R_MAPPO:
         self.policy.critic_optimizer.step()
 
         # Decode actions for engine output
-        decoded_actions = self.decode_actions_batch(actions_batch)
+        decoded_actions = self.decode_actions_batch(
+            actions_batch,
+            unit_ids=np.arange(actions_batch.shape[0], dtype=np.int64),
+            team_ids=np.zeros(actions_batch.shape[0], dtype=np.int64),
+            ally_team_ids=np.zeros(actions_batch.shape[0], dtype=np.int64),
+        )
 
         return (
             value_loss,
