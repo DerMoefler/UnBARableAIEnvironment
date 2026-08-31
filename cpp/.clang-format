@@ -15,6 +15,7 @@ BraceWrapping:
 
 
 ColumnLimit: 100
+SortIncludes: false
 
 # Keep the declaration following "template <...>" on a new line.
 BreakTemplateDeclarations: Yes
