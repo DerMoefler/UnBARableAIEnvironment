@@ -15,7 +15,8 @@ namespace memory {
 class PartiallyLinkedListInformation {
 public:
     /**
-     * \brief Error class used when an index calculated by \ref getIndexPosition would be in the header / trailer.
+     * \brief Error class used when an index calculated by \ref getIndexPosition would be in the
+     * header / trailer.
      */
     class IndexInSegmentInfo : public std::invalid_argument {
     public:
@@ -26,18 +27,13 @@ public:
          * \param headerSize Header size of the partial segment.
          * \param partialSegmentSize Size of the partial segment.
          */
-        IndexInSegmentInfo(
-            std::size_t partialSegmentIndex,
-            std::size_t offset,
-            std::size_t headerSize
-        )
+        IndexInSegmentInfo(std::size_t partialSegmentIndex, std::size_t offset,
+                           std::size_t headerSize)
             : std::invalid_argument(
-                "Position lies within header / link section of partial segment."
-            ),
-            m_partialSegmentIndex(partialSegmentIndex),
-            m_offset(offset),
-            m_headerSize(headerSize)
-        {}
+                  "Position lies within header / link section of partial segment."),
+              m_partialSegmentIndex(partialSegmentIndex),
+              m_offset(offset),
+              m_headerSize(headerSize) {}
         /// \brief Getter for partial segment index.
         inline std::size_t getPartialSegmentIndex() const { return m_partialSegmentIndex; }
         /// \brief Getter for data offset.
@@ -54,13 +50,16 @@ public:
     /// \brief Length of the link at the end of each partial segment so link to the next.
     inline static constexpr size_t c_link_size = sizeof(position_t);
     /**
-     * \brief Construct a partially linked list, starting with one partial segment at the memory start.
-     * \param memoryStart Start of the list which is therefore also the start of the first partial segment.
+     * \brief Construct a partially linked list, starting with one partial segment at the memory
+     * start.
+     * \param memoryStart Start of the list which is therefore also the start of the first partial
+     * segment.
      * \param headerSize Size of the header for the first partial segement.
      * \param dataSize Size of the data for the first partial segement.
      */
-    PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize, const size_t dataSize);
-    
+    PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize,
+                                   const size_t dataSize);
+
     /**
      * \brief Add a new partial segment.
      * \param offset Offset in shared memory for the new partial segment.
@@ -70,7 +69,8 @@ public:
     void extend(const position_t offset, const size_t headerSize, const size_t dataSize);
 
     /**
-     * \brief Find the position_t (relative to the shared memory's start) from the position of the data inside the list.
+     * \brief Find the position_t (relative to the shared memory's start) from the position of the
+     * data inside the list.
      * \param index Data position inside the entire list.
      * \return The position in shared memory.
      * \throws std::out_of_range If the index is larger than the data size.
@@ -79,23 +79,27 @@ public:
     position_t getDataPosition(const position_t index) const;
 
     /**
-     * \brief Find the index (into the data portion of the Segment) from a position into shared memory.
+     * \brief Find the index (into the data portion of the Segment) from a position into shared
+     * memory.
      * \param position Position in the shared memory.
      * \return The index into the Segment's data portion.
      * \throws std::out_of_range If the position is not within a partial segment.
-     * \throws std::invalid_argument If the position is within the header or trailer of a partial segment.
+     * \throws std::invalid_argument If the position is within the header or trailer of a partial
+     * segment.
      * \see Inverse: \ref getDataPosition.
      */
     position_t getIndexPosition(const position_t position) const;
 
     /**
-     * \brief Find the position_t (relative to the shared memory's start) of the header of some partial segment.
+     * \brief Find the position_t (relative to the shared memory's start) of the header of some
+     * partial segment.
      * \param partialSegmentIndex The partial segment's index.
      */
     position_t getHeaderStart(const size_t partialSegmentIndex) const;
-    
+
     /**
-     * \brief Find the position_t (relative to the shared memory's start) of the data of some partial segment.
+     * \brief Find the position_t (relative to the shared memory's start) of the data of some
+     * partial segment.
      * \param partialSegmentIndex The partial segment's index.
      */
     position_t getDataStart(const size_t partialSegmentIndex) const;
@@ -129,7 +133,7 @@ public:
      * \return Size.
      */
     inline size_t getSize(void) const { return m_size; };
-    
+
     /**
      * \brief Get the memory start of the List.
      * \return Memory start.
@@ -141,17 +145,18 @@ public:
      * \return Data capacity.
      */
     size_t getCapacity(void) const;
-    
+
     /**
      * \brief Checks whether the list is full or not.
      * \return Bool if the head is at \ref getFullHeadPosition.
      */
     inline bool isListFull(void) const { return m_head == getFullHeadPosition(); }
+
 private:
     /**
      * \brief Simple validation that the partial segment with that index exists.
      * \throws std::out_of_range If the index does not exist.
-     */ 
+     */
     void validatePartialSegmentIndex(const size_t partialSegmentIndex) const;
 
     /**
@@ -159,21 +164,21 @@ private:
      * \return Position: Last partial element's link (value of the link must be 0x00).
      */
     position_t getFullHeadPosition(void) const;
-    
+
     /// \brief The position of the head
-    position_t                  m_head;
-    /// \brief 
-    position_t                  m_memoryStart;
+    position_t m_head;
+    /// \brief
+    position_t m_memoryStart;
     /// \brief The total size occupied in memory
-    size_t                      m_size          = 0;
+    size_t m_size = 0;
     /// \brief Offsets of the partial elements.
-    std::vector<position_t>     m_offsets       = {};
+    std::vector<position_t> m_offsets = {};
     /// \brief Sizes of the partial elements.
-    std::vector<size_t>         m_sizes         = {};
+    std::vector<size_t> m_sizes = {};
     /// \brief Data sizes (capacity) of the partial elements.
-    std::vector<size_t>         m_dataSizes     = {};
+    std::vector<size_t> m_dataSizes = {};
 };
 
-}; // namespace memory
+};  // namespace memory
 
-}; // namespace UnBARableAI
+};  // namespace UnBARableAINS
