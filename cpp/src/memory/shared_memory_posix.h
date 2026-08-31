@@ -44,6 +44,7 @@ public:
      * queried. This is to allow reserving space for a SegmentInformation object without it holding
      * information about an actual Segment.
      * \see PartiallyLinkedListInformation
+     * \todo Check whether inlined functions shouldnt have a validateState call.
      */
     class SegmentInformation {
     public:
@@ -96,6 +97,23 @@ public:
         inline void setHead(position_t index) { m_information.setHead(index); };
 
         /**
+         * \brief Get the validLength of the segment.
+         * \returns ValidLength.
+         * \see PartiallyLinkedListInformation::getOccupiedDataSize
+         */
+        inline size_t getValidLength(void) const { return m_information.getOccupiedDataSize(); }
+
+        /**
+         * \brief Get the position of the "validLength field" in the shm.
+         * \returns Position of validLength for this segment.
+         *
+         * The validLength field specifies how much of this segment is actually readable data.
+         */
+        inline position_t getValidLengthPosition(void) const {
+            return m_information.getHeaderStart(0);
+        }
+
+        /**
          * \brief Get the head's position.
          * \return The head's position_t.
          */
@@ -113,6 +131,13 @@ public:
          * \see PartiallyLinkedListInformation::getSize
          */
         inline size_t getSize(void) const { return m_information.getSize(); };
+
+        /**
+         * \brief Check if the list is full.
+         * \return Bool whether list is full.
+         * \see PartiallyLinkedListInformation::isListFull
+         */
+        inline bool isListFull(void) const { return m_information.isListFull(); }
 
     private:
         /**
@@ -291,6 +316,14 @@ private:
     /// \brief Update the \ref link_t in the segment table for the given id. \todo Possibly change
     /// to use Segment.
     void setSegmentTableLink(const id_t id, const link_t link);
+
+    /**
+     * \brief Update the valid length as written in shm.
+     * \param segmentId Id of the segment to update.
+     * \throws std::runtime_error if Segment isnt found.
+     * \todo change error?
+     */
+    void updateValidLength(id_t segmentId);
 
     /**
      * \brief Calculate the size of a segment.

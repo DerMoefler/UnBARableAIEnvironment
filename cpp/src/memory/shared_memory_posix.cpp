@@ -75,13 +75,12 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
         const size_t sizeIncrease = (segmentSize / c_size_increase + 1) * c_size_increase;
         increaseSize(sizeIncrease);
     }
-    // TODO fix this as well
-    // Layout: (validLength, partialLength, data[0], data[1], ..., data[dataSize], segment_link_id,
-    // link)
-    write(static_cast<size_t>(sizeof(size_t)), m_head);
-    write(segmentSize - sizeof(size_t), m_head + sizeof(size_t));
+    // TODO check if works and document somewhere
+    // Layout (first segment): (validLength, partialLength (not valid but total, also including
+    // validLength field), data[0], data[1], ..., data[dataSize], segment_link_id, link)
+    write(static_cast<size_t>(0), m_head);
+    write(segmentSize, m_head + sizeof(size_t));
     setSegmentTableLink(newSegmentId, m_head);
-    // write(c_segment_link_id, m_head + segmentSize - sizeof(link_t) - sizeof(position_t));
     write(static_cast<link_t>(0x00), m_head + segmentSize - sizeof(link_t));
 
     // Move head to after the segment
@@ -96,6 +95,7 @@ void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
         write(static_cast<uint8_t>(data[i]), segmentInformation.getHead());
         segmentInformation.advanceHead(1);
     }
+    updateValidLength(id);
 }
 
 id_t SharedMemoryPosix::writeSegment(DataView data) {
@@ -176,6 +176,14 @@ void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position
     write(position, writeOffset);
 }
 
+void SharedMemoryPosix::updateValidLength(id_t segmentId) {
+    const SegmentInformation& segmentInformation = findSegmentInformation(segmentId);
+    size_t validLength = segmentInformation.getValidLength();
+    position_t validLengthPosition = segmentInformation.getValidLengthPosition();
+    // TODO holy fucking ass code
+    write(validLength, validLengthPosition);
+}
+
 std::vector<std::byte> SharedMemoryPosix::read(position_t position, size_t numBytes) const {
     if ((position + numBytes) > m_size) {
         throw std::out_of_range("End position to read is outside the shm region");
@@ -190,6 +198,7 @@ bool SharedMemoryPosix::isStartValid(void) const {
 
 bool SharedMemoryPosix::isSegmentTableValid(position_t start, id_t firstId) const {
     std::vector<std::byte> partialSegmentTable = read(start, c_segment_table_size);
+    // An entry consisting of (id) -> (link)
     constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
     for (id_t i = 0; i < c_contiguous_segment_count; i++) {
         if (!isContainedAt(partialSegmentTable, firstId + i, i * c_entry_size)) {
@@ -221,8 +230,7 @@ SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id,
 void SharedMemoryPosix::SegmentInformation::initialize(const position_t memoryStart,
                                                        const size_t dataSize) {
     validateState(false);
-    m_information = PartiallyLinkedListInformation{
-        memoryStart, 2 * sizeof(size_t) + sizeof(position_t), dataSize};
+    m_information = PartiallyLinkedListInformation{memoryStart, 2 * sizeof(size_t), dataSize};
     m_valid = true;
 }
 

@@ -6,16 +6,18 @@ namespace UnBARableAINS {
 
 namespace memory {
 
-PartiallyLinkedListInformation::PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize, const size_t dataSize)
-    : m_memoryStart(memoryStart)
-{
+PartiallyLinkedListInformation::PartiallyLinkedListInformation(const position_t memoryStart,
+                                                               const size_t headerSize,
+                                                               const size_t dataSize)
+    : m_memoryStart(memoryStart) {
     extend(memoryStart, headerSize, dataSize);
     m_head = memoryStart + headerSize;
 }
 
-void PartiallyLinkedListInformation::extend(const position_t offset, const size_t headerSize, const size_t dataSize) {
+void PartiallyLinkedListInformation::extend(const position_t offset, const size_t headerSize,
+                                            const size_t dataSize) {
     // Move head before extending the list if necessary
-    if (m_offsets.size () && isListFull()) {
+    if (m_offsets.size() && isListFull()) {
         m_head = offset + headerSize;
     }
     const size_t totalSize = headerSize + dataSize + c_link_size;
@@ -26,12 +28,12 @@ void PartiallyLinkedListInformation::extend(const position_t offset, const size_
 }
 
 position_t PartiallyLinkedListInformation::getDataPosition(const position_t index) const {
-    if(index >= getCapacity()) {
+    if (index >= getCapacity()) {
         throw std::out_of_range("Index exceeds capacity");
     }
     size_t partialSegmentIndex = 0;
     size_t previousDataSize = 0;
-    for(int i = 0; i < m_dataSizes.size(); i++) {
+    for (int i = 0; i < m_dataSizes.size(); i++) {
         if (previousDataSize + m_dataSizes[i] > index) {
             break;
         }
@@ -75,14 +77,22 @@ position_t PartiallyLinkedListInformation::getDataStart(const size_t partialSegm
     return m_offsets[partialSegmentIndex] + getHeaderSize(partialSegmentIndex);
 }
 
+size_t PartiallyLinkedListInformation::getOccupiedDataSize(void) const {
+    if (isListFull()) {
+        return getCapacity();
+    }
+    else {
+        return getIndexPosition(m_head);
+    }
+}
+
 void PartiallyLinkedListInformation::advanceHead(size_t increment) {
     position_t index = getIndexPosition(m_head);
     index += increment;
     try {
         m_head = getDataPosition(index);
-    }
-    catch (const std::out_of_range& e) {
-        if(getFullHeadPosition() - 1 == getDataPosition(index - 1)) {
+    } catch (const std::out_of_range& e) {
+        if (getFullHeadPosition() - 1 == getDataPosition(index - 1)) {
             m_head = getFullHeadPosition();
         }
     }
@@ -95,22 +105,23 @@ size_t PartiallyLinkedListInformation::getHeaderSize(const size_t partialSegment
 
 size_t PartiallyLinkedListInformation::getCapacity(void) const {
     size_t capacity = 0;
-    for(const auto& size : m_dataSizes)
-        capacity += size;
+    for (const auto& size : m_dataSizes) capacity += size;
     return capacity;
 }
 
-void PartiallyLinkedListInformation::validatePartialSegmentIndex(const size_t partialSegmentIndex) const {
-    if(partialSegmentIndex >= m_offsets.size()) {
+void PartiallyLinkedListInformation::validatePartialSegmentIndex(
+    const size_t partialSegmentIndex) const {
+    if (partialSegmentIndex >= m_offsets.size()) {
         throw std::out_of_range("PartialSegmentIndex is out of range");
     }
 }
 
 position_t PartiallyLinkedListInformation::getFullHeadPosition(void) const {
-    size_t lastPartialSegmentIndex = m_offsets.size() - 1 ;
-    return m_offsets[lastPartialSegmentIndex] + getHeaderSize(lastPartialSegmentIndex) + m_dataSizes[lastPartialSegmentIndex];
+    size_t lastPartialSegmentIndex = m_offsets.size() - 1;
+    return m_offsets[lastPartialSegmentIndex] + getHeaderSize(lastPartialSegmentIndex) +
+           m_dataSizes[lastPartialSegmentIndex];
 }
 
-}; // namespace memory
+};  // namespace memory
 
-}; // namespace UnBARableAI
+};  // namespace UnBARableAINS

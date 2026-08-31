@@ -105,6 +105,15 @@ public:
     position_t getDataStart(const size_t partialSegmentIndex) const;
 
     /**
+     * \brief Get the currently occupied data size of the segment.
+     * \returns Occupied data size.
+     *
+     * The occupied data size refers to the amount of actual data written into the segment, i.e.
+     * excluding the header.
+     */
+    size_t getOccupiedDataSize(void) const;
+
+    /**
      * \brief Advance the list's head by the given amount.
      * \param increment Amount to advance the head by.
      */
