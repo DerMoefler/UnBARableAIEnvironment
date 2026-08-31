@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "grpcio>=1.83.0",
-    "grpcio-tools>=1.83.0",
+    "grpcio-tools>=1.83.1",
     "pybind11>=3.0.4",
     "numpy",
     "pytest>=8.0",
