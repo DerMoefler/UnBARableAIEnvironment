@@ -39,6 +39,8 @@ class EngineSession:
         self.proc: Optional[subprocess.Popen] = None
         self._stdout_handle: Optional[Any] = None
         self._stderr_handle: Optional[Any] = None
+
+        self.reader = SharedMemoryReader()
         
 
 

@@ -166,8 +166,8 @@ class BAR_Environment:
         self.episode_step += 1
 
         # TODO: hier observation aus shared memory auslesen
-        observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
-        #observation = self.get_obs()
+        #observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
+        observation = self.get_obs()
 
         # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
         reward = self.compute_reward()
