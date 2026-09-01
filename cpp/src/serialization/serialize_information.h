@@ -1,6 +1,4 @@
 #pragma once
-#include <google/protobuf/descriptor_lite.h>
-
 #include <array>
 #include <concepts>
 #include <cstddef>
