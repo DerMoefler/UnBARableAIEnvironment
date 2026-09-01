@@ -18,15 +18,15 @@ def run_reset_test():
 
         assert obs is not None
         assert isinstance(info, dict)
-        
-        obs, reward, terminated, truncated, info = env.step(1) # not a real action
-        print("=== STEP TEST PASSED ===")
-        print("obs type:", type(obs).__name__)
-        print("reward:", reward)
-        print("terminated:", terminated)
-        print("truncated:", truncated)
-        print("info:")
-        pprint(info, sort_dicts=False)
+        for i in range(5):
+            obs, reward, terminated, truncated, info = env.step(10) # not a real action
+            print("=== STEP TEST PASSED ===")
+            print("obs type:", type(obs).__name__)
+            print("reward:", reward)
+            print("terminated:", terminated)
+            print("truncated:", truncated)
+            print("info:")
+            pprint(info, sort_dicts=False)
 
     finally:
         env.close()
