@@ -92,8 +92,8 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
 
         Returns
         -------
-        int | None
-            Die neue Update-ID (arrived_update_count), wenn ein neues Update kam.
+        arrived_update_count: int | None
+            Anzahl empfangener handleEventUpdate()-RPCs, wenn ein neues Update kam.
             None bei Timeout.
         """
         with self._condition:

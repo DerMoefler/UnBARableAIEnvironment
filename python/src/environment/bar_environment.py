@@ -165,9 +165,9 @@ class BAR_Environment:
         # Ein RL-Step wurde ausgeführt
         self.episode_step += 1
 
-        # Neue Observation auslesen
-        #observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # Placeholder for actual observation
-        observation = self.get_obs()
+        # TODO: hier observation aus shared memory auslesen
+        observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
+        #observation = self.get_obs()
 
         # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
         reward = self.compute_reward()

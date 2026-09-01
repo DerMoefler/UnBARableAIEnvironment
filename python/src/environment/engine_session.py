@@ -1,7 +1,6 @@
 import os
 import signal
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Union, Callable
@@ -24,11 +23,7 @@ class EngineSessionConfig:
     stdout: Optional[Union[int, str, Path]] = "~/bar-data/engine_stdout.log"
     stderr: Optional[Union[int, str, Path]] = "~/bar-data/engine_stderr.log"
     merge_stderr_to_stdout: bool = False
-    text_mode: bool = True
 
-    shared_memory_reader_factory: Optional[Callable[[], Any]] = None
-    ipc_ready_timeout_s: float = 10.0
-    ipc_poll_interval_s: float = 0.05
 
 
 class EngineSession:
@@ -44,14 +39,22 @@ class EngineSession:
         self.proc: Optional[subprocess.Popen] = None
         self._stdout_handle: Optional[Any] = None
         self._stderr_handle: Optional[Any] = None
-        self.reader = SharedMemoryReader(
-            ipc_factory=cfg.shared_memory_reader_factory,
-            ready_timeout_s=cfg.ipc_ready_timeout_s,
-            poll_interval_s=cfg.ipc_poll_interval_s,
-        )
+        
 
 
     def _build_cmd(self) -> List[str]:
+        """
+        builds the command line to start the engine process, based on the configuration parameters.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        List[str]:
+            the command line as a list of strings, suitable for passing to subprocess.Popen
+        """
         return [
             str(self.engine_exe),
             "--write-dir", str(self.write_dir),
@@ -59,7 +62,23 @@ class EngineSession:
             str(self.startscript),
         ]
 
-    def _resolve_stream(self, stream_spec):
+    def _resolve_stream(self, stream_spec: Optional[Union[int, str, Path]]):
+        """
+        Resolves a stream specification to an actual stream object or None.
+
+        Parameters
+        ----------
+        stream_spec : None | int | str | Path
+            The stream specification. Can be:
+            - None: Use the default stream (Terminal output).
+            - int: Use the specified file descriptor (e.g., subprocess.PIPE).
+            - str or Path: Use the specified file path. The file will be created if it does not exist.
+        
+        Returns
+        -------
+        None | int | BinaryIO
+        The resolved stream that can be passed to subprocess.Popen.
+        """
         if stream_spec is None:
             return None
         if stream_spec == subprocess.PIPE:
@@ -70,13 +89,16 @@ class EngineSession:
             return open(p, "wb")
         return stream_spec
 
-    def _connect_ipc(self) -> None:
-        self.reader.connect()
-
-    def _disconnect_ipc(self) -> None:
-        self.reader.close()
-
     def start(self) -> Dict[str, Any]:
+        """
+        Starts the engine process if it is not already running.
+
+        Returns
+        -------
+        Dict[str, Any]:
+            Information about the engine process, including PID, command line, working directory, write directory,
+            running status, and exit code.
+        """
         if self.is_running():
             return self.info()
 
@@ -105,42 +127,48 @@ class EngineSession:
             stdout=stdout,
             stderr=stderr,
             start_new_session=True,
-            text=self.cfg.text_mode if (stdout == subprocess.PIPE or stderr == subprocess.PIPE) else False,
-            bufsize=1 if self.cfg.text_mode else 0,
+            text=True if (stdout == subprocess.PIPE or stderr == subprocess.PIPE) else False,
+            bufsize=1,
         )
 
-        if self.cfg.shared_memory_reader_factory is not None:
-            self._connect_ipc()
         return self.info()
 
     def stop(self) -> None:
-        if self.proc is None:
-            self._disconnect_ipc()
-            self._close_streams()
-            return
+        """
+        Beendet die Engine und schließt ihre Ausgabestreams.
+        """
 
-        if self.proc.poll() is None:
+        try:
+            if self.proc is None:
+                return
+
+            if self.proc.poll() is not None:
+                self.proc.wait()
+                return
+
             try:
                 os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
             except ProcessLookupError:
                 pass
 
-            for _ in range(50):
-                if self.proc.poll() is not None:
-                    break
-                time.sleep(0.01)
-
-            if self.proc.poll() is None:
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
                 try:
                     os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
                 except ProcessLookupError:
                     pass
 
-        self.proc = None
-        self._disconnect_ipc()
-        self._close_streams()
+                self.proc.wait()
+
+        finally:
+            self.proc = None
+            self._close_streams()
 
     def _close_streams(self):
+        """
+        closes the stdout and stderr streams if they were opened by this session.
+        """
         try:
             if self._stdout_handle:
                 self._stdout_handle.close()
@@ -154,14 +182,39 @@ class EngineSession:
             self._stderr_handle = None
 
     def is_running(self) -> bool:
+        """
+        Checks if the engine process is currently running.
+
+        Returns
+        -------
+        bool:
+            True if the engine process is running, False otherwise.
+        """
         return self.proc is not None and self.proc.poll() is None
 
     def exit_code(self) -> Optional[int]:
+        """
+        Returns the exit code of the engine process if it has terminated, or None if it is still running.
+
+        Returns
+        -------
+        Optional[int]:
+            The exit code of the engine process, or None if it is still running.
+        """
         if self.proc is None:
             return None
         return self.proc.poll()
 
     def info(self) -> Dict[str, Any]:
+        """
+        Returns information about the engine process
+        
+        Returns
+        -------
+        Dict[str, Any]:
+            Information about the engine process, including PID, command line, working directory, write directory,
+            running status, and exit code.
+        """
         return {
             "pid": None if self.proc is None else self.proc.pid,
             "cmd": self._build_cmd(),
@@ -170,20 +223,3 @@ class EngineSession:
             "running": self.is_running(),
             "exit_code": self.exit_code(),
         }
-
-    def __enter__(self):
-        self.start()
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.stop()
-        return False
-
-    def get_world_frame(self) -> int:
-        return self.reader.get_world_frame()
-
-    def get_all_units(self):
-        return self.reader.get_all_units()
-
-    def get_alive_units(self):
-        return self.reader.get_alive_units()
