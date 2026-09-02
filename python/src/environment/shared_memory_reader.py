@@ -192,6 +192,7 @@ class SharedMemoryReader:
         return [u for u in self.get_all_units().values() if not u.is_dead]
 
     def get_units_in_radius(self, center_xyz, radius: float) -> List[BARUnitView]:
+        #TODO has to be changed as soon as shm works
         cx, cy, cz = center_xyz
         r2 = float(radius) * float(radius)
 
@@ -203,7 +204,7 @@ class SharedMemoryReader:
             d2 = dx * dx + dy * dy + dz * dz
             if d2 <= r2:
                 out.append(u)
-        return out
+        return out 
 
     def get_enemy_units_in_sight(self, unit_id: int) -> List[BARUnitView]:
         me = self.get_unit_by_id(unit_id)
