@@ -88,7 +88,8 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
             Der zuletzt bekannte arrived_update_count.
             Gewartet wird auf arrived_update_count > previous_count.
         timeout : float | None
-            Timeout in Sekunden.
+            Zeit in Sekunden, die maximal gewartet werden soll.
+            None bedeutet unendlich lang warten.
 
         Returns
         -------
@@ -109,11 +110,16 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
 
     def ack_update(self, update_id: int) -> None:
         """
-        Gibt ein bestimmtes Update frei, sodass der blockierte
-        handleEventUpdate()-Call zurückkehren darf.
+        Gibt ein bestimmtes Update frei.
 
+        Wird von step() aufgerufen, nachdem die action ins shared memory geschrieben wurde. Nach dem Aufruf von ack_update() darf der handleEventUpdate()-Call zurückkehren, sodass die Engine weiterlaufen kann.
+
+        Parameters
+        ----------
+        update_id : int
+            Die Update-ID, die freigegeben werden soll.
+        
         Wichtig:
-        - update_id muss die zuletzt von reset()/step() beobachtete Update-ID sein.
         - ack_update(1) gibt handleEventUpdate #1 frei, ack_update(2) gibt #2 frei, usw.
         """
         with self._condition:

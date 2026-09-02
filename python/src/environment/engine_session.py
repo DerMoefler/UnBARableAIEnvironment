@@ -3,6 +3,8 @@ import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+import threading
+import logging
 from typing import Optional, Dict, Any, List, Union, Callable
 
 from src.environment.shared_memory_reader import SharedMemoryReader
@@ -27,8 +29,9 @@ class EngineSessionConfig:
 
 
 class EngineSession:
-    def __init__(self, cfg: EngineSessionConfig):
+    def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[], None]] = None):
         self.cfg = cfg
+        self.on_exit = on_exit
 
         self.engine_exe = Path(cfg.engine_exe).expanduser()
         self.write_dir = Path(cfg.write_dir).expanduser()
@@ -41,7 +44,9 @@ class EngineSession:
         self._stderr_handle: Optional[Any] = None
 
         self.reader = SharedMemoryReader()
-        
+
+        self._monitor_thread: Optional[threading.Thread] = None
+
 
 
     def _build_cmd(self) -> List[str]:
@@ -133,6 +138,15 @@ class EngineSession:
             bufsize=1,
         )
 
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_process,
+            args=(self.proc,),
+            name="engine-process-monitor",
+            daemon=True,
+        )
+
+        self._monitor_thread.start()
+
         return self.info()
 
     def stop(self) -> None:
@@ -166,6 +180,25 @@ class EngineSession:
         finally:
             self.proc = None
             self._close_streams()
+            logging.info("Engine Session stop called, process terminated and streams closed.")
+
+    def _monitor_process(self, proc: subprocess.Popen) -> None:
+        """
+        Wartet auf das Engine-Ende und ruft den Exit-Handler auf.
+
+        Parameters
+        ----------
+        proc : subprocess.Popen
+            The engine process to monitor.
+        """
+        return_code = proc.wait()
+
+        logging.info("Engine process exited with return code: %s", return_code, " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)")
+
+        if self.on_exit is not None:
+            self.on_exit()
+
+
 
     def _close_streams(self):
         """

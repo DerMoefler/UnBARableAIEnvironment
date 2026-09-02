@@ -94,12 +94,12 @@ class BAR_Environment:
 
 
         # Neue Session erstellen + starten
-        self.session = EngineSession(self.session_cfg)
+        self.session = EngineSession(self.session_cfg, self.grpc_server.stop)
         info = self.session.start()
 
         update_id = self.grpc_server.wait_for_next_update(
             previous_count=0,
-            timeout=120.0,
+            timeout=60.0,
         )
         if update_id is None:
             raise TimeoutError("Kein erstes handleEventUpdate nach reset().")
@@ -153,7 +153,7 @@ class BAR_Environment:
         # 2) auf das nächste Update warten
         next_update_id = self.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
-            timeout=60.0,
+            timeout=30.0,
         )
         if next_update_id is None:
             raise TimeoutError("Kein neues handleEventUpdate nach step().")
