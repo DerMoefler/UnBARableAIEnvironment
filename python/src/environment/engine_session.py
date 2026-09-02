@@ -193,7 +193,7 @@ class EngineSession:
         """
         return_code = proc.wait()
 
-        logging.info("Engine process exited with return code: %s", return_code, " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)")
+        logging.info("Engine process exited with return code: %s" " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)", return_code)
 
         if self.on_exit is not None:
             self.on_exit()

@@ -78,7 +78,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
         self,
         previous_count: int,
         timeout: Optional[float] = None,
-    ) -> Optional[int]:
+    ) -> tuple[str, Optional[int]]:
         """
         Wartet bis mindestens ein neues handleEventUpdate angekommen ist.
 
@@ -103,10 +103,12 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
                 timeout=timeout,
             )
 
-            if not ok or self._stopping:
-                return None
+            if not ok:
+                return "timeout", None
+            if self._stopping:
+                return "stopped", None
 
-            return self.arrived_update_count
+            return "update", self.arrived_update_count
 
     def ack_update(self, update_id: int) -> None:
         """
@@ -169,7 +171,7 @@ class UnBARableAIGRPCServer:
         self,
         previous_count: int,
         timeout: Optional[float] = None,
-    ) -> Optional[int]:
+    ) -> tuple[str, Optional[int]]:
         return self._service.wait_for_next_update(
             previous_count=previous_count,
             timeout=timeout,

@@ -97,14 +97,15 @@ class BAR_Environment:
         self.session = EngineSession(self.session_cfg, self.grpc_server.stop)
         info = self.session.start()
 
-        update_id = self.grpc_server.wait_for_next_update(
+        status, update_id = self.grpc_server.wait_for_next_update(
             previous_count=0,
             timeout=60.0,
         )
-        if update_id is None:
-            raise TimeoutError("Kein erstes handleEventUpdate nach reset().")
-        else:
-            got_update = True
+        if status == "timeout":
+            raise TimeoutError("Kein erstes handleEventUpdate nach reset(). Timeout.")
+
+        if status == "stopped":
+            raise RuntimeError("gRPC server stopped unexpectedly after reset().")
 
         self.current_update_id = update_id
 
@@ -130,7 +131,6 @@ class BAR_Environment:
         info["max_episode_steps"] = self.max_episode_steps
         info["max_episode_frames"] = self.max_episode_frames
         info["reward_state_initialized"] = self.reward_state_initialized
-        info["received_handle_event_update"] = got_update
 
 
         return observation, info
@@ -151,12 +151,14 @@ class BAR_Environment:
         self.grpc_server.ack_update(self.current_update_id)
 
         # 2) auf das nächste Update warten
-        next_update_id = self.grpc_server.wait_for_next_update(
+        status, next_update_id = self.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
             timeout=30.0,
         )
-        if next_update_id is None:
+        if status == "timeout":
             raise TimeoutError("Kein neues handleEventUpdate nach step().")
+        if status == "stopped":
+            raise RuntimeError("gRPC server stopped after step()")
 
         self.current_update_id = next_update_id
 
