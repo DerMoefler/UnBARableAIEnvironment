@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "byte_container.h"
 #include "memory/shared_memory_types.h"
 #include "utility/always_false.h"
 #include "utility/typelist.h"
@@ -216,16 +217,6 @@ template <MultiField F>
 struct GetFieldlikeValueType_MF<F> {
     using Type = F::Field::Type;
 };
-
-template <typename T>
-struct IsByteArray_MF : std::false_type {};
-
-template <size_t N>
-struct IsByteArray_MF<std::array<std::byte, N>> : std::true_type {};
-
-template <typename T>
-concept ByteContainer = IsByteArray_MF<std::remove_cvref_t<T>>::value ||
-                        std::same_as<std::remove_cvref_t<T>, std::vector<std::byte>>;
 
 template <typename S>
 concept SerializeMethodAvailable = Serializable<S> && requires(const S value) {
