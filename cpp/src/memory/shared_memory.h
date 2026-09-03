@@ -11,6 +11,7 @@
 #include "id/id_allocator.hpp"
 #include "memory/shared_memory_types.h"
 #include "serialization/serialize_information.h"
+#include "serialization/layout.h"
 #include "shared_memory_impl.h"
 
 namespace UnBARableAINS {
