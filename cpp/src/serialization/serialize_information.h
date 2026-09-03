@@ -3,7 +3,7 @@
 #include <concepts>
 #include <cstddef>
 #include <memory>
-#include <optional>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -354,16 +354,19 @@ struct SerializeInformation<std::vector<T, Alloc>> {
 
     struct F_Length : public detail::Field_t {
         using Type = size_t;
+        inline static constexpr std::string_view c_debug_name = "Length";
     };
 
     struct F_Element : public detail::Field_t {
         using Type = T;
+        inline static constexpr std::string_view c_debug_name = "Single Element";
     };
 
     struct F_Elements : public detail::MultiField_t {
         using Field = F_Element;
         // TODO check if needed
         inline static constexpr bool c_inline = true;
+        inline static constexpr std::string_view c_debug_name = "Elements";
     };
 
     using Fields = detail::Fields<F_Length, F_Elements>;

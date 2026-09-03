@@ -2,10 +2,13 @@
 #define LAYOUT_H_
 
 #include <cstddef>
+#include <string_view>
 #include <type_traits>
 
 #include "serialize_information.h"
+#include "debug/type_name.hpp"
 #include "memory/shared_memory_types.h"
+#include "utility/string_view_helper.hpp"
 
 namespace UnBARableAINS {
 
@@ -35,11 +38,18 @@ private:
         using Nodes = std::tuple<FieldNode<Fs>...>;
     };
 
+    inline static constexpr std::string_view c_debug_name_start = "Layout<";
+    inline static constexpr std::string_view c_debug_name_serializable = debug::typeName<T>();
+    inline static constexpr std::string_view c_debug_name_end = ">";
+
 public:
     /// \brief Type alias for \p T's SerializeInformation.
     using SI = SerializeInformation<T>;
     /// \brief Type alias for the std::tuple holding the \ref FieldNode%s.
     using Nodes = typename GetNodesTupleType_MF<typename SI::Fields>::Nodes;
+
+    inline static constexpr std::string_view c_debug_name =
+        JoinStringViews_v<c_debug_name_start, c_debug_name_serializable, c_debug_name_end>;
 
     /// \brief Constant for number of Fields.
     inline static constexpr size_t c_num_fields = std::tuple_size<Nodes>::value;
