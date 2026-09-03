@@ -50,6 +50,16 @@ public:
      */
     Layout(const T& value) { buildNodes(value, m_nodes, m_inlinedSize, m_deepSize); }
 
+    template <typename F>
+    void forEachNode(F&& func) {
+        std::apply([&](auto&... node) -> void { (func(node), ...); }, m_nodes);
+    }
+
+    template <typename F>
+    void forEachNode(F&& func) const {
+        std::apply([&](const auto&... node) -> void { (func(node), ...); }, m_nodes);
+    }
+
     /**
      * \brief A generic function to execute functions on the nodes based on whether they're inlined.
      * \param funcInlined Function to execute when the node/its children is/are inlined.
@@ -69,21 +79,16 @@ public:
      */
     template <typename Func_Inlined, typename Func_NonInlined>
     void visitNodesByInlining(Func_Inlined&& funcInlined, Func_NonInlined&& funcNonInlined) {
-        std::apply(
-            [&](const auto&... node) {
-                auto forEachNode = [&](const auto& node) -> void {
-                    if constexpr (isNodeInlined<decltype(node)>()) {
-                        // --- Node entirely inlined ---
-                        funcInlined(node);
-                    }
-                    else {
-                        funcNonInlined(node);
-                    }
-                };
-
-                (forEachNode(node), ...);
-            },
-            m_nodes);
+        auto func = [&](auto& node) -> void {
+            if constexpr (isNodeInlined<std::remove_cvref_t<decltype(node)>>()) {
+                // --- Node entirely inlined ---
+                funcInlined(node);
+            }
+            else {
+                funcNonInlined(node);
+            }
+        };
+        forEachNode(func);
     }
 
     /**
