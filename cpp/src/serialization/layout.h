@@ -90,7 +90,7 @@ public:
     template <typename Func_Inlined, typename Func_NonInlined>
     void visitNodesByInlining(Func_Inlined&& funcInlined, Func_NonInlined&& funcNonInlined) {
         auto func = [&](auto& node) -> void {
-            if constexpr (isNodeInlined<std::remove_cvref_t<decltype(node)>>()) {
+            if constexpr (std::remove_cvref_t<decltype(node)>::isFullyInlined) {
                 // --- Node entirely inlined ---
                 funcInlined(node);
             }
@@ -264,12 +264,8 @@ private:
         // ----- Update inline size. -----
         constexpr bool isTypeInlined = detail::inlineType<ValueType>();
         constexpr bool isFieldInlined = detail::inlineField<F>();
-        // TODO this assertion is theoretically unnecessary, so I used it for debugging and am
-        // leaving it in for now
-        static_assert(isNodeInlined<FieldNode<F>>() == (isTypeInlined && isFieldInlined),
-                      "Implementation broken");
         //  Fully inlined
-        if constexpr (isNodeInlined<FieldNode<F>>()) {
+        if constexpr (FieldNode<F>::isFullyInlined) {
             node.inlineSize = node.deepSize;
         }
         // Field itself is inlined, but the type isnt. Imagine an std::vector<std::vector<int>>.

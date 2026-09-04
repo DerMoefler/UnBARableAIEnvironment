@@ -242,7 +242,13 @@ struct FieldNodeCommon {
     size_t deepSize = 0;
 
     /// \brief Whether the field is inlined or not.
-    inline static constexpr bool isInlined = detail::inlineField<F>();
+    inline static constexpr bool isFieldInlined = detail::inlineField<F>();
+
+    /// \brief Whether the field is inlined or not.
+    inline static constexpr bool isValueTypeInlined =
+        detail::inlineType<typename detail::GetFieldlikeValueType_MF<F>::Type>();
+
+    inline static constexpr bool isFullyInlined = isFieldInlined && isValueTypeInlined;
 };
 
 /**
@@ -285,13 +291,6 @@ struct FieldNode<F> : FieldNodeCommon<F> {
     /// itself or the type isn't inlined.
     std::vector<std::shared_ptr<Layout<ValueType>>> children;
 };
-
-template <typename N>
-consteval bool isNodeInlined(void) {
-    using Tag = typename std::remove_cvref_t<N>::Tag;
-    using ValueType = typename std::remove_cvref_t<N>::ValueType;
-    return detail::inlineField<Tag> && detail::inlineType<ValueType>();
-}
 
 // TODO could just as well be implemented as a member function
 template <typename N, typename F>

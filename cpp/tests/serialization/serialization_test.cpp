@@ -2,6 +2,7 @@
 #include <type_traits>
 #include "serialization/serialize_information.h"
 #include "serialization/layout.h"
+#include "serialization/debug/layout_dump.hpp"
 #include "complex_type.h"
 
 namespace UnBARableAINS {
@@ -12,6 +13,27 @@ namespace test {
 
 template <size_t size>
 using Serialized = std::array<std::byte, size>;
+
+TEST(SerializationTest, TODO_REMOVE_ME) {
+    ComplexB data{{{// Matrix 0: 2 x 4
+                    {{1, 2, 3, 4}, {5, 6, 7, 8}},
+                    // Matrix 1: 3 x 3
+                    {
+                        {10, 20, 30},
+                        {40, 50, 60},
+                        {70, 80, 90},
+                    },
+                    // Matrix 2: 4 x 1
+                    {
+                        {100},
+                        {200},
+                        {300},
+                        {400},
+                    }}}};
+    // Overall Layout
+    Layout<ComplexB> layout{data};
+    debug::dumpLayout(std::cout, layout, 0);
+}
 
 TEST(SerializationTest, Integrals) {
     constexpr Serialized<1> serialized8 = SerializeInformation<uint8_t>::serialize(0xFF);
@@ -125,13 +147,14 @@ TEST(SerializationTest, ComplexB) {
     EXPECT_EQ(firstLengthLayout.inlineSize, sizeof(size_t));
     EXPECT_EQ(firstLengthLayout.deepSize, sizeof(size_t));
     EXPECT_EQ(firstLengthLayout.offset, 0);
-    static_assert(decltype(firstLengthLayout)::isInlined, "Length of first vector is not inlined!");
+    static_assert(decltype(firstLengthLayout)::isFieldInlined,
+                  "Length of first vector is not inlined!");
     // Tensor3::Type::Elements layout
     auto firstElementsLayout = firstChild->get(std::type_identity<Vector3SI::F_Elements>{});
     EXPECT_EQ(firstElementsLayout.inlineSize, sizeof(memory::link_t) * data.tensor3.size());
     // EXPECT_EQ(firstElementsLayout.deepSize, 8);
     EXPECT_EQ(firstElementsLayout.offset, firstLengthLayout.inlineSize);
-    static_assert(decltype(firstElementsLayout)::isInlined,
+    static_assert(decltype(firstElementsLayout)::isFieldInlined,
                   "Elements of first vector is not inlined!");
 
     for (int i = 0; i < data.tensor3.size(); i++) {
