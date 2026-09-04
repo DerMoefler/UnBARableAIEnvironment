@@ -5,7 +5,7 @@ from pprint import pprint
 from src.environment.bar_environment import BAR_Environment
 
 
-def run_reset_test():
+def run_reset_step_test():
     env = BAR_Environment()
     try:
         obs, info = env.reset()
@@ -18,7 +18,9 @@ def run_reset_test():
 
         assert obs is not None
         assert isinstance(info, dict)
-        for i in range(5):
+        terminated = False
+        truncated = False
+        while not terminated and not truncated:
             obs, reward, terminated, truncated, info = env.step(10) # not a real action
             print("=== STEP TEST PASSED ===")
             print("obs type:", type(obs).__name__)
@@ -27,10 +29,14 @@ def run_reset_test():
             print("truncated:", truncated)
             print("info:")
             pprint(info, sort_dicts=False)
+        if terminated:
+            print("Episode ended naturally (terminated).")
+        elif truncated:
+            print("Episode ended artificially (truncated).")
 
     finally:
         env.close()
 
 
 if __name__ == "__main__":
-    run_reset_test()
+    run_reset_step_test()

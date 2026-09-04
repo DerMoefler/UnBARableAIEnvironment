@@ -187,22 +187,11 @@ class UnBARableAIGRPCServer:
         self.server.start()
         logging.info("Python gRPC server listening on localhost:50051")
 
-    def stop(self, grace: float = 2.0):
-        self._service.stop_waiters()
-
-        if self.server:
-            logging.info("Stopping gRPC server...")
-            self.server.stop(grace)
-
     # ------------------------------------------------------------
     # Öffentliche API für BAR_Environment
     # ------------------------------------------------------------
 
-    def wait_for_next_update(
-        self,
-        previous_count: int,
-        timeout: Optional[float] = None,
-    ) -> tuple[str, Optional[int]]:
+    def wait_for_next_update(self, previous_count: int, timeout: Optional[float] = None,) -> tuple[str, Optional[int]]:
         return self._service.wait_for_next_update(
             previous_count=previous_count,
             timeout=timeout,
@@ -210,3 +199,10 @@ class UnBARableAIGRPCServer:
 
     def ack_update(self, update_id: int) -> None:
         self._service.ack_update(update_id)
+
+    def stop(self, grace: float = 2.0) -> None:
+            self._service.stop_waiters()
+    
+            if self.server:
+                logging.info("Stopping gRPC server...")
+                self.server.stop(grace)

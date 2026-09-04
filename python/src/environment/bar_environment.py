@@ -79,6 +79,8 @@ class BAR_Environment:
 
         # grpc_server für handleEventUpdate() starten.
         self.current_update_id = 0
+        self.terminated = False
+        self.truncated = False
         self.grpc_server = UnBARableAIGRPCServer()
         self.grpc_server.start()
 
@@ -94,7 +96,7 @@ class BAR_Environment:
 
 
         # Neue Session erstellen + starten
-        self.session = EngineSession(self.session_cfg, self.grpc_server.stop)
+        self.session = EngineSession(self.session_cfg, self.endOfSession)
         info = self.session.start()
 
         status, update_id = self.grpc_server.wait_for_next_update(
@@ -146,7 +148,7 @@ class BAR_Environment:
 
         # TODO: hier action in shared memory schreiben
 
-
+        session = self._require_session()
         # 1) das aktuelle offene Update freigeben
         self.grpc_server.ack_update(self.current_update_id)
 
@@ -157,31 +159,32 @@ class BAR_Environment:
         )
         if status == "timeout":
             raise TimeoutError("Kein neues handleEventUpdate nach step().")
-        if status == "stopped":
-            raise RuntimeError("gRPC server stopped after step()")
 
         self.current_update_id = next_update_id
 
-        session = self._require_session()
 
         # Ein RL-Step wurde ausgeführt
         self.episode_step += 1
 
-        # TODO: hier observation aus shared memory auslesen
-        #observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
-        observation = self.get_obs()
-
-        # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
-        reward = self.compute_reward()
 
         # Natural episode end:
         # z. B. alle Gegner tot oder alle eigenen Units tot.
-        terminated = self._is_terminal()
+        terminated = self.terminated
 
         # Artificial episode end:
         # z. B. Step-Limit oder Frame-Limit erreicht.
         # Wenn terminated True ist, soll truncated False bleiben.
-        truncated = False if terminated else self._is_truncated()
+        truncated = False if terminated else self.truncated
+        
+        observation = None
+        reward = 0.0
+        if not terminated and not truncated:
+            # TODO: hier observation aus shared memory auslesen
+            #observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
+            observation = self.get_obs()
+
+            # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
+            reward = self.compute_reward()
 
         # Aktuelle Unit-Zahlen für Debugging
         own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
@@ -194,8 +197,6 @@ class BAR_Environment:
             "enemy_alive_count": len(enemy_alive),
             "terminated": terminated,
             "truncated": truncated,
-            "terminal_reason": self._get_terminal_reason() if terminated else "not_terminal",
-            "truncation_reason": self._get_truncation_reason() if truncated else "not_truncated",
             "reward": reward,
             "reward_info": self.last_reward_info,
         }
@@ -740,118 +741,9 @@ class BAR_Environment:
 
         return clipped_reward
 
-    def _is_terminal(self):
-        """
-        Checks whether the episode ended naturally.
+    
 
-        Terminated means:
-        - all own units are dead
-        - or all enemy units are dead
 
-        Returns
-        -------
-        terminated : bool
-            True if the scenario is naturally finished.
-        """
-        own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
-
-        # If no unit data can be read yet, avoid ending the episode immediately.
-        # This can happen while shared memory is not connected yet.
-        if len(own_alive) == 0 and len(enemy_alive) == 0:
-            return False
-
-        if len(own_alive) == 0:
-            return True
-
-        if len(enemy_alive) == 0:
-            return True
-
-        return False
-
-    def _get_terminal_reason(self):
-        """
-        Returns a readable reason for termination.
-
-        Returns
-        -------
-        terminal_reason : str
-            Reason why the episode terminated.
-        """
-        own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
-
-        if len(own_alive) == 0 and len(enemy_alive) == 0:
-            return "no_unit_data_or_draw"
-
-        if len(own_alive) == 0:
-            return "loss_all_own_units_dead"
-
-        if len(enemy_alive) == 0:
-            return "win_all_enemy_units_dead"
-
-        return "not_terminal"
-
-    def _is_truncated(self):
-        """
-        Checks whether the episode was artificially stopped.
-
-        Truncated means:
-        - max_episode_steps reached
-        - or max_episode_frames reached, if configured
-
-        Returns
-        -------
-        truncated : bool
-            True if the episode hit an artificial limit.
-        """
-        if self.episode_step >= self.max_episode_steps:
-            return True
-
-        # Frame based truncation is optional.
-        # If max_episode_frames is None, only max_episode_steps is used.
-        if self.max_episode_frames is None:
-            return False
-
-        session = self._require_session()
-        current_frame = self._safe_get_world_frame(session)
-
-        if self.episode_start_frame < 0:
-            return False
-
-        if current_frame < 0:
-            return False
-
-        elapsed_frames = current_frame - self.episode_start_frame
-
-        if elapsed_frames >= self.max_episode_frames:
-            return True
-
-        return False
-
-    def _get_truncation_reason(self):
-        """
-        Returns a readable reason for truncation.
-
-        Returns
-        -------
-        truncation_reason : str
-            Reason why the episode was truncated.
-        """
-        if self.episode_step >= self.max_episode_steps:
-            return "max_episode_steps"
-
-        if self.max_episode_frames is None:
-            return "not_truncated"
-
-        session = self._require_session()
-        current_frame = self._safe_get_world_frame(session)
-
-        if self.episode_start_frame >= 0 and current_frame >= 0:
-            elapsed_frames = current_frame - self.episode_start_frame
-
-            if elapsed_frames >= self.max_episode_frames:
-                return "max_episode_frames"
-
-        return "not_truncated"
 
     # def get_available_actions(self, unit_type):
     #     #[move_up, move_down, move_left, move_right, attack, stay, build]
@@ -916,3 +808,16 @@ class BAR_Environment:
         """
         agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]
         return agents_obs
+
+    def endOfSession(self, return_code: int):
+        """
+        is called when the engine session ends
+        """
+        if return_code == 0:
+            self.terminated = True
+        else:
+            self.truncated = True
+
+        self.grpc_server.stop()
+
+        
