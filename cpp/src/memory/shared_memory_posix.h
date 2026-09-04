@@ -88,13 +88,13 @@ public:
          * \brief Advance the Segment's head by the given amount.
          * \param increment Amount to advance the head by.
          */
-        inline void advanceHead(size_t increment) { m_information.advanceHead(increment); };
+        inline void advanceHead(size_t increment) { m_information.advanceHead(increment); }
 
         /**
          * \brief Set the head's position.
          * \param index Index into the data part of the segment to move the head to.
          */
-        inline void setHead(position_t index) { m_information.setHead(index); };
+        inline void setHead(position_t index) { m_information.setHead(index); }
 
         /**
          * \brief Get the validLength of the segment.
@@ -117,7 +117,7 @@ public:
          * \brief Get the head's position.
          * \return The head's position_t.
          */
-        inline position_t getHead(void) const { return m_information.getHead(); };
+        inline position_t getHead(void) const { return m_information.getHead(); }
 
         /**
          * \brief Get the id.
@@ -127,10 +127,10 @@ public:
 
         /**
          * \brief Get the size.
-         * \return The id_t.
+         * \return Size of the list.
          * \see PartiallyLinkedListInformation::getSize
          */
-        inline size_t getSize(void) const { return m_information.getSize(); };
+        inline size_t getSize(void) const { return m_information.getSize(); }
 
         /**
          * \brief Check if the list is full.
@@ -235,7 +235,7 @@ public:
      * No data will be written if the Segment's remaining capacity (total capcaity - head) is too
      * small to fit the entire data.
      */
-    void writeToSegmentAt(id_t id, position_t position, DataView data);
+    // void writeToSegmentAt(id_t id, position_t position, DataView data);
 
     /**
      * \brief Increases the total capacity of the Segment.
@@ -246,7 +246,7 @@ public:
      * \note This method will create a new partial segment which might impact performance. If you
      * know the size beforehand, use \ref createSegment with the appropriate size.
      */
-    void increaseSegmentCapacity(id_t id, const size_t additionalCapacity);
+    // void increaseSegmentCapacity(id_t id, const size_t additionalCapacity);
 
     /**
      * \brief Resize a segment to a specific size.
@@ -258,7 +258,7 @@ public:
      * freed and therefore the data lost. Otherwise, behaves like a call to \ref
      * increaseSegmentCapacity with additionalCapacity = newCapacity - currentCapacity
      */
-    void resizeSegment(id_t id, const size_t newCapacity);
+    // void resizeSegment(id_t id, const size_t newCapacity);
 
     /**
      * \brief Get the current total capacity of the segment.
@@ -266,7 +266,7 @@ public:
      * \param id The id of the segment, returned by e.g. \ref createSegment.
      * \return The Segment's total capacity.
      */
-    size_t getSegmentCapacity(id_t id);
+    // size_t getSegmentCapacity(id_t id);
 
     /**
      * \brief Writes a segment of data into memory.
@@ -291,12 +291,12 @@ private:
     /**
      * \brief Finds a segmentInformation for the id or throws if it doesnt exist.
      */
-    SegmentInformation& findSegmentInformation(id_t segmentId);
+    const SegmentInformation& findSegmentInformation(id_t segmentId) const;
 
-    /// \brief Const overload for findSegmentInformation.
-    inline const SegmentInformation& findSegmentInformation(id_t segmentId) const {
-        return findSegmentInformation(segmentId);
-    }
+    /**
+     * \brief Finds a segmentInformation for the id or throws if it doesnt exist.
+     */
+    SegmentInformation& findSegmentInformation(id_t segmentId);
 
     /**
      * \brief Returns the associated SegmentInformation's index in m_segmentsInformation for the
@@ -320,7 +320,7 @@ private:
     /**
      * \brief Update the valid length as written in shm.
      * \param segmentId Id of the segment to update.
-     * \throws std::runtime_error if Segment isnt found.
+     * \throws std::runtime_error if segment isnt found.
      * \todo change error?
      */
     void updateValidLength(id_t segmentId);

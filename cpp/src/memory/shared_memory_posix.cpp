@@ -106,6 +106,16 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
 
 SharedMemoryPosix::SharedMemoryPosix(std::string_view name) : m_name(name) {}
 
+// TODO refactor into unified implementation for mutable and immutable
+auto SharedMemoryPosix::findSegmentInformation(id_t segmentId) const -> const SegmentInformation& {
+    auto indexOpt = findSegmentInformationIndex(segmentId);
+    if (!indexOpt.has_value()) {
+        throw std::runtime_error("No segment with that id");
+    }
+    const SegmentInformation& segmentInformation = m_segmentsInformation[indexOpt.value()];
+    return segmentInformation;
+}
+
 auto SharedMemoryPosix::findSegmentInformation(id_t segmentId) -> SegmentInformation& {
     auto indexOpt = findSegmentInformationIndex(segmentId);
     if (!indexOpt.has_value()) {
