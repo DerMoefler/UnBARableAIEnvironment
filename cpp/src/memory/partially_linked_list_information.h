@@ -132,10 +132,16 @@ public:
     inline position_t getHead(void) const { return m_head; };
 
     /**
-     * \brief Find the size of a partial segment.
+     * \brief Find the header size of a partial segment.
      * \param partialSegmentIndex The partial segment's index.
      */
     size_t getHeaderSize(const size_t partialSegmentIndex) const;
+
+    /**
+     * \brief Get the data size of a partial segment.
+     * \param partialSegmentIndex The partial segment's index.
+     */
+    size_t getDataSize(size_t partialSegmentIndex) const;
 
     /**
      * \brief Get the entire size the list occupies in memory.
@@ -154,6 +160,9 @@ public:
      * \return Data capacity.
      */
     size_t getCapacity(void) const;
+
+    /// \brief Get the number of partial segments.
+    inline size_t getPartialSegmentsCount(void) const { return m_sizes.size(); }
 
     /**
      * \brief Checks whether the list is full or not.

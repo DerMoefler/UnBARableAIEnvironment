@@ -98,6 +98,33 @@ void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
     updateValidLength(id);
 }
 
+std::vector<std::byte> SharedMemoryPosix::readSegment(id_t segmentId) const {
+    const SegmentInformation& segmentInformation = findSegmentInformation(segmentId);
+    size_t dataSize = segmentInformation.getValidLength();
+    size_t readDataSize = 0;
+
+    std::vector<std::byte> rawSegmentData(dataSize);
+
+    auto readIntoRawData = [&](position_t start, size_t numBytes) {
+        std::memcpy(rawSegmentData.data() + readDataSize, m_memoryStart + start, numBytes);
+    };
+
+    for (int i = 0; i < segmentInformation.getPartialSegmentsCount(); i++) {
+        position_t partialSegmentDataStart = segmentInformation.getDataStart(i);
+        size_t partialSegmentDataSize = segmentInformation.getDataSize(i);
+        if ((readDataSize + partialSegmentDataSize) > dataSize) {
+            readIntoRawData(partialSegmentDataStart, segmentInformation.getHead());
+            break;
+        }
+        else {
+            readIntoRawData(partialSegmentDataStart, partialSegmentDataSize);
+            readDataSize += partialSegmentDataSize;
+        }
+    }
+
+    return rawSegmentData;
+}
+
 id_t SharedMemoryPosix::writeSegment(DataView data) {
     id_t segmentId = createSegment(data.size());
     appendToSegment(segmentId, data);
@@ -212,6 +239,7 @@ bool SharedMemoryPosix::isSegmentTableValid(position_t start, id_t firstId) cons
     constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
     for (id_t i = 0; i < c_contiguous_segment_count; i++) {
         if (!isContainedAt(partialSegmentTable, firstId + i, i * c_entry_size)) {
+            // TODO remove
             std::cout << dataViewToUnsigned<position_t>(
                 std::span{partialSegmentTable}.subspan(i * c_entry_size));
             return false;

@@ -84,6 +84,16 @@ public:
          */
         position_t getMemoryStart(void) const;
 
+        /// \brief Get the data start of a partial segement.
+        inline position_t getDataStart(size_t partialSegmentIndex) const {
+            return m_information.getDataStart(partialSegmentIndex);
+        }
+
+        /// \brief Get the data size of a partial segment.
+        inline size_t getDataSize(size_t partialSegmentIndex) const {
+            return m_information.getDataSize(partialSegmentIndex);
+        }
+
         /**
          * \brief Advance the Segment's head by the given amount.
          * \param increment Amount to advance the head by.
@@ -131,6 +141,18 @@ public:
          * \see PartiallyLinkedListInformation::getSize
          */
         inline size_t getSize(void) const { return m_information.getSize(); }
+
+        /**
+         * \brief Get the data capacity.
+         * \return Data capacity.
+         * \see PartiallyLinkedListInformation::capacity
+         */
+        inline size_t getCapacity(void) const { return m_information.getCapacity(); }
+
+        /// \brief Get the number of partial segments.
+        inline size_t getPartialSegmentsCount(void) const {
+            return m_information.getPartialSegmentsCount();
+        }
 
         /**
          * \brief Check if the list is full.
@@ -236,6 +258,17 @@ public:
      * small to fit the entire data.
      */
     // void writeToSegmentAt(id_t id, position_t position, DataView data);
+
+    /**
+     * \brief Read a segment.
+     * \param segmentId Id of the segment to read.
+     * \returns Raw data bytes of the segment.
+     * \throw std::runtime_error if the segment's id doesnt exist.
+     *
+     * This method reads all the data bytes (i.e. excluding header and links between partial
+     * segments) and copies them into an std::vector<std::byte> which is then returned.
+     */
+    std::vector<std::byte> readSegment(id_t segmentId) const;
 
     /**
      * \brief Increases the total capacity of the Segment.

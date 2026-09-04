@@ -103,6 +103,11 @@ size_t PartiallyLinkedListInformation::getHeaderSize(const size_t partialSegment
     return m_sizes[partialSegmentIndex] - m_dataSizes[partialSegmentIndex] - c_link_size;
 }
 
+size_t PartiallyLinkedListInformation::getDataSize(size_t partialSegmentIndex) const {
+    validatePartialSegmentIndex(partialSegmentIndex);
+    return m_dataSizes[partialSegmentIndex];
+}
+
 size_t PartiallyLinkedListInformation::getCapacity(void) const {
     size_t capacity = 0;
     for (const auto& size : m_dataSizes) capacity += size;
