@@ -23,15 +23,35 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
 
         # Höchste Update-ID, die von env.step() freigegeben wurde
         self.acked_update_count = 0
-
-        # Für sauberes Shutdown / Unblock
         self._stopping = False
 
-    def handleEventUpdate(self, request, context):
+    def handleEventUpdate(self, _request, _context):
+        """
+        Wird von dem UnBARableAIClient aufgerufen wenn die Observation ins shared memory geschrieben wurde.
+
+        1. weckt reset()/step() auf
+        2. blockiert selbst, bis reset()/step() ack_update() aufgerufen hat
+
+        Parameters
+        ----------
+        request : google.protobuf.empty_pb2.Empty
+            Leere, von gRPC deserialisierte Protocol-Buffer-Nachricht des UnBARableAIClient. 
+            Wird von der API benötigt aber nicht verwendet.
+        
+        context : grpc.ServicerContext
+            Serverseitiger Kontext des aktuellen gRPC-Aufrufs.
+            Wird von der API benötigt aber nicht verwendet.
+        
+        Returns
+        -------
+        google.protobuf.empty_pb2.Empty
+            Leere Protocol-Buffer-Antwort an den UnBARableAIClient.
+            Wird von der API benötigt aber nicht verwendet.
+
+        """
         logging.info("Received handleEventUpdate call")
 
         with self._condition:
-            self.last_request = request
 
             # Neues Update registrieren
             self.arrived_update_count += 1
@@ -43,23 +63,27 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
                 self.acked_update_count,
             )
 
-            # reset()/step() wecken, die gerade auf das NÄCHSTE Update warten
+            # reset()/step() wecken
             self._condition.notify_all()
 
-            # Jetzt selbst blockieren, bis dieses Update freigegeben wird
-            while (
-                not self._stopping
-                and self.acked_update_count < my_update_id
-            ):
-                # Falls der Client-Call bereits cancelled / timed out ist:
-                if not context.is_active():
-                    logging.warning(
-                        "RPC no longer active while waiting for ack of update_id=%s",
-                        my_update_id,
-                    )
-                    break
+            # Jetzt selbst blockieren
+            ok =self._condition.wait_for(
+                lambda: self._stopping or self.acked_update_count >= my_update_id,
+                timeout=10
+            )
 
-                self._condition.wait(timeout=0.1)
+            if not ok:
+                logging.warning(
+                    "Timeout while waiting for ack: update_id=%s (acked=%s)",
+                    my_update_id,
+                    self.acked_update_count,
+                )
+            elif self._stopping:
+                logging.info(
+                    "Stopping while waiting for ack: update_id=%s (acked=%s)",
+                    my_update_id,
+                    self.acked_update_count,
+                )         
 
             logging.info(
                 "handleEventUpdate returning: update_id=%s (acked=%s)",
@@ -80,7 +104,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
         timeout: Optional[float] = None,
     ) -> tuple[str, Optional[int]]:
         """
-        Wartet bis mindestens ein neues handleEventUpdate angekommen ist.
+        Wartet bis ein neues handleEventUpdate angekommen ist oder der Grpc Server gestoppt wurde.
 
         Parameters
         ----------
@@ -93,6 +117,10 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
 
         Returns
         -------
+        status : str
+            "update" wenn ein neues Update kam,
+            "timeout" wenn die Wartezeit abgelaufen ist,
+            "stopped" wenn der Grpc Server gestoppt wurde.
         arrived_update_count: int | None
             Anzahl empfangener handleEventUpdate()-RPCs, wenn ein neues Update kam.
             None bei Timeout.
@@ -135,6 +163,9 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
                 self._condition.notify_all()
 
     def stop_waiters(self) -> None:
+        """
+        Weckt alle wartenden Threads auf, sodass sie erkennen, dass der Grpc Server gestoppt wurde.
+        """
         with self._condition:
             self._stopping = True
             self._condition.notify_all()
