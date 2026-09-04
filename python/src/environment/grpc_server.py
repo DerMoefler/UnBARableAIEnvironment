@@ -200,9 +200,17 @@ class UnBARableAIGRPCServer:
     def ack_update(self, update_id: int) -> None:
         self._service.ack_update(update_id)
 
-    def stop(self, grace: float = 2.0) -> None:
-            self._service.stop_waiters()
-    
-            if self.server:
-                logging.info("Stopping gRPC server...")
-                self.server.stop(grace)
+    def stop(self, grace: float = 0.1) -> None:
+        """
+        Stoppt den gRPC-Server und weckt alle wartenden Threads auf.
+
+        Parameters
+        ----------
+        grace : float
+            Zeit in Sekunden, die der Server nach dem Aufruf von stop() noch wartet, bevor er die laufenden RPCs abbricht.
+        """
+        self._service.stop_waiters()
+
+        if self.server:
+            logging.info("Stopping gRPC server...")
+            self.server.stop(grace)

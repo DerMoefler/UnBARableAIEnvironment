@@ -96,7 +96,7 @@ class BAR_Environment:
 
 
         # Neue Session erstellen + starten
-        self.session = EngineSession(self.session_cfg, self.endOfSession)
+        self.session = EngineSession(self.session_cfg, self.end_of_session)
         info = self.session.start()
 
         status, update_id = self.grpc_server.wait_for_next_update(
@@ -175,7 +175,7 @@ class BAR_Environment:
         # z. B. Step-Limit oder Frame-Limit erreicht.
         # Wenn terminated True ist, soll truncated False bleiben.
         truncated = False if terminated else self.truncated
-        
+
         observation = None
         reward = 0.0
         if not terminated and not truncated:
@@ -809,9 +809,14 @@ class BAR_Environment:
         agents_obs = [self.get_obs_agent(i) for i in range(self.get_n_agents())]
         return agents_obs
 
-    def endOfSession(self, return_code: int):
+    def end_of_session(self, return_code: int):
         """
         is called when the engine session ends
+
+        Parameters
+        ----------
+        return_code : int
+            The exit code of the engine process.
         """
         if return_code == 0:
             self.terminated = True

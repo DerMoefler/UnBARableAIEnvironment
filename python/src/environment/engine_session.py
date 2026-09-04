@@ -160,6 +160,7 @@ class EngineSession:
 
             if self.proc.poll() is not None:
                 self.proc.wait()
+                logging.info("Engine process already exited ")
                 return
 
             try:
@@ -169,7 +170,9 @@ class EngineSession:
 
             try:
                 self.proc.wait(timeout=5)
+                logging.info("Engine process terminated gracefully (in EngineSession.stop())")
             except subprocess.TimeoutExpired:
+                logging.warning("Engine process did not terminate gracefully, forcing termination...")
                 try:
                     os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
                 except ProcessLookupError:
