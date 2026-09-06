@@ -343,6 +343,13 @@ private:
     /// \brief Map the shared memory into the virtual address space using mmap().
     void map(void);
 
+    /**
+     * \brief Read the segments information from an shm.
+     * \returns Whether the information was read.
+     * \pre m_segmentsInformation.empty(), \ref isSegmentTableValid() == true
+     */
+    bool initializeSegmentsInformation(void);
+
     /// \brief Extend the segment table in memory by \ref c_contiguous_segment_count.
     void extendSegmentTable(void);
 
@@ -488,6 +495,8 @@ private:
     /// \brief Size of an extension of the segment table.
     inline static constexpr size_t c_segment_table_size =
         (c_contiguous_segment_count + 1) * sizeof(id_t) * 2;
+
+    inline static constexpr position_t c_segment_table_start = 8;
 
     static_assert(
         c_segment_table_size < c_size_increase,

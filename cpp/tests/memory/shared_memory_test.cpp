@@ -2,12 +2,18 @@
 #include "memory/shared_memory.h"
 
 #include <gtest/gtest.h>
+#include <iostream>
+#include <optional>
+#include <type_traits>
 
 #include "memory/shared_memory_posix.h"
+#include "serialization/debug/layout_dump.hpp"
 
 namespace UnBARableAINS {
 
 using namespace memory;
+
+using SegmentInformation = SharedMemoryPosix::SegmentInformation;
 
 class SharedMemoryTest : public ::testing::Test {
 protected:
@@ -30,16 +36,30 @@ protected:
                                          }}}};
 };
 
-TEST_F(SharedMemoryTest, Write) {
+TEST_F(SharedMemoryTest, WriteComplexB) {
     using SI = serialization::SerializeInformation<ComplexB>;
     SharedMemoryType shm = SharedMemoryType::create("/shm-test");
     id::id_t serializableId = shm.write(data);
+
+    SharedMemoryPosix shmPosix = SharedMemoryPosix::open("/shm-test");
 
     serialization::Layout<ComplexB>& mainLayout =
         std::get<serialization::Layout<ComplexB>>(shm.getLayout(serializableId));
 
     auto mainSegmentId = mainLayout.getSegmentId();
     ASSERT_TRUE(mainSegmentId.has_value());
+
+    std::optional<SegmentInformation> linkedSegment;
+
+    auto funcForEachNode = [&](const auto& node) {
+        using Node = std::remove_cvref_t<decltype(node)>;
+        if constexpr (Node::isFullyInlined) {
+        }
+        else {
+        }
+    };
+
+    serialization::debug::dumpLayout(std::cout, mainLayout, 0);
 }
 
 }  // namespace UnBARableAINS

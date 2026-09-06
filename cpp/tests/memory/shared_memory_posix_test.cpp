@@ -22,9 +22,7 @@ TEST_F(SharedMemoryPosixTest, writeSegment) {
 
 TEST_F(SharedMemoryPosixTest, Read) {
     SharedMemoryPosix shm = SharedMemoryPosix::create("/posix-read-test");
-    std::cout << "Create successfull\n";
     id_t id = shm.writeSegment(data);
-    std::cout << "Write successfull\n";
     auto result = shm.readSegment(id);
     EXPECT_EQ(data, result);
 }

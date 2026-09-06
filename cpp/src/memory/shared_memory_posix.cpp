@@ -44,7 +44,7 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
     if (!vThis.isStartValid()) {
         throw std::runtime_error("Shared memory's start is invalid.");
     }
-    vThis.m_head += 8;
+    vThis.m_head += c_segment_table_start;
     if (!vThis.isSegmentTableValid(vThis.m_head)) {
         throw std::runtime_error("Shared memory's segment table is invalid.");
     }
@@ -174,6 +174,54 @@ void SharedMemoryPosix::increaseSize(const size_t size) {
 void SharedMemoryPosix::map(void) {
     m_memoryStart = static_cast<std::byte*>(
         mmap(NULL, m_size, PROT_READ | PROT_WRITE, MAP_SHARED_VALIDATE, m_id, 0));
+}
+
+bool SharedMemoryPosix::initializeSegmentsInformation(void) {
+    if (!m_segmentsInformation.empty()) {
+        return false;
+    }
+
+    size_t partialSegmentTableStart = c_segment_table_start;
+    constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
+
+    // Returns whether another partial segment table follows
+    auto initializePartialSegmentsInformation = [&]() -> bool {
+        m_segmentsInformation.reserve(c_segment_table_start);
+        std::vector<std::byte> partialSegmentTable =
+            read(partialSegmentTableStart, c_segment_table_size);
+        for (int i = 0; i < c_segment_table_size; i++) {
+            DataView serializedId =
+                std::span{partialSegmentTable}.subspan(i * c_entry_size, sizeof(id_t));
+            DataView serializedLink = std::span{partialSegmentTable}.subspan(
+                i * c_entry_size + sizeof(id_t), sizeof(link_t));
+            auto id = dataViewToUnsigned<id_t>(serializedId);
+            auto link = dataViewToUnsigned<link_t>(serializedLink);
+
+            size_t validLength = dataViewToUnsigned<size_t>(read(link, sizeof(size_t)));
+            size_t partialSegmentLength =
+                dataViewToUnsigned<size_t>(read(link + sizeof(size_t), sizeof(size_t)));
+            SegmentInformation si(id, link, partialSegmentLength - 2 * sizeof(size_t));
+            si.advanceHead(validLength);
+            link_t nextPartialSegment = dataViewToUnsigned<link_t>(
+                read(link + partialSegmentLength - sizeof(link_t), sizeof(link_t)));
+            if (nextPartialSegment > 0) {
+                throw std::runtime_error(
+                    "More than one partial segment currently unsupported by "
+                    "SharedMemoryPosix::initializeSegmentsInformation");
+            }
+            m_segmentsInformation.push_back(std::move(si));
+        }
+        position_t continuation = dataViewToUnsigned<position_t>(
+            std::span{partialSegmentTable}.subspan(c_segment_table_size - sizeof(link_t)));
+        return continuation ? true : false;
+    };
+
+    auto run = true;
+    while (run) {
+        run = initializePartialSegmentsInformation();
+    }
+
+    return true;
 }
 
 void SharedMemoryPosix::extendSegmentTable(void) {
