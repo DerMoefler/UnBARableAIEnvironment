@@ -270,7 +270,8 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
                 dataViewToUnsigned<size_t>(read(link + sizeof(size_t), sizeof(size_t)));
             // std::cout << "SharedMemoryPosix::initializeSegmentsInformation (Id: " << id
             //           << ", Link:" << link << ", ValidLength: " << validLength << ")\n";
-            SegmentInformation si(id, link, partialSegmentLength - 2 * sizeof(size_t));
+            SegmentInformation si(id, link,
+                                  partialSegmentLength - 2 * sizeof(size_t) - sizeof(link_t));
             si.advanceHead(validLength);
             link_t nextPartialSegment = dataViewToUnsigned<link_t>(
                 read(link + partialSegmentLength - sizeof(link_t), sizeof(link_t)));

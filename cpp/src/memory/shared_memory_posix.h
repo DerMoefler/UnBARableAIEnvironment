@@ -62,6 +62,9 @@ public:
          */
         SegmentInformation(const id_t id, const position_t memoryStart, const size_t dataSize);
 
+        /// \brief Default comparison operator.
+        bool operator==(const SegmentInformation& other) const = default;
+
         /**
          * \brief Initialize a (previously) invalid segment.
          * \param memoryStart Start of the segment in shared memory.

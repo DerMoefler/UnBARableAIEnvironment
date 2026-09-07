@@ -30,10 +30,10 @@ public:
         IndexInSegmentInfo(std::size_t partialSegmentIndex, std::size_t offset,
                            std::size_t headerSize)
             : std::invalid_argument(
-                  "Position lies within header / link section of partial segment."),
-              m_partialSegmentIndex(partialSegmentIndex),
-              m_offset(offset),
-              m_headerSize(headerSize) {}
+                  "Position lies within header / link section of partial segment.")
+            , m_partialSegmentIndex(partialSegmentIndex)
+            , m_offset(offset)
+            , m_headerSize(headerSize) {}
         /// \brief Getter for partial segment index.
         inline std::size_t getPartialSegmentIndex() const { return m_partialSegmentIndex; }
         /// \brief Getter for data offset.
@@ -59,6 +59,9 @@ public:
      */
     PartiallyLinkedListInformation(const position_t memoryStart, const size_t headerSize,
                                    const size_t dataSize);
+
+    /// \brief Default comparison operator.
+    bool operator==(const PartiallyLinkedListInformation& other) const = default;
 
     /**
      * \brief Add a new partial segment.
