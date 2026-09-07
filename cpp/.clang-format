@@ -12,7 +12,6 @@ AccessModifierOffset: -4
 BreakBeforeBraces: Custom
 BraceWrapping:
     BeforeElse: true
-    AfterFunction: true
     SplitEmptyFunction: false
 
 ColumnLimit: 100
