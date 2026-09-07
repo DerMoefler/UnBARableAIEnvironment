@@ -50,6 +50,9 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
     if (!vThis.isSegmentTableValid(vThis.m_head)) {
         throw std::runtime_error("Shared memory's segment table is invalid.");
     }
+    if (!vThis.initializeSegmentsInformation()) {
+        throw std::runtime_error("Initializing segments information failed");
+    }
 
     return vThis;
 }
@@ -247,7 +250,7 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
         m_segmentsInformation.reserve(c_segment_table_start);
         std::vector<std::byte> partialSegmentTable =
             read(partialSegmentTableStart, c_segment_table_size);
-        for (int i = 0; i < c_segment_table_size; i++) {
+        for (int i = 0; i < c_contiguous_segment_count; i++) {
             DataView serializedId =
                 std::span{partialSegmentTable}.subspan(i * c_entry_size, sizeof(id_t));
             DataView serializedLink = std::span{partialSegmentTable}.subspan(
@@ -255,9 +258,18 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
             auto id = dataViewToUnsigned<id_t>(serializedId);
             auto link = dataViewToUnsigned<link_t>(serializedLink);
 
+            if (!link) {
+                // std::cout << "SharedMemoryPosix::initializeSegmentsInformation: "
+                //           << "Empty segment " << id << "\n";
+                m_segmentsInformation.push_back(SegmentInformation(id));
+                continue;
+            }
+
             size_t validLength = dataViewToUnsigned<size_t>(read(link, sizeof(size_t)));
             size_t partialSegmentLength =
                 dataViewToUnsigned<size_t>(read(link + sizeof(size_t), sizeof(size_t)));
+            // std::cout << "SharedMemoryPosix::initializeSegmentsInformation (Id: " << id
+            //           << ", Link:" << link << ", ValidLength: " << validLength << ")\n";
             SegmentInformation si(id, link, partialSegmentLength - 2 * sizeof(size_t));
             si.advanceHead(validLength);
             link_t nextPartialSegment = dataViewToUnsigned<link_t>(

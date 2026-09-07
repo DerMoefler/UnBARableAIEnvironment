@@ -11,7 +11,7 @@ protected:
                                    std::byte{0x1e}};
 };
 
-TEST_F(SharedMemoryPosixTest, writeSegment) {
+TEST_F(SharedMemoryPosixTest, Wrtie) {
     SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-write");
 
     shm.writeSegment(data);
@@ -24,16 +24,21 @@ TEST_F(SharedMemoryPosixTest, writeSegment) {
 
 TEST_F(SharedMemoryPosixTest, Read) {
     SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-read");
+
     id_t id = shm.writeSegment(data);
     auto result = shm.readSegment(id);
     EXPECT_EQ(data, result);
+
     SharedMemoryPosix::remove("/shm-posix-test-read");
 }
 
-TEST_F(SharedMemoryPosixTest, Open) {
-    SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-open");
-    SharedMemoryPosix shmOpen = SharedMemoryPosix::open("/shm-posix-test-open");
-    SharedMemoryPosix::remove("/shm-posix-test-open");
+TEST_F(SharedMemoryPosixTest, OpenEmpty) {
+    SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-open-empty");
+
+    SharedMemoryPosix shmOpen = SharedMemoryPosix::open("/shm-posix-test-open-empty");
+    EXPECT_EQ(shm.getSegmentsCount(), shmOpen.getSegmentsCount());
+
+    SharedMemoryPosix::remove("/shm-posix-test-open-empty");
 }
 
 }  // namespace UnBARableAINS

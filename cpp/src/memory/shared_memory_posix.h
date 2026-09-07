@@ -185,6 +185,17 @@ public:
      */
     inline static constexpr uint32_t c_contiguous_segment_count = 32;
 
+    /// \brief Constant by which the shared memory's size is increased when more memory is needed
+    /// (should be the size of one page).
+    inline static constexpr size_t c_size_increase = 4096;
+
+    /// \brief Size of an extension of the segment table.
+    inline static constexpr size_t c_segment_table_size =
+        (c_contiguous_segment_count + 1) * sizeof(id_t) * 2;
+
+    /// \brief Position in memory where the segment table starts.
+    inline static constexpr position_t c_segment_table_start = 8;
+
     /// \brief The id used to signal that the following bytes compose a \ref position_t to where the
     /// segment continues.
     inline static constexpr id_t c_segment_link_id = 0xAA'AA'AA'AA;
@@ -254,6 +265,15 @@ public:
      * length).
      */
     id_t createSegment(const size_t size);
+
+    inline size_t getSegmentsCount(void) const { return m_segmentsInformation.size(); }
+
+    /**
+     * \brief Get the segment information, i.e. its position and size in memory.
+     */
+    inline SegmentInformation getSegmentInformation(id_t segmentId) const {
+        return findSegmentInformation(segmentId);
+    }
 
     /**
      * \brief Writes data into a Segment starting at the current head of the \ref Segment.
@@ -391,16 +411,6 @@ private:
     void updateValidLength(id_t segmentId);
 
     /**
-     * \brief Calculate the size of a segment.
-     * \param dataSize The size of the data the segment contains.
-     * Adds the size of the size_t at the beginning of the segment for partial length encoding
-     * as well as the id_t marker and link_t to the next part of the segment.
-     */
-    inline static constexpr size_t calculatePartialSegmentSize(const size_t dataSize) {
-        return dataSize + sizeof(size_t) + sizeof(id_t) + sizeof(link_t);
-    }
-
-    /**
      * \brief Helper function to check if serialized data contains a value (at some position).
      * \param serialized Serialized data to search in.
      * \param value Value to check.
@@ -512,16 +522,6 @@ private:
      * obviously not be a good thing, if that were the case).
      */
     bool isSegmentTableValid(position_t start, id_t firstId = 0) const;
-
-    /// \brief Constant by which the shared memory's size is increased when more memory is needed
-    /// (should be the size of one page).
-    inline static constexpr size_t c_size_increase = 4096;
-
-    /// \brief Size of an extension of the segment table.
-    inline static constexpr size_t c_segment_table_size =
-        (c_contiguous_segment_count + 1) * sizeof(id_t) * 2;
-
-    inline static constexpr position_t c_segment_table_start = 8;
 
     static_assert(
         c_segment_table_size < c_size_increase,
