@@ -22,6 +22,7 @@ concept SharedMemoryImpl =
     requires(std::string_view name, T t, std::span<const std::byte> data, id_t id, size_t size) {
         { T::create(name) } -> std::same_as<T>;
         { T::open(name) } -> std::same_as<T>;
+        { T::remove(name) } -> std::same_as<void>;
         { t.writeSegment(data) } -> std::convertible_to<id_t>;
         { t.createSegment(size) } -> std::convertible_to<id_t>;
         // { t.deleteSegment(id) }     -> std::same_as<void>;

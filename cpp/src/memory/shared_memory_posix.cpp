@@ -9,6 +9,8 @@
 #include <iostream>  // TODO remove
 #include <stdexcept>
 #include <system_error>
+#include <utility>
+
 #include "memory/shared_memory_types.h"
 
 namespace UnBARableAINS {
@@ -52,7 +54,43 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
     return vThis;
 }
 
-SharedMemoryPosix::~SharedMemoryPosix(void) { shm_unlink(m_name.c_str()); }
+SharedMemoryPosix::SharedMemoryPosix(SharedMemoryPosix&& other)
+    : m_name(std::move(other.m_name))
+    , m_id(std::exchange(other.m_id, -1))
+    , m_idAllocator(std::move(other.m_idAllocator))
+    , m_memoryStart(std::exchange(other.m_memoryStart, nullptr))
+    , m_size(std::exchange(other.m_size, 0))
+    , m_head(std::exchange(other.m_head, 0))
+    , m_segmentsInformation(std::move(other.m_segmentsInformation))
+    , m_segmentTableOffsets(std::move(other.m_segmentTableOffsets)) {}
+
+SharedMemoryPosix& SharedMemoryPosix::operator=(SharedMemoryPosix&& other) {
+    if (this == &other) {
+        return *this;
+    }
+
+    release();
+
+    m_name = std::move(other.m_name);
+    m_id = std::exchange(other.m_id, -1);
+    m_idAllocator = id::IdAllocator();
+    m_memoryStart = std::exchange(other.m_memoryStart, nullptr);
+    m_size = std::exchange(other.m_size, 0);
+    m_head = std::exchange(other.m_head, 0);
+    m_segmentsInformation = std::move(other.m_segmentsInformation);
+    m_segmentTableOffsets = std::move(other.m_segmentTableOffsets);
+
+    return *this;
+}
+
+SharedMemoryPosix::~SharedMemoryPosix(void) { release(); }
+
+void SharedMemoryPosix::remove(std::string_view name) {
+    std::string nullTerminatedName(name);
+    if (shm_unlink(nullTerminatedName.c_str()) == -1) {
+        throw std::system_error(errno, std::generic_category(), "shm_unlink failed");
+    }
+}
 
 id_t SharedMemoryPosix::createSegment(const size_t size) {
     if (!size) {
@@ -131,7 +169,8 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
     return segmentId;
 }
 
-SharedMemoryPosix::SharedMemoryPosix(std::string_view name) : m_name(name) {}
+SharedMemoryPosix::SharedMemoryPosix(std::string_view name)
+    : m_name(name) {}
 
 // TODO refactor into unified implementation for mutable and immutable
 auto SharedMemoryPosix::findSegmentInformation(id_t segmentId) const -> const SegmentInformation& {
@@ -174,6 +213,25 @@ void SharedMemoryPosix::increaseSize(const size_t size) {
 void SharedMemoryPosix::map(void) {
     m_memoryStart = static_cast<std::byte*>(
         mmap(NULL, m_size, PROT_READ | PROT_WRITE, MAP_SHARED_VALIDATE, m_id, 0));
+}
+
+void SharedMemoryPosix::release(void) {
+    if (m_memoryStart != nullptr) {
+        // Ignores errors
+        munmap(m_memoryStart, m_size);
+        m_memoryStart = nullptr;
+    }
+    if (m_id != -1) {
+        close(m_id);
+        m_id = -1;
+    }
+
+    m_idAllocator = id::IdAllocator();
+    m_name = {};
+    m_size = 0;
+    m_head = 0;
+    m_segmentsInformation = {};
+    m_segmentTableOffsets = {};
 }
 
 bool SharedMemoryPosix::initializeSegmentsInformation(void) {
@@ -304,7 +362,9 @@ bool SharedMemoryPosix::isSegmentTableValid(position_t start, id_t firstId) cons
 }
 
 SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id)
-    : m_id(id), m_valid(false), m_information(0, 0, 0) {}
+    : m_id(id)
+    , m_valid(false)
+    , m_information(0, 0, 0) {}
 
 SharedMemoryPosix::SegmentInformation::SegmentInformation(const id_t id,
                                                           const position_t memoryStart,

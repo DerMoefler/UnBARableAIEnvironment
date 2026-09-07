@@ -38,10 +38,10 @@ protected:
 
 TEST_F(SharedMemoryTest, WriteComplexB) {
     using SI = serialization::SerializeInformation<ComplexB>;
-    SharedMemoryType shm = SharedMemoryType::create("/shm-test");
+    SharedMemoryType shm = SharedMemoryType::create("/shm-test-write");
     id::id_t serializableId = shm.write(data);
 
-    SharedMemoryPosix shmPosix = SharedMemoryPosix::open("/shm-test");
+    SharedMemoryPosix shmPosix = SharedMemoryPosix::open("/shm-test-write");
 
     serialization::Layout<ComplexB>& mainLayout =
         std::get<serialization::Layout<ComplexB>>(shm.getLayout(serializableId));
@@ -60,6 +60,8 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
     };
 
     serialization::debug::dumpLayout(std::cout, mainLayout, 0);
+
+    SharedMemoryType::remove("/shm-test-write");
 }
 
 }  // namespace UnBARableAINS

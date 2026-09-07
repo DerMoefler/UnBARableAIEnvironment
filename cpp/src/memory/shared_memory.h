@@ -24,13 +24,15 @@ public:
     /// \brief Variant able to hold a Layout for any of the \ref SupportedTypes.
     using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
 
-    static SharedMemory<T, SupportedTypes...> create(std::string_view name) {
+    inline static SharedMemory<T, SupportedTypes...> create(std::string_view name) {
         return SharedMemory<T, SupportedTypes...>(T::create(name));
     }
 
-    static SharedMemory<T, SupportedTypes...> open(std::string_view name) {
+    inline static SharedMemory<T, SupportedTypes...> open(std::string_view name) {
         return SharedMemory<T, SupportedTypes...>(T::open(name));
     }
+
+    inline static void remove(const std::string& name) { T::remove(name); }
 
     /**
      * \brief Creates a shared memory region.
@@ -51,7 +53,8 @@ public:
     LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
 
 private:
-    SharedMemory(T impl) : m_sharedMemoryImpl(impl) {}
+    SharedMemory(T impl)
+        : m_sharedMemoryImpl(std::move(impl)) {}
     template <serialization::Serializable S>
     void createSegments(std::shared_ptr<serialization::Layout<S>> layout) {
         memory::id_t segmentId = m_sharedMemoryImpl.createSegment(layout->getInlinedSize());

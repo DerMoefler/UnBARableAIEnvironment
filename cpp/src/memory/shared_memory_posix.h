@@ -209,12 +209,34 @@ public:
      */
     static SharedMemoryPosix open(std::string_view name);
 
+    /// \brief Copy constructor deleted.
+    SharedMemoryPosix(const SharedMemoryPosix&) = delete;
+
+    /// \brief Copy assignment deleted.
+    SharedMemoryPosix& operator=(const SharedMemoryPosix&) = delete;
+
+    /// \brief Move constructor.
+    SharedMemoryPosix(SharedMemoryPosix&& other);
+
+    /// \brief Move assignment.
+    SharedMemoryPosix& operator=(SharedMemoryPosix&& other);
+
     /**
      * \brief Unlink POSIX memory using shm_unlink().
      *
      * shm_unlink is simply called and eventual failures are ignored.
      */
     ~SharedMemoryPosix(void);
+
+    /**
+     * \brief Static method to remove an shm region.
+     * \param name Qualified name to remove.
+     * \throws On shm_unlink fail.
+     *
+     * Uses shm_unlink, meaning the name is removed, but existing mapping remain valid until they
+     * unmap (using munmap).
+     */
+    static void remove(std::string_view name);
 
     /**
      * \brief Creates a new \ref Segment with the specified size.
@@ -342,6 +364,9 @@ private:
 
     /// \brief Map the shared memory into the virtual address space using mmap().
     void map(void);
+
+    /// \brief Release acquired ressources.
+    void release(void);
 
     /**
      * \brief Read the segments information from an shm.
@@ -509,14 +534,14 @@ private:
     std::string m_name;
 
     /// \brief Id returned by shm_open.
-    int m_id;
+    int m_id = -1;
 
     /// \brief Handles id allocation for segments.
     id::IdAllocator m_idAllocator;
 
     /// \brief Location where the shared memory is mapped into actual RAM (which is a virtual
     /// adress).
-    std::byte* m_memoryStart;
+    std::byte* m_memoryStart = nullptr;
 
     /// \brief Size of the shared memory region.
     size_t m_size = 0;
