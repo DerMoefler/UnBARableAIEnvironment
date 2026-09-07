@@ -12,10 +12,14 @@ AccessModifierOffset: -4
 BreakBeforeBraces: Custom
 BraceWrapping:
     BeforeElse: true
-
+    AfterFunction: true
+    SplitEmptyFunction: false
 
 ColumnLimit: 100
 SortIncludes: false
 
 # Keep the declaration following "template <...>" on a new line.
 BreakTemplateDeclarations: Yes
+
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
