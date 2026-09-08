@@ -67,13 +67,13 @@ you need the bar-data folder in your ~ dictonary,
 on server:
 ```console
 cd ~
-cp -r /home/projekt/bar-data .
+cp -r /home/projekt/bar-data-new080926/bar-data/ .
 ```
 
 local via ssh ki-vm:
 ```console
 cd ~
-scp -r projekt@ki-vm:/home/projekt/bar-data .
+scp -r projekt@ki-vm:/home/projekt/bar-data-new080926/bar-data/ .
 ```
 
 ## delete the whole Engine build
