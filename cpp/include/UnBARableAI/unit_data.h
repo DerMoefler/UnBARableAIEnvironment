@@ -1,3 +1,13 @@
+/*!
+ * \struct UnitData
+ *
+ * \copyright PHWT
+ * \author Team UnBARableAI
+ *
+ * \brief Contains all relevant runtime information about a unit.
+ *
+ * This structure stores the current state of a game unit. it can be stored in the shared memory. All units in the game have forms the observation.
+ */
 #pragma once
 namespace UnBARableAINS {
 

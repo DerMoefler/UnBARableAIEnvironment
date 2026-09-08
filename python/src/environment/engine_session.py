@@ -102,7 +102,7 @@ class EngineSession:
 
         Returns
         -------
-        Dict[str, Any]:
+        info : Dict[str, Any]
             Information about the engine process, including PID, command line, working directory, write directory,
             running status, and exit code.
         """

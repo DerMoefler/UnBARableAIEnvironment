@@ -2,9 +2,7 @@ import logging
 import sys
 from concurrent import futures
 from pathlib import Path
-import time
 import threading
-import time
 from typing import Optional
 
 import grpc
@@ -186,10 +184,6 @@ class UnBARableAIGRPCServer:
         self.server.add_insecure_port("localhost:50051")
         self.server.start()
         logging.info("Python gRPC server listening on localhost:50051")
-
-    # ------------------------------------------------------------
-    # Öffentliche API für BAR_Environment
-    # ------------------------------------------------------------
 
     def wait_for_next_update(self, previous_count: int, timeout: Optional[float] = None,) -> tuple[str, Optional[int]]:
         return self._service.wait_for_next_update(
