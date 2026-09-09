@@ -172,6 +172,28 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
     return segmentId;
 }
 
+std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position_t offset) const {
+    const SegmentInformation& segmentInformation = findSegmentInformation(segmentId);
+    // Link cannot be valid if data hasnt even been written
+    if (offset + sizeof(link_t) > segmentInformation.getValidLength()) {
+        return std::nullopt;
+    }
+    if (!segmentInformation.isSequentialReadSafe(offset, sizeof(link_t))) {
+        return std::nullopt;
+    }
+    // TODO readSegmentAt function or something
+    position_t dataPosition = segmentInformation.getDataPosition(offset);
+    auto linkedSegmentId = dataViewToUnsigned<link_t>(read(dataPosition, sizeof(link_t)));
+    std::cout << "SharedMemoryPosix::getLinkedSegment: " << std::hex << linkedSegmentId << "\n";
+    const SegmentInformation& linkedSegmentInformation = findSegmentInformation(linkedSegmentId);
+    if (linkedSegmentInformation.isValid()) {
+        return linkedSegmentId;
+    }
+    else {
+        return std::nullopt;
+    }
+}
+
 SharedMemoryPosix::SharedMemoryPosix(std::string_view name)
     : m_name(name) {}
 

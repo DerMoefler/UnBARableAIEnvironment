@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -220,6 +221,24 @@ public:
      * \ref writeSegment).
      */
     // void    deleteSegment(const id_t id);
+
+    /**
+     * \brief Get the id of a linked segment.
+     * \param segmentId Id of the segment, which links to the wanted segment.
+     * \offset Positional offset within in the segment with \p segmentId.
+     * \returns Id of the wanted segment or std::nullopt if it couldnt be found.
+     * \throws If \p segmentId doesnt even exist.
+     *
+     * This method returns the id of a segment, that the segment which is passed to the function
+     * links to. Starting at the \p offset, the next sizeof(link_t) bytes in the segment (with \p
+     * segmentId) are interpreted as a link_t (i.e. the id of another segment). If that id is valid,
+     * it returns it. Otherwise returns std::nullopt.
+     *
+     * \note The link cannot be spread across partial segments, othrwise returns std::nullopt. Also,
+     * if the segment hasnt even had data written to it at \p offset (meaning offset +
+     * sizeof(link_t) < segInfo.getValidLength()) defaults to returning std::nullopt.
+     */
+    std::optional<id_t> getLinkedSegment(id_t segmentId, position_t offset) const;
 
 private:
     /// \brief Trivial ctor.

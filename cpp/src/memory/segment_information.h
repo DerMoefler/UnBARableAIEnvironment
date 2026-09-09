@@ -73,6 +73,14 @@ public:
      */
     position_t getMemoryStart(void) const;
 
+    /**
+     * \brief Get the position (relate to the shm start) from offset within the segment.
+     * \see PartiallyLinkedListInformation::getDataPosition.
+     */
+    inline position_t getDataPosition(position_t offset) const {
+        return m_information.getDataPosition(offset);
+    };
+
     /// \brief Get the data start of a partial segement.
     inline position_t getDataStart(size_t partialSegmentIndex) const {
         return m_information.getDataStart(partialSegmentIndex);

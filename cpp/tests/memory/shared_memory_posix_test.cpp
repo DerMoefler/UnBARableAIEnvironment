@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "memory/shared_memory_posix.h"
+#include "memory/shared_memory_types.h"
+#include "serialization/serialize_information.h"
 
 namespace UnBARableAINS {
 
@@ -30,6 +32,18 @@ TEST_F(SharedMemoryPosixTest, Read) {
     EXPECT_EQ(data, result);
 
     SharedMemoryPosix::remove("/shm-posix-test-read");
+}
+
+TEST_F(SharedMemoryPosixTest, LinkedSegment) {
+    SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-linked-segment");
+
+    id_t dataSegmentId = shm.writeSegment(data);
+    auto serializedDataSegmentId =
+        serialization::SerializeInformation<position_t>::serialize(dataSegmentId);
+    id_t linkSegmentId = shm.writeSegment(serializedDataSegmentId);
+    EXPECT_EQ(shm.getLinkedSegment(linkSegmentId, 0), dataSegmentId);
+
+    SharedMemoryPosix::remove("/shm-posix-test-linked-segment");
 }
 
 TEST_F(SharedMemoryPosixTest, OpenEmpty) {
