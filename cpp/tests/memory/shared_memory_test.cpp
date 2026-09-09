@@ -57,8 +57,6 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
         }
     };
 
-    serialization::debug::dumpLayout(std::cout, mainLayout, 0);
-
     SharedMemoryType::remove("/shm-test-write");
 }
 

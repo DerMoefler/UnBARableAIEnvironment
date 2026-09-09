@@ -14,27 +14,6 @@ namespace test {
 template <size_t size>
 using Serialized = std::array<std::byte, size>;
 
-TEST(SerializationTest, TODO_REMOVE_ME) {
-    ComplexB data{{{// Matrix 0: 2 x 4
-                    {{1, 2, 3, 4}, {5, 6, 7, 8}},
-                    // Matrix 1: 3 x 3
-                    {
-                        {10, 20, 30},
-                        {40, 50, 60},
-                        {70, 80, 90},
-                    },
-                    // Matrix 2: 4 x 1
-                    {
-                        {100},
-                        {200},
-                        {300},
-                        {400},
-                    }}}};
-    // Overall Layout
-    Layout<ComplexB> layout{data};
-    debug::dumpLayout(std::cout, layout, 0);
-}
-
 TEST(SerializationTest, Integrals) {
     constexpr Serialized<1> serialized8 = SerializeInformation<uint8_t>::serialize(0xFF);
     constexpr Serialized<1> expected8 = {std::byte(0xFF)};
