@@ -8,11 +8,14 @@
 #include <variant>
 #include <vector>
 
+#include "serialization/debug/type_name.hpp"  // TODO remove
+#include "serialization/debug/layout_dump.hpp"
 #include "id/id_allocator.hpp"
 #include "memory/shared_memory_types.h"
 #include "serialization/serialize_information.h"
 #include "serialization/layout.h"
 #include "shared_memory_impl.h"
+#include "utility/always_false.h"
 
 namespace UnBARableAINS {
 
@@ -40,13 +43,14 @@ public:
 
     template <serialization::Serializable S>
     id::id_t write(const S& value) {
-        auto layout = std::make_shared<serialization::Layout<S>>(value);
+        auto layout = serialization::Layout<S>(value);
 
-        createSegments(layout);
-        writeOnCreation(value, layout);
+        createSegments(&layout);
+        serialization::debug::dumpLayout(std::cout, layout, 0);
+        writeOnCreation(value, &layout);
 
         id::id_t serializableId = m_idAllocator.allocate();
-        m_layouts.push_back(*layout);
+        m_layouts.push_back(std::move(layout));
         return serializableId;
     }
 
@@ -56,92 +60,50 @@ private:
     SharedMemory(T impl)
         : m_sharedMemoryImpl(std::move(impl)) {}
     template <serialization::Serializable S>
-    void createSegments(std::shared_ptr<serialization::Layout<S>> layout) {
+    void createSegments(serialization::Layout<S>* layout) {
         memory::id_t segmentId = m_sharedMemoryImpl.createSegment(layout->getInlinedSize());
         layout->setSegmentId(segmentId);
 
-        auto funcBase = [segmentId](auto& _, auto& child) { child->setSegmentId(segmentId); };
-        auto funcRecursive = [&](auto& _, auto& child) { createSegments(child); };
+        auto funcBase = [&](auto& _, auto& child) {
+            memory::id_t childSegmentId = m_sharedMemoryImpl.createSegment(child->getInlinedSize());
+            child->setSegmentId(childSegmentId);
+        };
+        auto funcRecursive = [&](auto& _, auto& child) { createSegments(child.get()); };
 
         layout->visitChildLayoutsByInlining(funcBase, funcRecursive);
     }
 
     template <serialization::Serializable S>
-    void writeOnCreation(const S& value, std::shared_ptr<serialization::Layout<S>> layout) {
+    void writeOnCreation(const S& value, serialization::Layout<S>* layout) {
         std::cout << "SharedMemory<...>::writeOnCreation\n";
-        auto writeNode = [&](auto&& self, auto& node, const auto& nodeValue) -> void {
+        size_t segmentId = layout->getSegmentId().value();
+
+        auto funcBase = [&](const auto& node) {
             using Node = std::remove_cvref_t<decltype(node)>;
-            using ValueType = std::remove_cvref_t<decltype(nodeValue)>;
-            using SerializeInformation = serialization::SerializeInformation<ValueType>;
-            using FieldTag = typename Node::Tag;
-            constexpr std::type_identity<FieldTag> fieldKey{};
-            // --- End of recusion ---
-            if constexpr (serialization::detail::MultiField<FieldTag>) {
-                using ElementFieldTag = typename FieldTag::Field;
-                using ElementValueType = typename ElementFieldTag::Type;
-                using ElementSerializeInformation =
-                    serialization::SerializeInformation<ElementValueType>;
-                std::cout << typeid(ElementValueType).name() << ":" << typeid(ValueType).name()
-                          << "\n";
-                if constexpr (serialization::detail::SerializeMethodAvailable<ElementValueType>) {
-                    std::cout << "SharedMemory<...>::writeOnCreation::writeNode: Base (Multi)\n";
-                    size_t segmentId = layout->getSegmentId().value();
-                    for (int i = 0; i < node.count; i++) {
-                        auto element = SerializeInformation::get(fieldKey, nodeValue, i);
-                        auto serialized = ElementSerializeInformation::serialize(element);
-                        try {
-                            m_sharedMemoryImpl.appendToSegment(segmentId, serialized);
-                        } catch (const std::exception& e) {
-                            std::cerr << e.what() << "\n";
-                        }
-                    }
+            std::cout << "Base (Inlining) for field \""
+                      << serialization::debug::displayName<typename Node::Tag>() << "\"\n";
+            auto func = [&](const auto& value) {
+                using ValueType = std::remove_cvref_t<decltype(value)>;
+                if constexpr (!serialization::detail::SerializeMethodAvailable<ValueType>) {
+                    static_assert(AlwaysFalse_MF<ValueType>::value,
+                                  "Cannot serialize ValueType. Probably trying to inline a type, "
+                                  "that itselfs inline other types.");
                 }
                 else {
-                    std::cout << "SharedMemory<...>::writeOnCreation::writeNode: Recurse (Multi)\n";
-                    for (int i = 0; i < node.count; i++) {
-                        auto element = SerializeInformation::get(fieldKey, nodeValue, i);
-                        serialization::visitNodeChildLayouts(node, [&](auto& childLayout) {
-                            childLayout->visitNodesByInlining(
-                                [&](auto& nestedNode) {
-                                    self(self, nestedNode,
-                                         SerializeInformation::get(fieldKey, nodeValue));
-                                },
-                                [](auto& nestedNode) {
-                                    // static_assert(AlwaysFalse_MF<S>::value, "ERROR");
-                                    assert(false && "Assertion failed at runtime");
-                                });
-                        });
-                    }
-                }
-            }
-            else if constexpr (serialization::detail::SerializeMethodAvailable<ValueType>) {
-                std::cout << "SharedMemory<...>::writeOnCreation::writeNode: Base (Single)"
-                          << std::endl;
-                size_t segmentId = layout->getSegmentId().value();
-                auto serialized = SerializeInformation::serialize(nodeValue);
-                try {
+                    auto serialized =
+                        serialization::SerializeInformation<ValueType>::serialize(value);
+                    std::cout << "Writing " << serialized.size() << " bytes into segment "
+                              << segmentId << "\n";
                     m_sharedMemoryImpl.appendToSegment(segmentId, serialized);
-                } catch (const std::exception& e) {
-                    std::cerr << e.what();
                 }
-            }
-            else {
-                std::cout << "SharedMemory<...>::writeOnCreation::writeNode: Recurse (Single)"
-                          << std::endl;
-                serialization::visitNodeChildLayouts(node, [&](auto& childLayout) {
-                    childLayout->visitNodesByInlining(
-                        [&](auto& nestedNode) {
-                            self(self, nestedNode, SerializeInformation::get(fieldKey, nodeValue));
-                        },
-                        [](auto& nestedNode) {
-                            // static_assert(AlwaysFalse_MF<S>::value, "ERROR");
-                            assert(false && "Assertion failed at runtime");
-                        });
-                });
-            }
+            };
+            serialization::visitValueFields(node, value, func);
         };
-        auto funcBase = [&](auto& node) { writeNode(writeNode, node, value); };
-        auto funcRecursive = [&](auto& node) {
+
+        auto funcRecursive = [&](const auto& node) {
+            using Node = std::remove_cvref_t<decltype(node)>;
+            std::cout << "Recursing (Inlining) for field \""
+                      << serialization::debug::displayName<typename Node::Tag>() << "\"\n";
             using SerializeInformation = serialization::SerializeInformation<S>;
             using Node = std::remove_cvref_t<decltype(node)>;
             using FieldTag = typename Node::Tag;
@@ -151,12 +113,12 @@ private:
                 for (size_t i = 0; i < node.count; i++) {
                     assert(node.children[i]);  // cannot be nullptr
                     writeOnCreation(SerializeInformation::get(fieldKey, value, i),
-                                    node.children[i]);
+                                    node.children[i].get());
                 }
             }
             else {
-                assert(node.child);  // cannot be nullptr
-                writeOnCreation(SerializeInformation::get(fieldKey, value), node.child);
+                assert(node.child.get());  // cannot be nullptr
+                writeOnCreation(SerializeInformation::get(fieldKey, value), node.child.get());
             }
         };
 
