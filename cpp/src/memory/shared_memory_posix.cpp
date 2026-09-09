@@ -184,7 +184,6 @@ std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position
     // TODO readSegmentAt function or something
     position_t dataPosition = segmentInformation.getDataPosition(offset);
     auto linkedSegmentId = dataViewToUnsigned<link_t>(read(dataPosition, sizeof(link_t)));
-    std::cout << "SharedMemoryPosix::getLinkedSegment: " << std::hex << linkedSegmentId << "\n";
     const SegmentInformation& linkedSegmentInformation = findSegmentInformation(linkedSegmentId);
     if (linkedSegmentInformation.isValid()) {
         return linkedSegmentId;

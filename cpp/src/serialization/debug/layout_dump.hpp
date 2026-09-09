@@ -2,6 +2,7 @@
 #define LAYOUT_DUMP_H_
 
 #include <cstddef>
+#include <optional>
 #include <ostream>
 #include <type_traits>
 
@@ -36,8 +37,21 @@ template <Serializable S>
 void dumpLayout(std::ostream& out, const Layout<S>& layout, size_t depth) {
     using Layout = Layout<S>;
 
+    auto printOpt = [&out]<typename T>(const std::optional<T> opt) {
+        if (opt.has_value()) {
+            out << opt.value();
+        }
+        else {
+            out << "std::nullopt";
+        }
+    };
+
     detail::makeIndentation(out, depth);
     out << displayName<Layout>() << '\n';
+    detail::makeIndentation(out, depth + 1);
+    out << "SegmentID: ";
+    printOpt(layout.getSegmentId());
+    out << "\n";
 
     layout.forEachNode([&](const auto& node) {
         dumpNode(out, node, depth + 1);
