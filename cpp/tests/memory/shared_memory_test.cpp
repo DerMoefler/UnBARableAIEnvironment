@@ -13,8 +13,6 @@ namespace UnBARableAINS {
 
 using namespace memory;
 
-using SegmentInformation = SharedMemoryPosix::SegmentInformation;
-
 class SharedMemoryTest : public ::testing::Test {
 protected:
     using ComplexB = serialization::test::ComplexB;

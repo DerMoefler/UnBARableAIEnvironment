@@ -5,19 +5,19 @@ namespace UnBARableAINS {
 
 using namespace memory;
 
-using SInformation = SharedMemoryPosix::SegmentInformation;
+using SInformation = SegmentInformation;
 
 TEST(SegmentInformationTest, InvalidConstructor) {
-    constexpr size_t        id  = 2;
+    constexpr size_t id = 2;
 
     SInformation si{id};
     ASSERT_FALSE(si.isValid());
 }
 
 TEST(SegmentInformationTest, SingleSegment) {
-    constexpr size_t        id  = 2;
-    constexpr position_t    memoryStart = 10;
-    constexpr size_t        dataSize    = 24;
+    constexpr size_t id = 2;
+    constexpr position_t memoryStart = 10;
+    constexpr size_t dataSize = 24;
 
     SInformation si{id, memoryStart, dataSize};
     ASSERT_TRUE(si.isValid());
@@ -25,9 +25,9 @@ TEST(SegmentInformationTest, SingleSegment) {
 }
 
 TEST(SegmentInformationTest, Initialize) {
-    constexpr size_t        id  = 2;
-    constexpr position_t    memoryStart = 10;
-    constexpr size_t        dataSize    = 24;
+    constexpr size_t id = 2;
+    constexpr position_t memoryStart = 10;
+    constexpr size_t dataSize = 24;
 
     SInformation si{id};
     ASSERT_FALSE(si.isValid());
@@ -38,8 +38,9 @@ TEST(SegmentInformationTest, Initialize) {
 }
 
 TEST(SegmentInformationTest, ThrowInvalid) {
-    constexpr std::string_view errorMessage = "Object has to be valid for the request operation, but is invalid.";
-    constexpr size_t        id  = 2;
+    constexpr std::string_view errorMessage =
+        "Object has to be valid for the request operation, but is invalid.";
+    constexpr size_t id = 2;
 
     SInformation si{id};
     ASSERT_FALSE(si.isValid());
@@ -47,18 +48,18 @@ TEST(SegmentInformationTest, ThrowInvalid) {
     try {
         si.getMemoryStart();
         FAIL();
-    }
-    catch(const std::logic_error& e) {
+    } catch (const std::logic_error& e) {
         EXPECT_STREQ(e.what(), errorMessage.data());
-    }  
+    }
 }
 
 TEST(SegmentInformationTest, ThrowValid) {
-    constexpr std::string_view errorMessage = "Object has to be invalid for the request operation, but is valid.";
+    constexpr std::string_view errorMessage =
+        "Object has to be invalid for the request operation, but is valid.";
 
-    constexpr size_t        id  = 2;
-    constexpr position_t    memoryStart = 10;
-    constexpr size_t        dataSize    = 24;
+    constexpr size_t id = 2;
+    constexpr position_t memoryStart = 10;
+    constexpr size_t dataSize = 24;
 
     SInformation si{id, memoryStart, dataSize};
     ASSERT_TRUE(si.isValid());
@@ -66,10 +67,9 @@ TEST(SegmentInformationTest, ThrowValid) {
     try {
         si.initialize(memoryStart, dataSize);
         FAIL();
-    }
-    catch(const std::logic_error& e) {
+    } catch (const std::logic_error& e) {
         EXPECT_STREQ(e.what(), errorMessage.data());
-    }  
+    }
 }
 
-} // namespace UnBARableAI
+}  // namespace UnBARableAINS

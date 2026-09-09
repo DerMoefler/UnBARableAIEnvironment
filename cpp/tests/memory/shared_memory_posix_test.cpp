@@ -42,10 +42,10 @@ TEST_F(SharedMemoryPosixTest, OpenEmpty) {
 }
 
 TEST_F(SharedMemoryPosixTest, OpenRead) {
-    SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-open-empty");
+    SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-open-read");
 
     id_t id = shm.writeSegment(data);
-    SharedMemoryPosix shmOpen = SharedMemoryPosix::open("/shm-posix-test-open-empty");
+    SharedMemoryPosix shmOpen = SharedMemoryPosix::open("/shm-posix-test-open-read");
 
     // Explicit test
     auto siCreate = shm.getSegmentInformation(id);
@@ -60,7 +60,7 @@ TEST_F(SharedMemoryPosixTest, OpenRead) {
     // Test using default operator==
     EXPECT_EQ(shm.getSegmentInformation(id), shmOpen.getSegmentInformation(id));
 
-    SharedMemoryPosix::remove("/shm-posix-test-open-empty");
+    SharedMemoryPosix::remove("/shm-posix-test-open-read");
 }
 
 }  // namespace UnBARableAINS
