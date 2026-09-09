@@ -318,6 +318,27 @@ void visitNodeChildLayouts(N& node, F&& func) {
     }
 }
 
+template <typename N, serialization::Serializable S, typename F>
+void visitValueFields(const N& node, const S& parentValue, F&& func) {
+    using ParentValueType = S;
+    using ParentSerializeInformation = SerializeInformation<S>;
+
+    using Node = std::remove_cvref_t<decltype(node)>;
+    using FieldTag = typename Node::Tag;
+    constexpr std::type_identity<FieldTag> fieldKey{};
+
+    if constexpr (serialization::detail::MultiField<FieldTag>) {
+        for (size_t i = 0; i < node.count; i++) {
+            const auto element = ParentSerializeInformation::get(fieldKey, parentValue, i);
+            func(element);
+        }
+    }
+    else {
+        const auto nodeValue = ParentSerializeInformation::get(fieldKey, parentValue);
+        func(nodeValue);
+    }
+}
+
 /**
  * \brief Partial specialization for integral types.
  * \todo Document
