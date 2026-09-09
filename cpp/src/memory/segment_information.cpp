@@ -21,6 +21,29 @@ void SegmentInformation::initialize(const position_t memoryStart, const size_t d
     m_valid = true;
 }
 
+bool SegmentInformation::isSequentialReadSafe(position_t position, size_t numBytes) const {
+    if (!numBytes) {
+        return false;
+    }
+    auto startIndexOpt = m_information.getPartialSegmentIndex(position);
+
+    // We want to read numBytes, but the end position to check is actually one before position +
+    // numBytes. Suppose we were at the lastByte of a partial segment and wanted to read it but the
+    // segment continued further, i.e. there comes a partial segment after the current one.
+    // Now, lastByte + 1 would actually mean the firstByte of the nextPartialSegment. That is not
+    // what we are asking though. We want to know if we can read that one byte sequentially, which
+    // (in this case trivially) we absolutely can. This is why when choosing the end position, we
+    // must actually subtract one.
+    position_t endPosition = position + numBytes - 1;
+    auto endIndexOpt = m_information.getPartialSegmentIndex(endPosition);
+    if (startIndexOpt.has_value() && endIndexOpt.has_value()) {
+        return startIndexOpt.value() == endIndexOpt.value();
+    }
+    else {
+        return false;
+    }
+}
+
 position_t SegmentInformation::getMemoryStart(void) const {
     validateState(true);
     return m_information.getMemoryStart();

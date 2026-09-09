@@ -72,4 +72,18 @@ TEST(SegmentInformationTest, ThrowValid) {
     }
 }
 
+TEST(SegmentInformationTest, SequentialReadSafety) {
+    constexpr size_t id = 0;
+    constexpr position_t memoryStart = 0;
+    constexpr size_t dataSize = 8;
+
+    SegmentInformation si{id, memoryStart, dataSize};
+
+    EXPECT_TRUE(si.isSequentialReadSafe(0, 4));
+    EXPECT_TRUE(si.isSequentialReadSafe(0, 8));
+    EXPECT_TRUE(si.isSequentialReadSafe(4, 4));
+    EXPECT_FALSE(si.isSequentialReadSafe(4, 5));
+    EXPECT_FALSE(si.isSequentialReadSafe(9, 1));
+}
+
 }  // namespace UnBARableAINS

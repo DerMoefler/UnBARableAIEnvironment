@@ -77,6 +77,25 @@ position_t PartiallyLinkedListInformation::getDataStart(const size_t partialSegm
     return m_offsets[partialSegmentIndex] + getHeaderSize(partialSegmentIndex);
 }
 
+std::optional<size_t> PartiallyLinkedListInformation::getPartialSegmentIndex(
+    position_t offset) const {
+    if (offset > getCapacity()) {
+        return std::nullopt;
+    }
+    // TODO refactor this method and getDataPosition to use the same basis (since its the same code
+    // for the majority).
+    size_t partialSegmentIndex = 0;
+    size_t previousDataSize = 0;
+    for (size_t i = 0; i < m_dataSizes.size(); i++) {
+        if (previousDataSize + m_dataSizes[i] > offset) {
+            break;
+        }
+        partialSegmentIndex++;
+        previousDataSize += m_dataSizes[i];
+    }
+    return partialSegmentIndex;
+}
+
 size_t PartiallyLinkedListInformation::getOccupiedDataSize(void) const {
     if (isListFull()) {
         return getCapacity();

@@ -56,6 +56,18 @@ public:
     inline bool isValid(void) const { return m_valid; }
 
     /**
+     * \brief Helper to determine whether a sequential read can be performed for the segment.
+     * \param offset Relative offset within segment.
+     * \param numBytes Number of bytes to read sequentially.
+     *
+     * This method essentially checks whether you can sequantially read \p numBytes while staying
+     * inside the partial segment which \p offset lies in.
+     * \note A sequential read of 0 bytes is considered unsafe.
+     * \todo Check if 0 byte read being unsafe is actually what we want.
+     */
+    bool isSequentialReadSafe(position_t offset, size_t numBytes) const;
+
+    /**
      * \brief Get the memory start of the List.
      * \return Memory start.
      */

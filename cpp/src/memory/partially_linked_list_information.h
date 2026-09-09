@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <optional>
 #include <vector>
 #include <stdexcept>
 
@@ -106,6 +107,13 @@ public:
      * \param partialSegmentIndex The partial segment's index.
      */
     position_t getDataStart(const size_t partialSegmentIndex) const;
+
+    /**
+     * \brief Get the partial segment index an offset (within the list) lies within.
+     * \param offset Offset from the start of the list.
+     * \returns Partial element index or std::nullopt if offset > \ref getCapacity.
+     */
+    std::optional<size_t> getPartialSegmentIndex(position_t offset) const;
 
     /**
      * \brief Get the currently occupied data size of the segment.
