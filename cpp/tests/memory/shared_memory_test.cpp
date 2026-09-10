@@ -1,13 +1,16 @@
 #include "../serialization/complex_type.h"
 #include "memory/shared_memory.h"
 
+#include <fstream>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
 
 #include "memory/shared_memory_posix.h"
-#include "serialization/debug/layout_dump.hpp"
+#include "memory/debug/hexdump.hpp"
 
 namespace UnBARableAINS {
 
@@ -36,10 +39,12 @@ protected:
 
 TEST_F(SharedMemoryTest, WriteComplexB) {
     using SI = serialization::SerializeInformation<ComplexB>;
-    SharedMemoryType shm = SharedMemoryType::create("/shm-test-write");
+    constexpr std::string_view name = "/shm-test-write";
+
+    SharedMemoryType shm = SharedMemoryType::create(name);
     id::id_t serializableId = shm.write(data);
 
-    SharedMemoryPosix shmPosix = SharedMemoryPosix::open("/shm-test-write");
+    SharedMemoryPosix shmPosix = SharedMemoryPosix::open(name);
 
     serialization::Layout<ComplexB>& mainLayout =
         std::get<serialization::Layout<ComplexB>>(shm.getLayout(serializableId));
@@ -57,7 +62,17 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
         }
     };
 
-    SharedMemoryType::remove("/shm-test-write");
+    if (::testing::Test::HasFailure()) {
+        std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);
+        if (!file) {
+            std::cout << "Cannot open shm?!?";
+        }
+        else {
+            debug::hexdump(std::cout, file);
+        }
+    }
+
+    SharedMemoryType::remove(std::string(name));
 }
 
 }  // namespace UnBARableAINS

@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(CMakePackageConfigHelpers)
+include(CTest)
 include(GNUInstallDirs)
 
 # Dependencies
@@ -85,6 +86,9 @@ protobuf_generate(
 # ----------------------------------------------------------------------
 
 if(UNBARABLEAI_BUILD_TESTS)
+    enable_testing()
+    include(GoogleTest)
+
     add_executable(tests
         "tests/memory/shared_memory_test.cpp"
         "tests/memory/shared_memory_posix_test.cpp"
@@ -92,6 +96,7 @@ if(UNBARABLEAI_BUILD_TESTS)
         "tests/memory/segment_information_test.cpp"
         "tests/serialization/serialization_test.cpp"
         "src/id/id_allocator.cpp"
+        "src/memory/debug/hexdump.cpp"
         "src/memory/partially_linked_list_information.cpp"
         "src/memory/segment_information.cpp"
         "src/memory/shared_memory_posix.cpp"
@@ -106,6 +111,8 @@ if(UNBARABLEAI_BUILD_TESTS)
         PRIVATE
             GTest::gtest_main
     )
+
+    gtest_discover_tests(tests)
 
     add_executable(send_event_client
         tests/grpc/send_event_client.cpp

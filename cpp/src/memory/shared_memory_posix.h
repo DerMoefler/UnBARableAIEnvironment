@@ -29,6 +29,7 @@ namespace memory {
  *
  * People seem to prefer POSIX shared memory over system V's, which is used by \ref
  * SharedMemoryUnix.
+ * \todo Refactor into two classes, one for managing segments and one for the actual posix backend.
  */
 class SharedMemoryPosix {
     static_assert(sizeof(size_t) == 8, "Invalid bytelength for type 'size_t'");
