@@ -146,21 +146,15 @@ std::vector<std::byte> SharedMemoryPosix::readSegment(id_t segmentId) const {
 
     std::vector<std::byte> rawSegmentData(dataSize);
 
-    auto readIntoRawData = [&](position_t start, size_t numBytes) {
-        std::memcpy(rawSegmentData.data() + readDataSize, m_memoryStart + start, numBytes);
-    };
-
     for (int i = 0; i < segmentInformation.getPartialSegmentsCount(); i++) {
         position_t partialSegmentDataStart = segmentInformation.getDataStart(i);
-        size_t partialSegmentDataSize = segmentInformation.getDataSize(i);
-        if ((readDataSize + partialSegmentDataSize) > dataSize) {
-            readIntoRawData(partialSegmentDataStart, segmentInformation.getHead());
-            break;
-        }
-        else {
-            readIntoRawData(partialSegmentDataStart, partialSegmentDataSize);
-            readDataSize += partialSegmentDataSize;
-        }
+        std::size_t partialSegmentDataSize = segmentInformation.getDataSize(i);
+
+        std::size_t remainingDataSize = dataSize - readDataSize;
+        std::size_t numBytesToRead = std::min(partialSegmentDataSize, remainingDataSize);
+
+        std::memcpy(rawSegmentData.data() + readDataSize, m_memoryStart + partialSegmentDataStart,
+                    numBytesToRead);
     }
 
     return rawSegmentData;

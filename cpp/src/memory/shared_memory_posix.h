@@ -35,9 +35,6 @@ class SharedMemoryPosix {
     static_assert(sizeof(size_t) == 8, "Invalid bytelength for type 'size_t'");
 
 public:
-    /// \brief Alias for a view to some data (e.g. to write to a segment).
-    using DataView = const std::span<const std::byte>;
-
     /// \brief The id used to signal that the next entry is not an offset for a data segment but
     /// rather the offset to the next partial segment table.
     inline static constexpr id_t c_partial_table_link_id = 0xFE'DC'BA'98;  //'76'54'32'10;
