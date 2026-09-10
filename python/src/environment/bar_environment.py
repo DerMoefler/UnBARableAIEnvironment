@@ -85,6 +85,19 @@ class BAR_Environment:
         self.grpc_server.start()
 
     def _require_session(self) -> EngineSession:
+        """
+        If there is no EngineSession object assigned to the BAR_Environemnt and running, an error ist thrown, otherwise the running session is being returned.
+
+        Parameters
+        ----------
+        self : BAR_Environment
+            the env itself
+
+        Returns
+        -------
+        self.session : EngineSession
+            the currently running engine session
+        """
         if self.session is None or not self.session.is_running():
             raise RuntimeError("Engine session is not running. Call reset() first.")
         return self.session
@@ -204,11 +217,31 @@ class BAR_Environment:
         return observation, reward, terminated, truncated, info
 
     def close(self):
+        """
+        Closes the engine session and assigns none to the session member
+
+        Parameters
+        ----------
+        self : BAR_Environment
+
+        Returns
+        -------
+        """
         if self.session is not None:
             self.session.stop()
             self.session = None
 
     def __del__(self):
+        """
+        Closes the engine session if possible using close()
+
+        Parameters
+        ----------
+        self : BAR_Environment
+
+        Returns
+        -------
+        """
         try:
             self.close()
         except Exception:
@@ -224,6 +257,8 @@ class BAR_Environment:
             The training environment instance.
         agent_id : int
             The ID of the agent for which to retrieve the observation.
+        engine_session : EngineSession
+            No explicit EngineSession.
 
         Returns
         -------
@@ -232,7 +267,7 @@ class BAR_Environment:
 
         Examples
         --------
-        >>> get_obs_agent(bar_env, 67)
+        >>> get_obs_agent(bar_env, 67, None)
         [0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.
         0. 0. 0. 0. 0. 0. 0. 0.]
         """
@@ -430,31 +465,6 @@ class BAR_Environment:
         health_percentage = health / health_max
 
         return health_percentage
-
-    def get_relative_pos(self, agent, second_unit_id):
-        """
-        Calculates the relative position of a unit to the agent unit
-
-        Parameters
-        ----------
-        self : BAR_Environment
-            The training environment instance
-
-        Returns
-        -------
-        rel_pos : np.array
-            A 1-D numpy array containing the relative position (x, y, z) of the second unit to the agent unit
-
-        Examples
-        --------
-        >>> get_relative_pos(bar_env, 1, 0)
-        [3.0, 5.2, 7.3]
-        """
-        relx = second_unit_id.getXPosition() - agent.getXPosition()
-        rely = second_unit_id.getYPosition() - agent.getYPosition()
-        relz = second_unit_id.getZPosition() - agent.getZPosition()
-        rel_pos = np.array([relx, rely, relz], dtype=np.float32)
-        return rel_pos
 
     def _safe_get_world_frame(self, session: EngineSession) -> int:
         """
@@ -740,23 +750,6 @@ class BAR_Environment:
         }
 
         return clipped_reward
-
-    
-
-
-
-    # def get_available_actions(self, unit_type):
-    #     #[move_up, move_down, move_left, move_right, attack, stay, build]
-    #     type_map = {
-    #         0: "pawn",
-    #         1: "commander"
-    #     }
-    #     if unit_type == "pawn":
-    #         avail_actions = np.array([1, 1, 1, 1, 1, 1, 0])
-    #     elif unit_type == "commander":
-    #         avail_actions = np.array([1, 1, 1, 1, 1, 1, 1])
-    #
-    #     return avail_actions
 
     def get_n_agents(self):
         """
