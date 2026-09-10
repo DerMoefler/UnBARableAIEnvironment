@@ -3,11 +3,13 @@
 #include <concepts>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <type_traits>
 #include <vector>
 
 #include "byte_container.h"
+#include "memory/shared_memory_types.h"
 #include "utility/always_false.h"
 #include "utility/typelist.h"
 
@@ -354,11 +356,20 @@ struct SerializeInformation<T> {
 
     inline static constexpr std::array<std::byte, sizeof(Type)> serialize(const Type value) {
         std::array<std::byte, sizeof(Type)> result{};
-        for (size_t i = 0; i < sizeof(Type); ++i) {
+        for (size_t i = 0; i < sizeof(Type); i++) {
             result[i] = std::byte((value >> ((sizeof(Type) - 1 - i) * 8)) & 0xFF);
         }
         return result;
     };
+
+    // TODO concept for deserialization
+    inline static constexpr Type deserialize(memory::DataView serialized) {
+        Type result{};
+        for (std::size_t i = 0; i < sizeof(Type); i++) {
+            result |= static_cast<Type>(serialized[i]) << (sizeof(Type) - 1 - i);
+        }
+        return result;
+    }
 };
 
 /**

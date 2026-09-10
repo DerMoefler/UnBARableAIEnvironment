@@ -3,7 +3,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include "always_false.h"
 
 /**
  * \brief Metafunction to get the index of a type into the list.
