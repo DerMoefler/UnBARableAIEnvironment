@@ -42,14 +42,12 @@ public:
     }
 
     inline static SharedMemory<T, SupportedTypes...> open(std::string_view name) {
-        return SharedMemory<T, SupportedTypes...>(T::open(name));
+        SharedMemory<T, SupportedTypes...> shm(T::open(name));
+        shm.initializeLayouts();
+        return shm;
     }
 
     inline static void remove(const std::string& name) { T::remove(name); }
-
-    /**
-     * \brief Creates a shared memory region.
-     */
 
     template <serialization::Serializable S>
     id::id_t write(const S& value) {
@@ -74,8 +72,9 @@ public:
 private:
     inline static constexpr memory::id_t c_layout_table_segment_id = 0;
     inline static constexpr std::size_t c_layout_table_size_increase = 8;
+    inline static constexpr std::size_t c_layout_table_entry_size = 3 * sizeof(id::id_t);
     inline static constexpr std::size_t c_partial_layout_table_size =
-        c_layout_table_size_increase * (3 * sizeof(id::id_t));
+        c_layout_table_size_increase * c_layout_table_entry_size;
 
     SharedMemory(T impl)
         : m_sharedMemoryImpl(std::move(impl)) {}
@@ -98,6 +97,52 @@ private:
                                            SerializeInformation::serialize(mainSegmentId));
         m_sharedMemoryImpl.appendToSegment(c_layout_table_segment_id,
                                            SerializeInformation::serialize(index));
+        std::cout << "SharedMemory::createLayoutTableEntry: created with SerializableID: "
+                  << serializableId << ", mainSegmentId: " << mainSegmentId << "\n";
+    }
+
+    void initializeLayouts(void) {
+        assert(m_idAllocator.size() == 0 && "Can only initialize for an empty shm");
+        std::vector<std::byte> serializedLayoutTable =
+            m_sharedMemoryImpl.readSegment(c_layout_table_segment_id);
+        assert((serializedLayoutTable.size() % c_layout_table_entry_size) == 0 &&
+               "Ill formed layout table.");
+        std::size_t numEntries = serializedLayoutTable.size() / c_layout_table_entry_size;
+        using SerializeInformation = serialization::SerializeInformation<id::id_t>;
+        for (std::size_t i = 0; i < numEntries; i++) {
+            const std::span entryView{serializedLayoutTable.begin() + i * c_layout_table_entry_size,
+                                      serializedLayoutTable.begin() +
+                                          i * c_layout_table_entry_size +
+                                          c_layout_table_entry_size};
+
+            id::id_t serializableId =
+                SerializeInformation::deserialize(entryView.subspan(0, sizeof(id::id_t)));
+            id::id_t mainSegmentId = SerializeInformation::deserialize(
+                entryView.subspan(sizeof(id::id_t), sizeof(id::id_t)));
+            id::id_t typeIndex = SerializeInformation::deserialize(
+                entryView.subspan(2 * sizeof(id::id_t), sizeof(id::id_t)));
+            std::cout << "SharedMemory<...>::initializeLayouts: " << serializableId << ":"
+                      << mainSegmentId << ":" << typeIndex << "\n";
+            LayoutVariant layout = buildLayout(serializableId, mainSegmentId, typeIndex);
+            m_layouts.push_back(std::move(layout));
+        }
+    }
+
+    template <id::id_t i = 0>
+    static LayoutVariant buildLayout(id::id_t serializableId, id::id_t mainSegmentId,
+                                     id::id_t typeIndex) {
+        if (typeIndex == i + 1) {
+            using Serializable = std::tuple_element_t<i, std::tuple<SupportedTypes...>>;
+            Serializable value{};
+            serialization::Layout<Serializable> layout{};
+            return layout;
+        }
+        if constexpr (i + 1 < sizeof...(SupportedTypes)) {
+            return buildLayout<i + 1>(serializableId, mainSegmentId, typeIndex);
+        }
+        else {
+            throw std::runtime_error("Invalid type index in layout table.");
+        }
     }
 
     template <serialization::Serializable S>

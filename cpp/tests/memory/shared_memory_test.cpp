@@ -75,4 +75,30 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
     SharedMemoryType::remove(std::string(name));
 }
 
+TEST_F(SharedMemoryTest, OpenComplexB) {
+    using SI = serialization::SerializeInformation<ComplexB>;
+    constexpr std::string_view name = "/shm-test-open-complexb";
+
+    SharedMemoryType shm = SharedMemoryType::create(name);
+    id::id_t serializableId = shm.write(data);
+
+    SharedMemoryType shmOpen = SharedMemoryType::open(name);
+
+    EXPECT_NO_THROW({
+        auto layout = std::get<serialization::Layout<ComplexB>>(shmOpen.getLayout(serializableId));
+    });
+
+    if (::testing::Test::HasFailure()) {
+        std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);
+        if (!file) {
+            std::cout << "Cannot open shm?!?";
+        }
+        else {
+            debug::hexdump(std::cout, file);
+        }
+    }
+
+    SharedMemoryType::remove(std::string(name));
+}
+
 }  // namespace UnBARableAINS

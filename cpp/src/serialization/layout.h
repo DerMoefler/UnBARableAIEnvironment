@@ -56,6 +56,11 @@ public:
     inline static constexpr size_t c_num_fields = std::tuple_size<Nodes>::value;
 
     /**
+     * \todo IMPLEMENT
+     */
+    Layout(void) {};
+
+    /**
      * \brief Basic constructor to compute a layout.
      * \param value An instance of Type \p T for which to compute the layout.
      */

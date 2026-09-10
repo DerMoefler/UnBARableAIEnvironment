@@ -26,6 +26,7 @@ concept SharedMemoryImpl =
         { t.createSegment(size) } -> std::convertible_to<id_t>;
         { t.appendToSegment(id, data) } -> std::same_as<void>;
         { t.writeSegment(data) } -> std::convertible_to<id_t>;
+        { t.readSegment(id) } -> std::same_as<std::vector<std::byte>>;
         // { t.deleteSegment(id) }     -> std::same_as<void>;
     };
 
