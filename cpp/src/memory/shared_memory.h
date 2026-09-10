@@ -8,6 +8,7 @@
 #include <variant>
 #include <vector>
 
+#include "id/id_types.hpp"
 #include "serialization/debug/type_name.hpp"  // TODO remove
 #include "serialization/debug/layout_dump.hpp"
 #include "id/id_allocator.hpp"
@@ -16,19 +17,28 @@
 #include "serialization/layout.h"
 #include "shared_memory_impl.h"
 #include "utility/always_false.h"
+#include "utility/type_index.hpp"
 
 namespace UnBARableAINS {
 
 namespace memory {
 
-template <SharedMemoryImpl T, typename... SupportedTypes>
+template <SharedMemoryImpl T, serialization::Serializable... SupportedTypes>
 class SharedMemory {
 public:
     /// \brief Variant able to hold a Layout for any of the \ref SupportedTypes.
     using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
 
+    /// \brief Simple value template for getting the type index into supported types (starts at 1,
+    /// not 0).
+    template <serialization::Serializable S>
+    inline static constexpr std::size_t c_type_index =
+        TypeIndex_MF<S, SupportedTypes...>::index + 1;
+
     inline static SharedMemory<T, SupportedTypes...> create(std::string_view name) {
-        return SharedMemory<T, SupportedTypes...>(T::create(name));
+        SharedMemory<T, SupportedTypes...> shm(T::create(name));
+        shm.createLayoutTable();
+        return shm;
     }
 
     inline static SharedMemory<T, SupportedTypes...> open(std::string_view name) {
@@ -43,6 +53,10 @@ public:
 
     template <serialization::Serializable S>
     id::id_t write(const S& value) {
+        if (m_idAllocator.size() == c_layout_table_size_increase) {
+            throw std::runtime_error("SharedMemory currently only supports " +
+                                     std::to_string(c_layout_table_size_increase) + " elements.");
+        }
         auto layout = serialization::Layout<S>(value);
 
         createSegments(&layout);
@@ -50,6 +64,7 @@ public:
         writeOnCreation(value, &layout);
 
         id::id_t serializableId = m_idAllocator.allocate();
+        createLayoutTableEntry<S>(serializableId, layout.getSegmentId().value());
         m_layouts.push_back(std::move(layout));
         return serializableId;
     }
@@ -57,8 +72,34 @@ public:
     LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
 
 private:
+    inline static constexpr memory::id_t c_layout_table_segment_id = 0;
+    inline static constexpr std::size_t c_layout_table_size_increase = 8;
+    inline static constexpr std::size_t c_partial_layout_table_size =
+        c_layout_table_size_increase * (3 * sizeof(id::id_t));
+
     SharedMemory(T impl)
         : m_sharedMemoryImpl(std::move(impl)) {}
+
+    void createLayoutTable(void) {
+        memory::id_t layoutTableSegmentId =
+            m_sharedMemoryImpl.createSegment(c_partial_layout_table_size);
+        assert(layoutTableSegmentId == c_layout_table_segment_id &&
+               "The first (0th) element must be available for the layout table");
+    }
+
+    /// \todo has to be refactored, this is just to test out the idea / get up and running.
+    template <serialization::Serializable S>
+    void createLayoutTableEntry(id::id_t serializableId, id::id_t mainSegmentId) {
+        constexpr memory::id_t index = static_cast<id::id_t>(c_type_index<S>);
+        using SerializeInformation = serialization::SerializeInformation<id::id_t>;
+        m_sharedMemoryImpl.appendToSegment(c_layout_table_segment_id,
+                                           SerializeInformation::serialize(serializableId));
+        m_sharedMemoryImpl.appendToSegment(c_layout_table_segment_id,
+                                           SerializeInformation::serialize(mainSegmentId));
+        m_sharedMemoryImpl.appendToSegment(c_layout_table_segment_id,
+                                           SerializeInformation::serialize(index));
+    }
+
     template <serialization::Serializable S>
     void createSegments(serialization::Layout<S>* layout) {
         memory::id_t segmentId = m_sharedMemoryImpl.createSegment(layout->getInlinedSize());

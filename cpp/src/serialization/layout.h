@@ -2,6 +2,7 @@
 #define LAYOUT_H_
 
 #include <cstddef>
+#include <optional>
 #include <string_view>
 #include <type_traits>
 
