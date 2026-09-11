@@ -110,7 +110,7 @@ class BAR_Environment:
 
         # Neue Session erstellen + starten
         self.session = EngineSession(self.session_cfg, self.end_of_session)
-        info = self.session.start()
+        self.session.start()
 
         status, update_id = self.grpc_server.wait_for_next_update(
             previous_count=0,
@@ -139,7 +139,7 @@ class BAR_Environment:
         # Das ist wichtig, damit compute_reward() später Deltas berechnen kann:
         # vorherige Gegner-HP - aktuelle Gegner-HP.
         self._init_reward_state()
-
+        info = {}
         # Zusätzliche Debug-Informationen zurückgeben
         info["episode_step"] = self.episode_step
         info["episode_start_frame"] = self.episode_start_frame

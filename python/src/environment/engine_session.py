@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import threading
 import logging
+from pprint import pformat
 from typing import Optional, Dict, Any, List, Union, Callable
 
 from src.environment.shared_memory_reader import SharedMemoryReader
@@ -96,7 +97,7 @@ class EngineSession:
             return open(p, "wb")
         return stream_spec
 
-    def start(self) -> Dict[str, Any]:
+    def start(self):
         """
         Starts the engine process if it is not already running.
 
@@ -147,7 +148,7 @@ class EngineSession:
 
         self._monitor_thread.start()
 
-        return self.info()
+        logging.info("Engine process started: %s", pformat(self.info()))
 
     def stop(self) -> None:
         """
@@ -258,6 +259,7 @@ class EngineSession:
             "cmd": self._build_cmd(),
             "cwd": str(self.cwd),
             "write_dir": str(self.write_dir),
+            "log_file": self.cfg.stdout,
             "running": self.is_running(),
             "exit_code": self.exit_code(),
         }
