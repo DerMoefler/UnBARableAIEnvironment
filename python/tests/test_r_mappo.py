@@ -31,16 +31,54 @@ sys.modules['onpolicy.algorithms.utils.util'] = MagicMock()
 
 # Define mock utility functions
 def mse_loss(error):
-    """Mock MSE loss - returns mean squared error"""
+    """
+    Computes the elementwise squared error for the mocked dependency.
+
+    Parameters
+    ----------
+    error : torch.Tensor
+        Prediction error tensor.
+
+    Returns
+    -------
+    loss : torch.Tensor
+        Elementwise squared error.
+    """
     return (error ** 2)
 
 def huber_loss(error, delta):
-    """Mock Huber loss"""
+    """
+    Computes the mocked elementwise Huber loss.
+
+    Parameters
+    ----------
+    error : torch.Tensor
+        Prediction error tensor.
+    delta : float
+        Quadratic-to-linear transition threshold.
+
+    Returns
+    -------
+    loss : torch.Tensor
+        Elementwise Huber loss.
+    """
     abs_error = torch.abs(error)
     return torch.where(abs_error < delta, 0.5 * (error ** 2), delta * (abs_error - 0.5 * delta))
 
 def get_gard_norm(net):
-    """Mock gradient norm (note the typo is in the original code)"""
+    """
+    Computes the mocked global L2 gradient norm.
+
+    Parameters
+    ----------
+    net : torch.nn.Module
+        Network whose parameter gradients are inspected.
+
+    Returns
+    -------
+    grad_norm : float
+        Global gradient norm.
+    """
     total_norm = 0.0
     for p in net.parameters():
         if p.grad is not None:
@@ -49,7 +87,19 @@ def get_gard_norm(net):
     return total_norm ** 0.5
 
 def check(x):
-    """Mock check function - converts input to torch tensor"""
+    """
+    Converts test input data to a float32 torch tensor.
+
+    Parameters
+    ----------
+    x : np.ndarray or torch.Tensor
+        Input data.
+
+    Returns
+    -------
+    tensor : torch.Tensor
+        Converted tensor.
+    """
     if isinstance(x, np.ndarray):
         return torch.FloatTensor(x)
     return torch.as_tensor(x, dtype=torch.float32)
@@ -62,8 +112,16 @@ sys.modules['onpolicy.algorithms.utils.util'].check = check
 
 
 class Args:
-    """Mock args for testing"""
+    """
+    Mock PPO configuration used by the trainer tests.
+
+    Returns
+    -------
+    Args
+        Configuration object containing trainer hyperparameters.
+    """
     def __init__(self):
+        """Initializes the default mocked trainer configuration."""
         self.clip_param = 0.2
         self.ppo_epoch = 2
         self.num_mini_batch = 2
@@ -86,27 +144,32 @@ class Args:
 class SimpleActor(nn.Module):
     """Simple mock actor for testing"""
     def __init__(self, obs_dim=10, action_dim=4):
+        """Initializes a linear actor used by the trainer tests."""
         super(SimpleActor, self).__init__()
         self.net = nn.Linear(obs_dim, action_dim)
         
     def forward(self, x):
+        """Returns action logits for the supplied observation tensor."""
         return self.net(x)
 
 
 class SimpleCritic(nn.Module):
     """Simple mock critic for testing"""
     def __init__(self, obs_dim=10):
+        """Initializes a linear critic used by the trainer tests."""
         super(SimpleCritic, self).__init__()
         self.net = nn.Linear(obs_dim, 1)
         self.v_out = self.net
         
     def forward(self, x):
+        """Returns scalar value predictions for the supplied observations."""
         return self.net(x)
 
 
 class MockPolicy:
     """Mock policy with required methods for R_MAPPO"""
     def __init__(self, device=torch.device("cpu"), obs_dim=10, action_dim=4):
+        """Initializes mock actor and critic networks with their optimizers."""
         self.device = device
         self.actor = SimpleActor(obs_dim, action_dim).to(device)
         self.critic = SimpleCritic(obs_dim).to(device)
@@ -117,7 +180,7 @@ class MockPolicy:
     def evaluate_actions(self, share_obs_batch, obs_batch, rnn_states_batch,
                         rnn_states_critic_batch, actions_batch, masks_batch,
                         available_actions_batch, active_masks_batch):
-        """Mock evaluate_actions"""
+        """Evaluates actions with the mock actor and critic networks."""
         batch_size = obs_batch.shape[0]
         
         # Get values
@@ -138,7 +201,7 @@ class TestR_MAPPO:
     """Test suite for R_MAPPO trainer"""
     
     def setup_method(self):
-        """Setup before each test"""
+        """Creates a fresh trainer, policy, and configuration before each test."""
         self.device = torch.device("cpu")
         self.args = Args()
         self.policy = MockPolicy(device=self.device)
@@ -318,6 +381,7 @@ class TestR_MAPPO_MockBuffer:
     """Test R_MAPPO with mock buffer"""
     
     def setup_method(self):
+        """Creates a fresh trainer and mock policy before each buffer test."""
         self.device = torch.device("cpu")
         self.args = Args()
         self.policy = MockPolicy(device=self.device)
@@ -327,7 +391,10 @@ class TestR_MAPPO_MockBuffer:
         """Test train method with mock buffer"""
         
         class MockBuffer:
+            """Minimal replay buffer implementation used by the train test."""
+
             def __init__(self, num_agents=2, buffer_size=8):
+                """Initializes synthetic returns, values, and activity masks."""
                 self.num_agents = num_agents
                 self.buffer_size = buffer_size
                 self.returns = np.random.randn(buffer_size + 1, num_agents, 1)
@@ -361,9 +428,11 @@ class TestR_MAPPO_MockBuffer:
                     yield batch
             
             def recurrent_generator(self, advantages, num_mini_batch, data_chunk_length):
+                """Delegates recurrent batches to the feed-forward generator."""
                 return self.feed_forward_generator(advantages, num_mini_batch)
             
             def naive_recurrent_generator(self, advantages, num_mini_batch):
+                """Delegates naive recurrent batches to the feed-forward generator."""
                 return self.feed_forward_generator(advantages, num_mini_batch)
         
         buffer = MockBuffer()

@@ -39,6 +39,7 @@ class TrainerArgs:
     """Config namespace for R_MAPPO trainer."""
 
     def __init__(self) -> None:
+        """Initializes the default simulated-training configuration."""
         self.clip_param = 0.2
         self.ppo_epoch = 10
         self.num_mini_batch = 4
@@ -399,6 +400,22 @@ class SimulatedBAR3v3PawnEnv:
         engine_cfg: Optional[EngineSessionConfig] = None,
         debug_env: bool = False,
     ):
+        """
+        Initializes the simulated BAR 3v3 pawn environment.
+
+        Parameters
+        ----------
+        sim_cfg : SimConfig
+            Simulation dimensions, combat, and rollout settings.
+        engine_cfg : EngineSessionConfig, optional
+            Engine metadata used in reset info, by default a new configuration.
+        debug_env : bool, optional
+            Whether to print reset diagnostics, by default False.
+
+        Returns
+        -------
+        None
+        """
         self.cfg = sim_cfg
         self.engine_cfg = engine_cfg or EngineSessionConfig()
         self.debug_env = debug_env
@@ -430,6 +447,23 @@ class SimulatedBAR3v3PawnEnv:
         z: float,
         name: str = "pawn",
     ) -> BARUnitView:
+        """
+        Creates a unit view with simulation defaults.
+
+        Parameters
+        ----------
+        unit_id, team_id, ally_team_id : int
+            Identifiers assigned to the unit.
+        x, z : float
+            Initial horizontal coordinates.
+        name : str, optional
+            Unit display name, by default `"pawn"`.
+
+        Returns
+        -------
+        BARUnitView
+            Fully initialized unit record.
+        """
         return BARUnitView(
             unit_id=unit_id,
             unit_def_id=1,
@@ -452,6 +486,7 @@ class SimulatedBAR3v3PawnEnv:
         )
 
     def _spawn_world(self):
+        """Creates the initial three-versus-three unit layout."""
         self.units.clear()
         self.ally_agent_unit_ids.clear()
         self.enemy_unit_ids.clear()
@@ -507,15 +542,19 @@ class SimulatedBAR3v3PawnEnv:
     # Unit-Zugriff
     # -------------------------------------------------------------------------
     def _get_unit(self, unit_id: int) -> Optional[BARUnitView]:
+        """Returns a unit by ID, or None when the ID is unknown."""
         return self.units.get(unit_id)
 
     def _alive_units(self) -> List[BARUnitView]:
+        """Returns all units that have not been marked dead."""
         return [u for u in self.units.values() if not u.is_dead]
 
     def _team_units(self, ally_team_id: int) -> List[BARUnitView]:
+        """Returns living units belonging to an allied-team identifier."""
         return [u for u in self._alive_units() if u.ally_team_id == ally_team_id]
 
     def _distance(self, a: BARUnitView, b: BARUnitView) -> float:
+        """Computes the three-dimensional Euclidean distance between units."""
         return math.sqrt(
             (a.pos_x - b.pos_x) ** 2
             + (a.pos_y - b.pos_y) ** 2
@@ -523,6 +562,7 @@ class SimulatedBAR3v3PawnEnv:
         )
 
     def _nearest_enemy(self, unit: BARUnitView) -> Optional[BARUnitView]:
+        """Returns the nearest living unit on a different allied team."""
         enemies = [u for u in self._alive_units() if u.ally_team_id != unit.ally_team_id]
 
         if not enemies:
@@ -532,6 +572,7 @@ class SimulatedBAR3v3PawnEnv:
         return enemies[0]
 
     def _units_in_sight(self, unit: BARUnitView) -> List[BARUnitView]:
+        """Returns living units within the supplied unit's sight radius."""
         out = []
 
         for other in self._alive_units():
@@ -544,9 +585,11 @@ class SimulatedBAR3v3PawnEnv:
         return out
 
     def _replace_unit(self, unit: BARUnitView):
+        """Replaces the stored unit record with an updated view."""
         self.units[unit.unit_id] = unit
 
     def _clamp_pos(self, x: float, z: float) -> Tuple[float, float]:
+        """Clamps horizontal coordinates to the configured arena bounds."""
         x = float(np.clip(x, 0.0, self.cfg.arena_size))
         z = float(np.clip(z, 0.0, self.cfg.arena_size))
         return x, z
@@ -555,18 +598,33 @@ class SimulatedBAR3v3PawnEnv:
     # Beobachtung
     # -------------------------------------------------------------------------
     def _health_pct(self, u: Optional[BARUnitView]) -> float:
+        """Returns a unit's health fraction, or zero for missing units."""
         if u is None or u.max_health <= 0:
             return 0.0
 
         return float(u.health / max(1e-6, u.max_health))
 
     def _rel_pos(self, a: BARUnitView, b: BARUnitView) -> np.ndarray:
+        """Returns the vector from unit `a` to unit `b` as float32 data."""
         return np.array(
             [b.pos_x - a.pos_x, b.pos_y - a.pos_y, b.pos_z - a.pos_z],
             dtype=np.float32,
         )
 
     def _build_agent_obs(self, agent_unit_id: int) -> np.ndarray:
+        """
+        Builds a fixed-width observation for one allied agent.
+
+        Parameters
+        ----------
+        agent_unit_id : int
+            Unit ID whose local observation is requested.
+
+        Returns
+        -------
+        observation : np.ndarray
+            Float32 vector with width `sim_cfg.obs_dim`.
+        """
         me = self._get_unit(agent_unit_id)
 
         own_feat_size = 7
@@ -644,6 +702,7 @@ class SimulatedBAR3v3PawnEnv:
         return obs.astype(np.float32)
 
     def _build_obs(self) -> np.ndarray:
+        """Builds the stacked local observations for all allied agents."""
         obs = np.stack(
             [self._build_agent_obs(uid) for uid in self.ally_agent_unit_ids],
             axis=0,
@@ -651,15 +710,18 @@ class SimulatedBAR3v3PawnEnv:
         return obs.astype(np.float32)
 
     def _build_share_obs(self, obs: np.ndarray) -> np.ndarray:
+        """Builds a centralized observation by averaging local observations."""
         return obs.mean(axis=0).astype(np.float32)
 
     def _build_available_actions(self) -> np.ndarray:
+        """Returns an all-available action mask for every allied agent."""
         return np.ones((self.cfg.num_agents, self.cfg.action_dim), dtype=np.float32)
 
     # -------------------------------------------------------------------------
     # Reward / Statistiken
     # -------------------------------------------------------------------------
     def _team_stats(self) -> Tuple[int, int, float, float]:
+        """Returns alive counts and total health for both allied teams."""
         ally_units = self._team_units(self.ally_ally_team_id)
         enemy_units = self._team_units(self.enemy_ally_team_id)
 
@@ -674,6 +736,7 @@ class SimulatedBAR3v3PawnEnv:
     # Simulationsschritt
     # -------------------------------------------------------------------------
     def _move_unit(self, unit: BARUnitView, dx: float, dz: float):
+        """Moves a living unit by a bounded horizontal displacement."""
         if unit.is_dead:
             return
 
@@ -681,6 +744,7 @@ class SimulatedBAR3v3PawnEnv:
         self._replace_unit(replace(unit, pos_x=new_x, pos_z=new_z))
 
     def _damage_unit(self, unit: BARUnitView, damage: float):
+        """Applies damage and marks the unit dead when health reaches zero."""
         if unit.is_dead:
             return
 
@@ -696,6 +760,18 @@ class SimulatedBAR3v3PawnEnv:
         )
 
     def _apply_agent_action(self, agent_unit_id: int, action: int, target_id: int = 0):
+        """
+        Applies one discrete movement, attack, or retreat action.
+
+        Parameters
+        ----------
+        agent_unit_id : int
+            Allied unit receiving the action.
+        action : int
+            Discrete action ID.
+        target_id : int, optional
+            Enemy index used by attack actions, by default 0.
+        """
         unit = self._get_unit(agent_unit_id)
 
         if unit is None or unit.is_dead:
@@ -793,6 +869,14 @@ class SimulatedBAR3v3PawnEnv:
     # Public API
     # -------------------------------------------------------------------------
     def reset(self):
+        """
+        Resets the simulated world and returns the initial environment state.
+
+        Returns
+        -------
+        tuple
+            Local observations, shared observation, reset info, and action mask.
+        """
         self.frame = 0
         self.step_count = 0
         self._spawn_world()
@@ -818,6 +902,20 @@ class SimulatedBAR3v3PawnEnv:
         return obs, share_obs, info, available_actions
 
     def step(self, action):
+        """
+        Advances the simulation by one frame using allied actions.
+
+        Parameters
+        ----------
+        action : np.ndarray or array-like
+            One action per allied agent, optionally paired with target IDs.
+
+        Returns
+        -------
+        tuple
+            Next observations, shared observation, reward, termination flags,
+            info dictionary, and available-action mask.
+        """
         self.step_count += 1
         self.frame += 30
 
@@ -939,6 +1037,7 @@ class SimulatedBAR3v3PawnEnv:
         return obs, share_obs, rewards, terminated, truncated, infos, available_actions
 
     def close(self):
+        """Closes the simulated environment and releases no-op resources."""
         pass
 
 
@@ -946,6 +1045,13 @@ class SimulatedBAR3v3PawnEnv:
 # Hauptprogramm
 # -----------------------------------------------------------------------------
 def main() -> None:
+    """
+    Runs the simulated BAR 3v3 training integration test.
+
+    Returns
+    -------
+    None
+    """
     parser = argparse.ArgumentParser(
         description="BAR 3v3 Pawn test WITHOUT shared memory (simulated unit snapshot)"
     )

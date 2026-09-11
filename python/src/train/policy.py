@@ -200,6 +200,9 @@ class R_MAPPO_Policy:
     lr : float, optional
         Learning rate for both actor and critic optimizers,
         by default 5e-4.
+    target_dim : int, optional
+        Number of target IDs represented by the auxiliary target actor,
+        by default 3.
 
     Returns
     -------
@@ -232,6 +235,9 @@ class R_MAPPO_Policy:
             by default torch.device("cpu").
         lr : float, optional
             Learning rate for the Adam optimizers, by default 5e-4.
+        target_dim : int, optional
+            Number of target IDs represented by the auxiliary target actor,
+            by default 3.
 
         Returns
         -------
@@ -307,7 +313,7 @@ class R_MAPPO_Policy:
         >>> policy = R_MAPPO_Policy(32, 4)
         >>> share_obs = torch.randn(3, 32)
         >>> obs = torch.randn(3, 32)
-        >>> actions = torch.randint(0, 4, (3, 1))
+        >>> actions = torch.stack((torch.randint(0, 4, (3,)), torch.randint(0, 3, (3,))), dim=1)
         >>> values, log_probs, entropy = policy.evaluate_actions(
         ...     share_obs, obs, None, None, actions, None, None, None
         ... )
@@ -385,7 +391,7 @@ class R_MAPPO_Policy:
         >>> obs = torch.randn(2, 16)
         >>> action, log_prob = policy.get_action(obs)
         >>> action.shape
-        (2,)
+        (2, 2)
         """
         with torch.no_grad():
             action_logits = self.actor(obs)

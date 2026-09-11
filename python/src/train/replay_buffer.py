@@ -21,6 +21,9 @@ class SharedReplayBuffer:
         Maximum number of transitions stored in the buffer.
     device : torch.device, optional
         Torch device used for training, by default torch.device("cpu").
+    action_dim : int, optional
+        Number of discrete actions represented by the available-action mask.
+        If omitted, it is inferred from `action_shape`.
 
     Returns
     -------

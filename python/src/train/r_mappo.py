@@ -9,9 +9,41 @@ except Exception:  # pragma: no cover - optional binding in lightweight test env
 
 
 class _FallbackAction:
-    """Compatibility Action object for environments where the pybind module is unavailable."""
+    """
+    Compatibility action object for environments without the pybind module.
+
+    Returns
+    -------
+    _FallbackAction
+        Mutable action object with the fields expected by the engine bridge.
+
+    Examples
+    --------
+    >>> action = _FallbackAction()
+    >>> action.action_id = 5
+    >>> action["action"]
+    'attack'
+    """
 
     def __init__(self):
+        """
+        Initializes an empty fallback engine action.
+
+        Parameters
+        ----------
+        self : _FallbackAction
+            The fallback action instance.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> action = _FallbackAction()
+        >>> action.unit_id
+        0
+        """
         self.unit_id = 0
         self.team_id = 0
         self.ally_team_id = 0
@@ -19,6 +51,33 @@ class _FallbackAction:
         self.target_unit_id = 0
 
     def __getitem__(self, key):
+        """
+        Reads an engine action field using dictionary-style access.
+
+        Parameters
+        ----------
+        self : _FallbackAction
+            The fallback action instance.
+        key : str
+            Field name to read: `action`, `target_id`, `unit_id`, `team_id`,
+            or `ally_team_id`.
+
+        Returns
+        -------
+        value : str or int
+            Value associated with the requested field.
+
+        Raises
+        ------
+        KeyError
+            If `key` is not a supported action field.
+
+        Examples
+        --------
+        >>> action = _FallbackAction()
+        >>> action["unit_id"]
+        0
+        """
         if key == "action":
             return {
                 1: "move_right",
@@ -488,6 +547,7 @@ class R_MAPPO:
 
         Examples
         --------
+        >>> trainer = object.__new__(R_MAPPO)
         >>> trainer.decode_action(0)
         {'action': 'move_north'}
         >>> trainer.decode_action(4, enemy_id=5)
@@ -511,7 +571,37 @@ class R_MAPPO:
             return {"action": "attack", "target_id": int(enemy_id)}
 
     def decode_action_to_engine_action(self, action_id, unit_id=0, team_id=0, ally_team_id=0, target_unit_id=0):
-        """Convert a PPO action to the engine Action struct used by the C++ side."""
+        """
+        Converts a PPO action to the engine action contract.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        action_id : int or torch.Tensor
+            PPO action ID to convert.
+        unit_id : int, optional
+            Unit receiving the action, by default 0.
+        team_id : int, optional
+            Team owning the unit, by default 0.
+        ally_team_id : int, optional
+            Allied team identifier, by default 0.
+        target_unit_id : int, optional
+            Target unit for attack actions, by default 0.
+
+        Returns
+        -------
+        action : bar_ai.Action or dict
+            Engine action object, or a compatible dictionary when the pybind
+            module is unavailable.
+
+        Examples
+        --------
+        >>> trainer = object.__new__(R_MAPPO)
+        >>> action = trainer.decode_action_to_engine_action(4, target_unit_id=7)
+        >>> hasattr(action, "action_id") or "action_id" in action
+        True
+        """
         if torch.is_tensor(action_id):
             action_id = action_id.item()
         action_id = int(action_id)
@@ -535,7 +625,24 @@ class R_MAPPO:
 
     @staticmethod
     def _map_policy_action_to_engine_action(action_id):
-        """Map the PPO cardinal-direction action IDs to the engine action contract."""
+        """
+        Maps PPO action IDs to the engine action contract.
+
+        Parameters
+        ----------
+        action_id : int
+            PPO action ID: north, south, east, west, or attack.
+
+        Returns
+        -------
+        engine_action_id : int
+            Corresponding engine action ID.
+
+        Examples
+        --------
+        >>> R_MAPPO._map_policy_action_to_engine_action(0)
+        3
+        """
         mapping = {
             0: 3,  # north -> move up
             1: 4,  # south -> move down
@@ -551,6 +658,31 @@ class R_MAPPO:
 
         The returned values match the C++ struct contract in the engine and can be
         sent directly to the environment.
+
+        Parameters
+        ----------
+        self : R_MAPPO
+            The trainer instance.
+        actions_batch : np.ndarray or torch.Tensor
+            Batch of action IDs, optionally paired with target IDs.
+        unit_ids : array-like, optional
+            Unit IDs corresponding to each action, by default sequential IDs.
+        team_ids : array-like, optional
+            Team IDs corresponding to each action, by default zeros.
+        ally_team_ids : array-like, optional
+            Allied team IDs corresponding to each action, by default zeros.
+
+        Returns
+        -------
+        decoded_actions : list
+            Engine action objects or compatible dictionaries.
+
+        Examples
+        --------
+        >>> trainer = object.__new__(R_MAPPO)
+        >>> actions = trainer.decode_actions_batch(np.array([[0], [4]]))
+        >>> len(actions)
+        2
         """
         if torch.is_tensor(actions_batch):
             actions_batch = actions_batch.detach().cpu().numpy()
@@ -1064,10 +1196,9 @@ class R_MAPPO:
 
         Examples
         --------
-        >>> train_info = trainer.train(buffer)
-        >>> train_info["value_loss"]  # 0.125
-        >>> train_info["actions"][0]  # {'action': 'move_north'}
-        >>> train_info["actions"][1]  # {'action': 'attack', 'target_id': 3}
+        >>> # train_info = trainer.train(buffer)
+        >>> # train_info["value_loss"]
+        >>> # train_info["actions"]
         """
         if self._use_popart or self._use_valuenorm:
             advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(

@@ -6,6 +6,18 @@ from src.environment.bar_environment import BAR_Environment
 
 
 def run_reset_step_test():
+    """
+    Exercises the environment reset and step contract until the episode ends.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If reset does not return observations and an info dictionary.
+    """
     env = BAR_Environment()
     try:
         obs, info = env.reset()

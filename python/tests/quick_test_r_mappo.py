@@ -92,6 +92,18 @@ class Args:
     """Training arguments."""
 
     def __init__(self):
+        """
+        Initializes the quick-test training configuration.
+
+        Parameters
+        ----------
+        self : Args
+            The configuration instance.
+
+        Returns
+        -------
+        None
+        """
         self.clip_param = 0.2
         self.ppo_epoch = 5
         self.num_mini_batch = 4

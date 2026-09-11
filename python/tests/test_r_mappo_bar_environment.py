@@ -12,33 +12,45 @@ from src.train.r_mappo import R_MAPPO
 
 
 class DummyUnit:
+    """Minimal unit double exposing the BAR pawn inspection interface."""
+
     def __init__(self, unit_type, team, position, health):
+        """Initializes unit type, team, position, and health fields."""
         self.unit_type = unit_type
         self.team = team
         self.position = position
         self.health = health
 
     def getUnitType(self):
+        """Returns the mocked unit definition identifier."""
         return self.unit_type
 
     def getTeam(self):
+        """Returns the mocked team identifier."""
         return self.team
 
     def getXPosition(self):
+        """Returns the unit x-coordinate."""
         return self.position[0]
 
     def getYPosition(self):
+        """Returns the unit y-coordinate."""
         return self.position[1]
 
     def getZPosition(self):
+        """Returns the unit z-coordinate."""
         return self.position[2]
 
     def getHealth(self):
+        """Returns the unit health value."""
         return self.health
 
 
 class DummyPawn(DummyUnit):
+    """Unit double with sight and pawn-specific metadata."""
+
     def __init__(self):
+        """Initializes a pawn and nearby ally/enemy unit fixtures."""
         super().__init__(unit_type=1, team=0, position=(10.0, 20.0, 0.0), health=100.0)
         self.units_in_sight = [
             DummyUnit(2, 1, (12.0, 20.0, 0.0), 80.0),
@@ -49,17 +61,23 @@ class DummyPawn(DummyUnit):
         ]
 
     def getMaxHealth(self):
+        """Returns the pawn maximum health."""
         return 100.0
 
     def getSightRange(self):
+        """Returns the pawn sight radius."""
         return 500.0
 
     def getUnitsInSight(self):
+        """Returns the configured nearby unit fixtures."""
         return self.units_in_sight
 
 
 class DummyReader:
+    """Reader double containing deterministic ally and enemy unit records."""
+
     def __init__(self):
+        """Initializes deterministic own, enemy, and ally unit collections."""
         self.own_units = [
             SimpleNamespace(
                 unit_id=index,
@@ -99,35 +117,55 @@ class DummyReader:
         ]
 
     def get_unit_by_id(self, unit_id):
+        """Returns an own unit by index, or None when it is out of range."""
         return self.own_units[unit_id] if 0 <= unit_id < len(self.own_units) else None
 
     def get_enemy_units_in_sight(self, unit_id):
+        """Returns the deterministic enemy sight fixtures."""
         return self.enemy_units
 
     def get_ally_units_in_sight(self, unit_id):
+        """Returns the deterministic ally sight fixtures."""
         return self.ally_units
 
 
 class DummySession:
+    """Running session double exposing a deterministic unit reader."""
+
     def __init__(self):
+        """Initializes the dummy reader."""
         self.reader = DummyReader()
 
     def is_running(self):
+        """Reports that the dummy session is running."""
         return True
 
     def stop(self):
+        """Stops the dummy session without external side effects."""
         pass
 
 
 class DummyGRPCServer:
+    """No-op gRPC server double for environment construction tests."""
+
     def start(self):
+        """Starts the no-op server."""
         pass
 
     def stop(self, grace=2.0):
+        """Stops the no-op server after the requested grace period."""
         pass
 
 
 def trainer_args():
+    """
+    Builds the trainer configuration used by the integration test.
+
+    Returns
+    -------
+    SimpleNamespace
+        PPO settings accepted by `R_MAPPO`.
+    """
     return SimpleNamespace(
         clip_param=0.2,
         ppo_epoch=2,
@@ -150,6 +188,23 @@ def trainer_args():
 
 
 def test_r_mappo_consumes_bar_environment_dummy_observations(monkeypatch):
+    """
+    Verifies that BAR observations can populate and train a MAPPO buffer.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture used to replace engine bindings with deterministic doubles.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If observation shapes, values, or training outputs are invalid.
+    """
     print("=" * 60)
     print("TEST 7: BAR Environment -> Multi-Agent R_MAPPO Training")
     print("=" * 60)

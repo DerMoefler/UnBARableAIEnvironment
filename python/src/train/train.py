@@ -60,7 +60,40 @@ from src.train.r_mappo import R_MAPPO
 # Trainer args
 # ---------------------------------------------------------------------------
 class TrainerArgs:
+    """
+    Default configuration values for the MAPPO training loop.
+
+    Returns
+    -------
+    TrainerArgs
+        Configuration object containing PPO and rollout settings.
+
+    Examples
+    --------
+    >>> args = TrainerArgs()
+    >>> args.clip_param
+    0.2
+    """
+
     def __init__(self) -> None:
+        """
+        Initializes the default MAPPO training configuration.
+
+        Parameters
+        ----------
+        self : TrainerArgs
+            The configuration instance.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        >>> args = TrainerArgs()
+        >>> args.num_mini_batch
+        4
+        """
         self.clip_param = 0.2
         self.ppo_epoch = 10
         self.num_mini_batch = 4
@@ -85,12 +118,50 @@ class TrainerArgs:
 # Helper functions
 # ---------------------------------------------------------------------------
 def _set_seed(seed: int) -> None:
+    """
+    Seeds the random number generators used by the training script.
+
+    Parameters
+    ----------
+    seed : int
+        Seed applied to Python, NumPy, and PyTorch random generators.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> _set_seed(42)
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
 
 def _prepare_obs(obs: Any, num_agents: int, obs_dim: int) -> np.ndarray:
+    """
+    Converts raw observations to a fixed per-agent float32 array.
+
+    Parameters
+    ----------
+    obs : Any
+        Raw observation data returned by the environment.
+    num_agents : int
+        Number of agents represented in the result.
+    obs_dim : int
+        Width of each agent observation.
+
+    Returns
+    -------
+    observations : np.ndarray
+        Array with shape `(num_agents, obs_dim)` and dtype float32.
+
+    Examples
+    --------
+    >>> _prepare_obs(np.zeros(4), 2, 4).shape
+    (2, 4)
+    """
     if obs is None:
         return np.zeros((num_agents, obs_dim), dtype=np.float32)
 
@@ -132,6 +203,31 @@ def _prepare_share_obs(
     num_agents: int,
     obs_dim: int,
 ) -> np.ndarray:
+    """
+    Converts raw centralized observations to a fixed float32 vector.
+
+    Parameters
+    ----------
+    share_obs : Any
+        Raw shared observation data returned by the environment.
+    obs : np.ndarray
+        Prepared per-agent observations used as a fallback.
+    num_agents : int
+        Number of agents represented in the shared observation.
+    obs_dim : int
+        Width of the shared observation vector.
+
+    Returns
+    -------
+    shared_observation : np.ndarray
+        Vector with shape `(obs_dim,)` and dtype float32.
+
+    Examples
+    --------
+    >>> obs = np.zeros((2, 4), dtype=np.float32)
+    >>> _prepare_share_obs(None, obs, 2, 4).shape
+    (4,)
+    """
     if share_obs is None:
         return obs.mean(axis=0).astype(np.float32)
 
@@ -172,6 +268,28 @@ def _prepare_available_actions(
     num_agents: int,
     action_dim: int,
 ) -> np.ndarray:
+    """
+    Converts raw legal-action data to a fixed per-agent mask array.
+
+    Parameters
+    ----------
+    available_actions : Any
+        Raw legal-action mask data returned by the environment.
+    num_agents : int
+        Number of agents represented in the result.
+    action_dim : int
+        Number of discrete actions.
+
+    Returns
+    -------
+    action_mask : np.ndarray
+        Array with shape `(num_agents, action_dim)` and dtype float32.
+
+    Examples
+    --------
+    >>> _prepare_available_actions(None, 2, 3).shape
+    (2, 3)
+    """
     if available_actions is None:
         return np.ones((num_agents, action_dim), dtype=np.float32)
 
@@ -208,6 +326,26 @@ def _prepare_available_actions(
 
 
 def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
+    """
+    Converts raw rewards to one scalar float32 reward per agent.
+
+    Parameters
+    ----------
+    reward : Any
+        Scalar or array-like reward data returned by the environment.
+    num_agents : int
+        Number of agents represented in the result.
+
+    Returns
+    -------
+    rewards : np.ndarray
+        Array with shape `(num_agents, 1)` and dtype float32.
+
+    Examples
+    --------
+    >>> _prepare_reward(1.0, 2).shape
+    (2, 1)
+    """
     if reward is None:
         return np.zeros((num_agents, 1), dtype=np.float32)
 
@@ -235,6 +373,26 @@ def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
 
 
 def _prepare_dones(done_like: Any, num_agents: int) -> np.ndarray:
+    """
+    Converts termination data to one boolean flag per agent.
+
+    Parameters
+    ----------
+    done_like : Any
+        Scalar or array-like termination data.
+    num_agents : int
+        Number of agents represented in the result.
+
+    Returns
+    -------
+    done_flags : np.ndarray
+        Boolean array with shape `(num_agents,)`.
+
+    Examples
+    --------
+    >>> _prepare_dones(True, 2).tolist()
+    [True, True]
+    """
     if done_like is None:
         return np.zeros((num_agents,), dtype=bool)
 
@@ -252,6 +410,26 @@ def _prepare_dones(done_like: Any, num_agents: int) -> np.ndarray:
 
 
 def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
+    """
+    Broadcasts critic values to one value per agent.
+
+    Parameters
+    ----------
+    value_tensor : torch.Tensor
+        Scalar or batched critic output.
+    num_agents : int
+        Number of agents represented in the result.
+
+    Returns
+    -------
+    values : np.ndarray
+        Array with shape `(num_agents, 1)` and dtype float32.
+
+    Examples
+    --------
+    >>> _repeat_value(torch.tensor([[2.0]]), 3).shape
+    (3, 1)
+    """
     value_np = value_tensor.detach().cpu().numpy().reshape(-1)
 
     if value_np.size == 1:
@@ -265,6 +443,27 @@ def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
 
 
 def _extract_bad_masks(step_info: Any, num_agents: int) -> np.ndarray:
+    """
+    Extracts bad-transition masks from environment step information.
+
+    Parameters
+    ----------
+    step_info : Any
+        Environment info dictionary or per-agent sequence of dictionaries.
+    num_agents : int
+        Number of agents represented in the result.
+
+    Returns
+    -------
+    bad_masks : np.ndarray
+        Float32 array with shape `(num_agents, 1)`, where zero marks a bad
+        transition and one marks a normal transition.
+
+    Examples
+    --------
+    >>> _extract_bad_masks({"bad_transition": True}, 2).tolist()
+    [[0.0], [0.0]]
+    """
     bad_masks = np.ones((num_agents, 1), dtype=np.float32)
 
     if step_info is None:
@@ -391,6 +590,27 @@ def _extract_episode_debug_from_info(step_info: Any) -> dict[str, Any]:
 
 
 def _infer_buffer_insert_mode(buffer: Any) -> str:
+    """
+    Determines whether a replay buffer uses the extended insert signature.
+
+    Parameters
+    ----------
+    buffer : Any
+        Replay buffer exposing an `insert` method.
+
+    Returns
+    -------
+    mode : str
+        Either `"extended"` or `"simple"`.
+
+    Examples
+    --------
+    >>> class Buffer:
+    ...     def insert(self, a, b, c, d, e, f, g, h, i, rnn_states):
+    ...         pass
+    >>> _infer_buffer_insert_mode(Buffer())
+    'extended'
+    """
     try:
         sig = inspect.signature(buffer.insert)
         params = list(sig.parameters.keys())
@@ -409,6 +629,30 @@ def _make_rnn_state_arrays(
     recurrent_n: int = 1,
     hidden_size: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Allocates zero-filled actor and critic recurrent-state arrays.
+
+    Parameters
+    ----------
+    num_agents : int
+        Number of agents represented in each state array.
+    recurrent_n : int, optional
+        Number of recurrent layers, by default 1.
+    hidden_size : int, optional
+        Recurrent hidden-state width, by default 1.
+
+    Returns
+    -------
+    states : tuple of np.ndarray
+        Actor and critic state arrays with shape
+        `(num_agents, recurrent_n, hidden_size)`.
+
+    Examples
+    --------
+    >>> actor_states, critic_states = _make_rnn_state_arrays(2)
+    >>> actor_states.shape
+    (2, 1, 1)
+    """
     rnn_shape = (num_agents, recurrent_n, hidden_size)
 
     return (
@@ -425,6 +669,44 @@ def _policy_sample_actions(
     device: torch.device,
     num_agents: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Samples actions and value predictions from a compatible policy interface.
+
+    Parameters
+    ----------
+    policy : Any
+        Policy exposing `get_actions`, `get_action`, or actor and critic modules.
+    obs : np.ndarray
+        Per-agent observations.
+    share_obs : np.ndarray
+        Shared observation for the critic.
+    available_actions : np.ndarray
+        Per-agent legal-action mask.
+    device : torch.device
+        Device used for tensor inference.
+    num_agents : int
+        Number of agents represented in the result.
+
+    Returns
+    -------
+    values : np.ndarray
+        Critic predictions with shape `(num_agents, 1)`.
+    actions : np.ndarray
+        Sampled actions with one row per agent.
+    action_log_probs : np.ndarray
+        Sampled action log-probabilities with shape `(num_agents, 1)`.
+
+    Examples
+    --------
+    >>> class Policy:
+    ...     pass
+    >>> policy = Policy()
+    >>> policy.actor = torch.nn.Linear(2, 3)
+    >>> policy.critic = torch.nn.Linear(2, 1)
+    >>> result = _policy_sample_actions(policy, np.zeros((2, 2)), np.zeros(2), np.ones((2, 3)), torch.device("cpu"), 2)
+    >>> result[0].shape
+    (2, 1)
+    """
     if hasattr(policy, "get_actions") and callable(policy.get_actions):
         rnn_states, rnn_states_critic = _make_rnn_state_arrays(num_agents)
         masks = np.ones((num_agents, 1), dtype=np.float32)
@@ -499,6 +781,25 @@ def _policy_sample_actions(
 def _create_env(args: argparse.Namespace):
     """
     Creates the simulated env while tolerating different constructor signatures.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments containing environment settings.
+
+    Returns
+    -------
+    environment : SimulatedBAR3v3PawnEnv
+        Constructed simulated BAR environment.
+
+    Raises
+    ------
+    RuntimeError
+        If no supported constructor signature can create the environment.
+
+    Examples
+    --------
+    >>> # environment = _create_env(args)
     """
 
     try:
@@ -528,6 +829,24 @@ def _create_env(args: argparse.Namespace):
 
 
 def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any]]:
+    """
+    Normalizes supported environment reset return formats.
+
+    Parameters
+    ----------
+    reset_result : Any
+        Raw value returned by `env.reset()`.
+
+    Returns
+    -------
+    parsed : tuple
+        Observation, shared observation, available actions, and info values.
+
+    Examples
+    --------
+    >>> _parse_reset_result(("obs", {"ready": True}))
+    ('obs', None, None, {'ready': True})
+    """
     obs_raw = None
     share_obs_raw = None
     available_actions_raw = None
@@ -568,6 +887,30 @@ def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any
 
 
 def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+    """
+    Normalizes supported environment step return formats.
+
+    Parameters
+    ----------
+    step_result : tuple
+        Raw tuple returned by `env.step()`.
+
+    Returns
+    -------
+    parsed : tuple
+        Next observation, shared observation, reward, termination flags, info,
+        and available-action data.
+
+    Raises
+    ------
+    RuntimeError
+        If the environment does not return a supported tuple format.
+
+    Examples
+    --------
+    >>> _parse_step_result(("obs", 1.0, False, False, {}))[0]
+    'obs'
+    """
     if not isinstance(step_result, tuple):
         raise RuntimeError("env.step(...) must return a tuple.")
 
@@ -626,6 +969,21 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
+    """
+    Runs MAPPO training in the simulated BAR 3v3 pawn environment.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> # main()
+    """
     parser = argparse.ArgumentParser(
         description="Train simulated BAR 3v3 pawn environment with R_MAPPO"
     )
