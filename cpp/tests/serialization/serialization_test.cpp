@@ -61,6 +61,7 @@ TEST(SerializationTest, VectorGet) {
     }
 }
 
+// TODO move into layout test
 TEST(SerializationTest, SimpleVectorLayout) {
     using Vector = std::vector<uint8_t>;
     using SI = SerializeInformation<Vector>;
@@ -90,7 +91,7 @@ TEST(SerializationTest, SimpleVectorLayout) {
 //     FAIL() << "Not implemented yet";
 // }
 
-// TODO REWRITE THIS UGLY ASS TEST
+// TODO REWRITE THIS UGLY ASS TEST (and move it into layout test)
 TEST(SerializationTest, ComplexB) {
     using SI = SerializeInformation<ComplexB>;
     using Vector3SI = SerializeInformation<SI::F_Tensor3::Type>;

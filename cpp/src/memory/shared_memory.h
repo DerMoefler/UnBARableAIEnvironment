@@ -173,7 +173,7 @@ private:
                 if constexpr (!serialization::detail::SerializeMethodAvailable<ValueType>) {
                     static_assert(AlwaysFalse_MF<ValueType>::value,
                                   "Cannot serialize ValueType. Probably trying to inline a type, "
-                                  "that itselfs inline other types.");
+                                  "that itselfs inlines other types.");
                 }
                 else {
                     auto serialized =

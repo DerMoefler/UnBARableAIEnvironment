@@ -134,7 +134,7 @@ concept HasInlineOverride = Fieldlike<F> && requires {
  * - false for \ref MultiField
  */
 template <Fieldlike F>
-consteval bool inlineField(void) {
+consteval bool isFieldInlined(void) {
     if constexpr (HasInlineOverride<F>) {
         return F::c_inline;
     }
@@ -166,7 +166,7 @@ concept SpecifiesInlineability = requires {
  * If not specified explicitly (see \ref SpecifiesInlineability), defaults to true.
  */
 template <typename T>
-consteval bool inlineType(void) {
+consteval bool isTypeInlined(void) {
     if constexpr (SpecifiesInlineability<T>) {
         return static_cast<bool>(SerializeInformation<T>::c_inline);
     }
@@ -244,11 +244,11 @@ struct FieldNodeCommon {
     size_t deepSize = 0;
 
     /// \brief Whether the field is inlined or not.
-    inline static constexpr bool isFieldInlined = detail::inlineField<F>();
+    inline static constexpr bool isFieldInlined = detail::isFieldInlined<F>();
 
     /// \brief Whether the field is inlined or not.
     inline static constexpr bool isValueTypeInlined =
-        detail::inlineType<typename detail::GetFieldlikeValueType_MF<F>::Type>();
+        detail::isTypeInlined<typename detail::GetFieldlikeValueType_MF<F>::Type>();
 
     inline static constexpr bool isFullyInlined = isFieldInlined && isValueTypeInlined;
 };

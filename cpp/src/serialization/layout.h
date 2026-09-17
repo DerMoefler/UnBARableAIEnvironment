@@ -19,7 +19,7 @@ namespace serialization {
  * \brief Holds information about the memory layout for a Serializable Type.
  * \tparam T A \ref Serializable.
  */
-template <Serializable T>
+template <Serializable S>
 class Layout {
 private:
     /**
@@ -40,12 +40,12 @@ private:
     };
 
     inline static constexpr std::string_view c_debug_name_start = "Layout<";
-    inline static constexpr std::string_view c_debug_name_serializable = debug::typeName<T>();
+    inline static constexpr std::string_view c_debug_name_serializable = debug::typeName<S>();
     inline static constexpr std::string_view c_debug_name_end = ">";
 
 public:
     /// \brief Type alias for \p T's SerializeInformation.
-    using SI = SerializeInformation<T>;
+    using SI = SerializeInformation<S>;
     /// \brief Type alias for the std::tuple holding the \ref FieldNode%s.
     using Nodes = typename GetNodesTupleType_MF<typename SI::Fields>::Nodes;
 
@@ -58,13 +58,13 @@ public:
     /**
      * \todo IMPLEMENT
      */
-    Layout(void) {};
+    Layout(void) { buildNodes(); }
 
     /**
      * \brief Basic constructor to compute a layout.
      * \param value An instance of Type \p T for which to compute the layout.
      */
-    Layout(const T& value) { buildNodes(value, m_nodes, m_inlinedSize, m_deepSize); }
+    Layout(const S& value) { buildNodes(value); }
 
     template <typename F>
     void forEachNode(F&& func) {
@@ -183,24 +183,75 @@ public:
 private:
     /**
      * \brief Helper to build the actual \ref Nodes.
-     * \tparam Nodes The types of \ref Nodes.
-     * \param[in] value An instance of Type \p T.
-     * \param[inout] tuple A std::tuple<Nodes...> holding the actual data.
-     * \param[out] inlinedSize The inlined size for the given \p value.
-     * \param[out] deepSize The deep size for the given \p value.
      * Calls \ref getFieldNode for each \p Nodes... and computes the cumulated sizes.
      */
-    template <typename... Nodes>
-    static void buildNodes(const T& value, std::tuple<Nodes...>& tuple, size_t& inlinedSize,
-                           size_t& deepSize) {
+    void buildNodes(void) {
         size_t offset = 0;
+        m_inlinedSize = 0;
+        m_deepSize = 0;
         std::apply(
-            [&](Nodes&... fields) {
-                ((fields = getFieldNode<typename Nodes::Tag>(value, offset)), ...);
-                ((inlinedSize += fields.inlineSize), ...);
-                ((deepSize += fields.deepSize), ...);
+            [&](auto&... fields) {
+                ((fields = buildDefaultNode<typename std::remove_cvref_t<decltype(fields)>::Tag>(
+                      offset)),
+                 ...);
+                ((m_inlinedSize += fields.inlineSize), ...);
+                ((m_deepSize += fields.deepSize), ...);
             },
-            tuple);
+            m_nodes);
+    }
+
+    /**
+     * \brief Helper to build the actual \ref Nodes.
+     * \param[in] value An instance of Type \p T.
+     * Calls \ref getFieldNode for each \p Nodes... and computes the cumulated sizes.
+     */
+    void buildNodes(const S& value) {
+        size_t offset = 0;
+        m_inlinedSize = 0;
+        m_deepSize = 0;
+        std::apply(
+            [&](auto&... fields) mutable {
+                ((fields = buildNode<typename std::remove_cvref_t<decltype(fields)>::Tag>(value,
+                                                                                          offset)),
+                 ...);
+                ((m_inlinedSize += fields.inlineSize), ...);
+                ((m_deepSize += fields.deepSize), ...);
+            },
+            m_nodes);
+    }
+
+    /**
+     * \brief Helper to build one FieldNode for a specific \ref FieldlikeConcept "Field".
+     * \tparam F The \ref FieldlikeConcept "Fieldlike".
+     * \param[inout] currentOffset The cumulated inlined sizes of the Fields before this Field in
+     * the parent data.
+     */
+    template <detail::Fieldlike F>
+    static FieldNode<F> buildDefaultNode(size_t& currentOffset) {
+        using ValueType = typename detail::GetFieldlikeValueType_MF<F>::Type;
+        using ValueTypeSI = SerializeInformation<ValueType>;
+
+        FieldNode<F> node{};
+        node.offset = currentOffset;
+
+        // A MultiField is currently default constructed to have no elements.
+        if constexpr (detail::MultiField<F>) {
+            node.count = 0;
+            node.deepSize = 0;
+        }
+        else if constexpr (detail::ConstSize<ValueType>) {
+            constexpr size_t serializedSize = ValueTypeSI::c_serialized_size;
+            node.deepSize = serializedSize;
+        }
+        else {
+            node.child = std::make_shared<Layout<ValueType>>();
+            node.deepSize = node.child->getDeepSize();
+        }
+
+        initNodeInlineSize(node);
+
+        currentOffset += node.inlineSize;
+        return node;
     }
 
     /**
@@ -212,7 +263,7 @@ private:
      * the parent data.
      */
     template <detail::Fieldlike F, Serializable ParentValue>
-    static FieldNode<F> getFieldNode(const ParentValue& parentValue, size_t& currentOffset) {
+    static FieldNode<F> buildNode(const ParentValue& parentValue, size_t& currentOffset) {
         // Alias and constants
         using ValueType = typename detail::GetFieldlikeValueType_MF<F>::Type;
         using ValueTypeSI = SerializeInformation<ValueType>;
@@ -267,10 +318,26 @@ private:
         }
         // ----- Deep size computed. -----
 
-        // ----- Update inline size. -----
-        constexpr bool isTypeInlined = detail::inlineType<ValueType>();
-        constexpr bool isFieldInlined = detail::inlineField<F>();
-        //  Fully inlined
+        initNodeInlineSize(node);
+
+        currentOffset += node.inlineSize;
+        return node;
+    }
+
+    /**
+     * \brief Helper to initialize the node's inline size (might also affect the deep size).
+     * \param node Node to update.
+     *
+     * This function initializes the inline size of a node. If the node is not fully inlined,
+     * the required inline size is added to the deep size.
+     */
+    template <detail::Fieldlike F>
+    static void initNodeInlineSize(FieldNode<F>& node) {
+        using ValueType = typename detail::GetFieldlikeValueType_MF<F>::Type;
+
+        constexpr bool isTypeInlined = detail::isTypeInlined<ValueType>();
+        constexpr bool isFieldInlined = detail::isFieldInlined<F>();
+
         if constexpr (FieldNode<F>::isFullyInlined) {
             node.inlineSize = node.deepSize;
         }
@@ -280,14 +347,13 @@ private:
         // Therefore, we can only inline the first F_Elements as link_t's to the std::vector<int>.
         else if constexpr (detail::MultiField<F> && isFieldInlined && !isTypeInlined) {
             node.inlineSize = node.count * sizeof(memory::link_t);
+            node.deepSize += node.inlineSize;
         }
+        // Doesnt matter what kind of field it is, its in another segment both times.
         else {
             node.inlineSize = sizeof(memory::link_t);
+            node.deepSize += node.inlineSize;
         }
-        // ----- Inline size updated. -----
-
-        currentOffset += node.inlineSize;
-        return node;
     }
 
     size_t m_inlinedSize = 0;

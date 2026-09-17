@@ -52,6 +52,10 @@ void dumpLayout(std::ostream& out, const Layout<S>& layout, size_t depth) {
     out << "SegmentID: ";
     printOpt(layout.getSegmentId());
     out << "\n";
+    detail::makeIndentation(out, depth + 1);
+    out << "Inline size: " << layout.getInlinedSize() << '\n';
+    detail::makeIndentation(out, depth + 1);
+    out << "Deep size: " << layout.getDeepSize() << '\n';
 
     layout.forEachNode([&](const auto& node) {
         dumpNode(out, node, depth + 1);
