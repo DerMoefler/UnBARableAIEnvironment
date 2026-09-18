@@ -77,6 +77,32 @@ public:
     }
 
     /**
+     * \brief Execute a function \p func for each node's child layout(s).
+     * \tparam F Type of \p func.
+     * \tparam executeBefore Boolean specyfing whether to execute the function before or after.
+     * \param func A function invokable like func(Layout<...>* layout).
+     *
+     * Executes the function for each node's child layout recursively. The execution for the parent
+     * (i.e. the Layout on which you call this method) can happen either before or after the
+     * recursion which is specified by \p executeBefore.
+     */
+    template <typename F, bool executeBefore>
+    void visitNodeChildLayoutsRecursively(F&& func) {
+        if constexpr (executeBefore) {
+            func(this);
+        }
+        // Recursion
+        forEachNode([&](auto& node) {
+            visitNodeChildLayouts(node, [&](auto& childLayout) {
+                childLayout->visitNodeChildLayoutsRecursively(func);
+            });
+        });
+        if constexpr (!executeBefore) {
+            func(this);
+        }
+    }
+
+    /**
      * \brief A generic function to execute functions on the nodes based on whether they're inlined.
      * \param funcInlined Function to execute when the node/its children is/are inlined.
      * \param funcNonInlined Function to execute otherwise.
@@ -163,12 +189,6 @@ public:
      * \param segmentId New segmentId.
      */
     inline void setSegmentId(std::optional<memory::id_t> segmentId) { m_segmentId = segmentId; }
-
-    /**
-     * \brief Getter for all nodes.
-     * \returns Tuple of all nodes.
-     */
-    inline decltype(auto) getNodes(void) { return m_nodes; }
 
     /**
      * \brief Getter for a specific \ref FieldNode.
