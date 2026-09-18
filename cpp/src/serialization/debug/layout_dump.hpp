@@ -31,6 +31,15 @@ void dumpNode(std::ostream& out, const FieldNode<Tag>& node, size_t depth) {
 
     detail::makeIndentation(out, depth);
     out << displayName<Tag>() << '\n';
+
+    detail::makeIndentation(out, depth + 1);
+    out << "Offset " << node.offset << "\n";
+
+    detail::makeIndentation(out, depth + 1);
+    out << "InlineSize " << node.inlineSize << "\n";
+
+    detail::makeIndentation(out, depth + 1);
+    out << "DeepSize " << node.deepSize << "\n";
 }
 
 template <Serializable S>
