@@ -56,6 +56,15 @@ TEST_F(LayoutTest, EmptyLayout) {
               emptyLayout.getInlinedSize() + lengthNode.deepSize + elementsNode.deepSize);
 }
 
+TEST_F(LayoutTest, Reconstruct) {
+    Layout<ComplexB> layout{};
+
+    EXPECT_NO_THROW(layout.update(
+        [&](const auto* layout, auto typeIdentity, std::size_t& currentOffset) { return 2; }););
+
+    serialization::debug::dumpLayout(std::cout, layout, 0);
+}
+
 TEST_F(LayoutTest, EqualityOperator) {
     Layout<ComplexB> emptyLayout{};
     Layout<ComplexB> layout{data};

@@ -1,6 +1,8 @@
 #ifndef LAYOUT_H_
 #define LAYOUT_H_
 
+#include <array>
+#include <concepts>
 #include <cstddef>
 #include <optional>
 #include <string_view>
@@ -63,11 +65,92 @@ public:
      */
     Layout(void) { buildNodes(); }
 
+    template <typename F>
+        requires(!std::same_as<std::remove_cvref_t<F>, S> &&
+                 !std::same_as<std::remove_cvref_t<F>, Layout>)
+    Layout(F&& countFunc)
+        : Layout() {
+        update(countFunc);
+    }
+
     /**
      * \brief Basic constructor to compute a layout.
      * \param value An instance of Type \p T for which to compute the layout.
      */
-    Layout(const S& value) { buildNodes(value); }
+    Layout(const S& value) { rebuild(value); }
+
+    inline void rebuild(const S& value) { buildNodes(value); }
+
+    /**
+     * \brief Update a Layout based off a function \p countFunc.
+     * \tparam F Type of the count function.
+     * \param countFunc A function invocable like countFunc(Layout* layout,
+     * std::type_identity<Fieldlike F>{}, std::size_t& offset).
+     *
+     * This method works in two stages. First, it rebuilds the layout top down. This essentially
+     * boils down to each MultiField Node having to (possibly) create/delete childLayouts. This is
+     * what \p countFunc is required for.
+     *
+     * The second stage is then to sum up the sizes bottom up.
+     */
+    template <typename F>
+    std::size_t update(F&& countFunc) {
+        size_t offset = 0;
+        m_inlinedSize = 0;
+        m_deepSize = 0;
+
+        // Reconstructs a MultiFieldNode based off the countFunc.
+        auto reconstructMultiFieldNode = [&](auto& node) mutable -> void {
+            using Node = std::remove_cvref_t<decltype(node)>;
+            using Tag = typename Node::Tag;
+            using ValueType = typename Node::ValueType;
+
+            std::size_t newCount = countFunc(this, std::type_identity<Tag>{}, offset);
+            node.count = newCount;
+            node.deepSize = 0;
+            node.inlineSize = 0;
+
+            if constexpr (detail::ConstSize<ValueType>) {
+                constexpr std::size_t serializedSize =
+                    SerializeInformation<ValueType>::c_serialized_size;
+                node.children.resize(0);
+                node.deepSize = node.count * serializedSize;
+            }
+            else {
+                node.children.resize(newCount);
+                for (auto& child : node.children) {
+                    if (!child) {
+                        child = std::make_shared<Layout<ValueType>>(countFunc);
+                    }
+                    child->update(countFunc);
+                    node.deepSize += child->getDeepSize();
+                }
+            }
+            initNodeInlineSize(node);
+        };
+
+        forEachNode([&](auto& node) mutable -> void {
+            using Tag = typename std::remove_cvref_t<decltype(node)>::Tag;
+            node.offset = offset;
+
+            if constexpr (detail::MultiField<Tag>) {
+                reconstructMultiFieldNode(node);
+            }
+            else {
+                if (node.child) {
+                    node.child->update(countFunc);
+                    node.deepSize = node.child->getDeepSize();
+                    initNodeInlineSize(node);
+                }
+            }
+
+            offset += node.inlineSize;
+            m_inlinedSize += node.inlineSize;
+            m_deepSize += node.deepSize;
+        });
+
+        return m_inlinedSize;
+    }
 
     template <typename F>
     void forEachNode(F&& func) {
