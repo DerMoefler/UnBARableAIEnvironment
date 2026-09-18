@@ -55,6 +55,9 @@ public:
     /// \brief Constant for number of Fields.
     inline static constexpr size_t c_num_fields = std::tuple_size<Nodes>::value;
 
+    inline static constexpr std::size_t c_num_multi_fields =
+        detail::GetMultiFieldCount_MF<S>::value;
+
     /**
      * \todo IMPLEMENT
      */

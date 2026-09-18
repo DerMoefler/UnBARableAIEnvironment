@@ -113,8 +113,46 @@ concept Fieldlike = detail::IsFieldlike_MF<T>::value;
  * \tparam F... Fieldlikes.
  * Struct to hold a parameter pack so you can define some operations on them.
  */
-template <Fieldlike... F>
-struct Fields : Typelist::Typelist<F...> {};
+template <Fieldlike... Fs>
+struct Fields : Typelist::Typelist<Fs...> {};
+
+/**
+ * \brief Implementation for \ref GetMultiFieldCount_MF.
+ * \tparam T A type of the form 'Fields<Fieldlike... Fs>'
+ *
+ * This is the only the declaration which itself is invalid and will halt compilation when actually
+ * instantiated. If used correctly however, only the partial specialization for a T =
+ * Fields<Fieldlike... Fs> will actually be instantiated though, making this Metafunction usable.
+ */
+template <typename T>
+struct GetMultiFieldCountImpl_MF {
+    static_assert(AlwaysFalse_MF<T>::value,
+                  "GetMultiFieldCountImpl is instantiated with a T that is not of the required "
+                  "form 'Fields<Fieldlikes... Fs>.'");
+};
+
+/**
+ * \brief Implementation for \ref GetMultiFieldCount.
+ * \tparam Fs Fieldlikes to form a typelist Fields<Fs...>.
+ *
+ * Partial specialization in which the actual implementation resides.
+ */
+template <Fieldlike... Fs>
+struct GetMultiFieldCountImpl_MF<Fields<Fs...>>
+    : std::integral_constant<std::size_t,
+                             (std::size_t{0} + ... + static_cast<std::size_t>(MultiField<Fs>))> {};
+
+/**
+ * \brief Metafunction to get the number of MultiFields for a Serializable.
+ * \tparam S A Serializable.
+ *
+ * \see GetMultiFieldCountImpl_MF.
+ */
+template <Serializable S>
+struct GetMultiFieldCount_MF {
+    using Fields = SerializeInformation<S>::Fields;
+    inline static constexpr std::size_t value = GetMultiFieldCountImpl_MF<Fields>::value;
+};
 
 /**
  * \brief Concept to check whether a \ref FieldlikeConcept "Fieldlike" specifies how to inline it.
@@ -417,6 +455,8 @@ struct SerializeInformation<std::vector<T, Alloc>> {
 };
 
 static_assert(detail::SerializeMethodAvailable<int>, "Cannot serialize integers!");
+static_assert(detail::GetMultiFieldCount_MF<std::vector<int>>::value == 1,
+              "std::vector must have a single MultiField.");
 
 };  // namespace serialization
 
