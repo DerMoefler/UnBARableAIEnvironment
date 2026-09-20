@@ -56,11 +56,39 @@ TEST_F(LayoutTest, EmptyLayout) {
               emptyLayout.getInlinedSize() + lengthNode.deepSize + elementsNode.deepSize);
 }
 
+template <Serializable S>
+class StaticLayoutUpdateTest {
+public:
+    StaticLayoutUpdateTest(const Layout<S>* layout)
+        : m_layout(layout) {}
+
+    template <detail::MultiField F>
+    inline std::size_t getCount(void) const {
+        return 2;
+    }
+
+    template <Serializable T, detail::Field F>
+        requires(detail::Field<F>)
+    inline auto descend(Layout<T>* childLayout, const FieldNode<F>& node) const
+        -> StaticLayoutUpdateTest<T> {
+        return StaticLayoutUpdateTest<T>{childLayout};
+    }
+
+    template <Serializable T, detail::MultiField F>
+        requires(detail::MultiField<F>)
+    inline auto descend(Layout<T>* childLayout, const FieldNode<F>& node, std::size_t index) const
+        -> StaticLayoutUpdateTest<T> {
+        return StaticLayoutUpdateTest<T>{childLayout};
+    }
+
+private:
+    const Layout<S>* m_layout;
+};
+
 TEST_F(LayoutTest, Reconstruct) {
     Layout<ComplexB> layout{};
 
-    EXPECT_NO_THROW(layout.update(
-        [&](const auto* layout, auto typeIdentity, std::size_t& currentOffset) { return 2; }););
+    EXPECT_NO_THROW(layout.update(StaticLayoutUpdateTest{&layout}););
 
     serialization::debug::dumpLayout(std::cout, layout, 0);
 }

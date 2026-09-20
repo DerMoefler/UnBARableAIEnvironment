@@ -2,13 +2,15 @@
 #define LAYOUT_H_
 
 #include <array>
-#include <concepts>
 #include <cstddef>
+#include <iostream>
 #include <optional>
 #include <string_view>
 #include <type_traits>
 
 #include "serialize_information.h"
+#include "layout_update_context.hpp"
+#include "layout_value_recursion_context.hpp"
 #include "debug/type_name.hpp"
 #include "memory/shared_memory_types.h"
 #include "utility/string_view_helper.hpp"
@@ -60,26 +62,24 @@ public:
     inline static constexpr std::size_t c_num_multi_fields =
         detail::GetMultiFieldCount_MF<S>::value;
 
-    /**
-     * \todo IMPLEMENT
-     */
     Layout(void) { buildNodes(); }
 
-    template <typename F>
-        requires(!std::same_as<std::remove_cvref_t<F>, S> &&
-                 !std::same_as<std::remove_cvref_t<F>, Layout>)
-    Layout(F&& countFunc)
+    template <template <typename> typename Context>
+        requires LayoutUpdateContext<Context, S>
+    Layout(const Context<S>& context)
         : Layout() {
-        update(countFunc);
+        update(context);
     }
 
     /**
      * \brief Basic constructor to compute a layout.
      * \param value An instance of Type \p T for which to compute the layout.
      */
-    Layout(const S& value) { rebuild(value); }
+    Layout(const S& value)
+        : Layout() {
+        update(LayoutValueRecursionContext{this, value});
+    }
 
-    inline void rebuild(const S& value) { buildNodes(value); }
 
     /**
      * \brief Update a Layout based off a function \p countFunc.
@@ -93,8 +93,9 @@ public:
      *
      * The second stage is then to sum up the sizes bottom up.
      */
-    template <typename F>
-    std::size_t update(F&& countFunc) {
+    template <template <typename> typename Context>
+        requires LayoutUpdateContext<Context, S>
+    std::size_t update(const Context<S>& context) {
         size_t offset = 0;
         m_inlinedSize = 0;
         m_deepSize = 0;
@@ -105,7 +106,7 @@ public:
             using Tag = typename Node::Tag;
             using ValueType = typename Node::ValueType;
 
-            std::size_t newCount = countFunc(this, std::type_identity<Tag>{}, offset);
+            std::size_t newCount = context.template getCount<Tag>();
             node.count = newCount;
             node.deepSize = 0;
             node.inlineSize = 0;
@@ -113,16 +114,19 @@ public:
             if constexpr (detail::ConstSize<ValueType>) {
                 constexpr std::size_t serializedSize =
                     SerializeInformation<ValueType>::c_serialized_size;
+                std::cout << "Resize to 0\n";
                 node.children.resize(0);
                 node.deepSize = node.count * serializedSize;
             }
             else {
+                std::cout << "Resize to " << newCount << "\n";
                 node.children.resize(newCount);
-                for (auto& child : node.children) {
+                for (std::size_t i = 0; i < newCount; i++) {
+                    auto& child = node.children[i];
                     if (!child) {
-                        child = std::make_shared<Layout<ValueType>>(countFunc);
+                        child = std::make_shared<Layout<ValueType>>();
                     }
-                    child->update(countFunc);
+                    child->update(context.descend(child.get(), node, i));
                     node.deepSize += child->getDeepSize();
                 }
             }
@@ -138,7 +142,7 @@ public:
             }
             else {
                 if (node.child) {
-                    node.child->update(countFunc);
+                    node.child->update(context.descend(node.child.get(), node));
                     node.deepSize = node.child->getDeepSize();
                     initNodeInlineSize(node);
                 }
@@ -307,26 +311,6 @@ private:
     }
 
     /**
-     * \brief Helper to build the actual \ref Nodes.
-     * \param[in] value An instance of Type \p T.
-     * Calls \ref getFieldNode for each \p Nodes... and computes the cumulated sizes.
-     */
-    void buildNodes(const S& value) {
-        size_t offset = 0;
-        m_inlinedSize = 0;
-        m_deepSize = 0;
-        std::apply(
-            [&](auto&... fields) mutable {
-                ((fields = buildNode<typename std::remove_cvref_t<decltype(fields)>::Tag>(value,
-                                                                                          offset)),
-                 ...);
-                ((m_inlinedSize += fields.inlineSize), ...);
-                ((m_deepSize += fields.deepSize), ...);
-            },
-            m_nodes);
-    }
-
-    /**
      * \brief Helper to build one FieldNode for a specific \ref FieldlikeConcept "Field".
      * \tparam F The \ref FieldlikeConcept "Fieldlike".
      * \param[inout] currentOffset The cumulated inlined sizes of the Fields before this Field in
@@ -353,76 +337,6 @@ private:
             node.child = std::make_shared<Layout<ValueType>>();
             node.deepSize = node.child->getDeepSize();
         }
-
-        initNodeInlineSize(node);
-
-        currentOffset += node.inlineSize;
-        return node;
-    }
-
-    /**
-     * \brief Helper to build one FieldNode for a specific \ref FieldlikeConcept "Field".
-     * \tparam F The \ref FieldlikeConcept "Fieldlike".
-     * \tparam ParentValue The Serializable Type the Field is a part of.
-     * \param[in] parentValue An instance of Type \p ParentValue.
-     * \param[inout] currentOffset The cumulated inlined sizes of the Fields before this Field in
-     * the parent data.
-     */
-    template <detail::Fieldlike F, Serializable ParentValue>
-    static FieldNode<F> buildNode(const ParentValue& parentValue, size_t& currentOffset) {
-        // Alias and constants
-        using ValueType = typename detail::GetFieldlikeValueType_MF<F>::Type;
-        using ValueTypeSI = SerializeInformation<ValueType>;
-        using ParentValueSI = SerializeInformation<ParentValue>;
-        constexpr std::type_identity<F> fieldKey{};
-
-        FieldNode<F> node{};
-        node.offset = currentOffset;
-
-        // if constexpr (inlineField<F>() && !inlineType<ValueType>()) {
-        //     static_assert(AlwaysFalse_MF<F>::value, "The type of the field specified to be
-        //     inlined is not actually inlineable.");
-        // }
-
-        // Get number of elements for MultiField
-        if constexpr (detail::MultiField<F>) {
-            node.count = ParentValueSI::getSize(fieldKey, parentValue);
-        }
-
-        // ----- Compute the deep size of the field. -----
-        // End of recursion: The ValueType has a constant size and the Field's size is therefore
-        // easily computed.
-        if constexpr (detail::ConstSize<ValueType>) {
-            constexpr size_t serializedSize = ValueTypeSI::c_serialized_size;
-            if constexpr (detail::MultiField<F>) {
-                node.deepSize = node.count * serializedSize;
-            }
-            else {
-                node.deepSize = serializedSize;
-            }
-        }
-        // Recursive case: A Layout has to be computed for the ValueType since it is more complex
-        // than a constant size.
-        else {
-            // Compute a layout for each element of the multifield.
-            if constexpr (detail::MultiField<F>) {
-                node.deepSize = 0;
-                // TODO does this work as intended?
-                node.children.reserve(node.count);
-                for (int i = 0; i < node.count; i++) {
-                    decltype(auto) fieldValue = ParentValueSI::get(fieldKey, parentValue, i);
-                    node.children.push_back(std::make_shared<Layout<ValueType>>(fieldValue));
-                    node.deepSize += node.children[i]->getDeepSize();
-                }
-            }
-            // Compute a layout for the one element we have in a simple field.
-            else {
-                decltype(auto) fieldValue = ParentValueSI::get(fieldKey, parentValue);
-                node.child = std::make_shared<Layout<ValueType>>(fieldValue);
-                node.deepSize = node.child->getDeepSize();
-            }
-        }
-        // ----- Deep size computed. -----
 
         initNodeInlineSize(node);
 
