@@ -38,8 +38,9 @@ struct SerializeInformation<test::ComplexA> {
 
     using Fields = detail::Fields<F_Tensor3>;
 
-    inline static constexpr decltype(auto) get(std::type_identity<F_Tensor3>,
-                                               const Type& v) noexcept {
+    /// \todo Should this really be a reference?
+    inline static constexpr const F_Tensor3::Type& get(std::type_identity<F_Tensor3>,
+                                                       const Type& v) noexcept {
         return v.tensor3;
     }
 };

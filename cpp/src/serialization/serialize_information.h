@@ -444,9 +444,10 @@ struct SerializeInformation<std::vector<T, Alloc>> {
         return v.size();
     }
 
-    inline static constexpr decltype(auto) get(std::type_identity<F_Elements>, const Type& v,
-                                               const size_t index) noexcept {
-        return v[index];
+    /// \todo Should this really be a reference?
+    inline static constexpr const T& get(std::type_identity<F_Elements>, const Type& v,
+                                         const size_t index) noexcept {
+        return v.at(index);
     }
 
     inline static constexpr size_t getSize(std::type_identity<F_Elements>, const Type& v) noexcept {
