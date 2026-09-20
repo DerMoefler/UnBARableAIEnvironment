@@ -3,10 +3,10 @@
 
 #include <array>
 #include <cstddef>
-#include <iostream>
 #include <optional>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 #include "serialize_information.h"
 #include "layout_update_context.hpp"
@@ -77,9 +77,61 @@ public:
      */
     Layout(const S& value)
         : Layout() {
-        update(LayoutValueRecursionContext{this, value});
+        update(value);
     }
 
+    /**
+     * \brief Equality operator.
+     * \param other Layout to compare.
+     */
+    bool operator==(const Layout<S>& other) const {
+        if (m_inlinedSize != other.m_inlinedSize || m_deepSize != other.m_deepSize) {
+            return false;
+        }
+
+        // Lambda to compare the child layout (std::shared_ptrs atm).
+        auto compareChildLayouts = [&](const auto& lhsChild, const auto& rhsChild) -> bool {
+            if (lhsChild == nullptr || rhsChild == nullptr) {
+                return lhsChild == rhsChild;
+            }
+            return *lhsChild == *rhsChild;
+        };
+
+        // Comparison of two nodes
+        auto compare = [&](const auto& lhsNode, const auto& rhsNode) -> bool {
+            using Tag = typename std::remove_cvref_t<decltype(lhsNode)>::Tag;
+            using RhsTag = typename std::remove_cvref_t<decltype(rhsNode)>::Tag;
+            static_assert(std::same_as<Tag, RhsTag>, "Node Tags must be exactly the same.");
+
+            if (lhsNode.inlineSize != rhsNode.inlineSize || lhsNode.deepSize != rhsNode.deepSize) {
+                return false;
+            }
+
+            if constexpr (detail::MultiField<Tag>) {
+                if (lhsNode.children.size() != rhsNode.children.size()) {
+                    return false;
+                }
+                for (std::size_t i = 0; i < lhsNode.children.size(); i++) {
+                    if (!compareChildLayouts(lhsNode.children[i], rhsNode.children[i])) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            else {
+                return compareChildLayouts(lhsNode.child, rhsNode.child);
+            }
+        };
+
+        // Immediately invoked lambda with a fold expression to call comapre for each node pair.
+        return [&]<std::size_t... Is>(std::index_sequence<Is...>) -> bool {
+            return (compare(std::get<Is>(m_nodes), std::get<Is>(other.m_nodes)) && ...);
+        }(std::make_index_sequence<std::tuple_size_v<Nodes>>{});
+    }
+
+    inline std::size_t update(const S& value) {
+        return update(LayoutValueRecursionContext{this, value});
+    }
 
     /**
      * \brief Update a Layout based off a function \p countFunc.
@@ -114,12 +166,10 @@ public:
             if constexpr (detail::ConstSize<ValueType>) {
                 constexpr std::size_t serializedSize =
                     SerializeInformation<ValueType>::c_serialized_size;
-                std::cout << "Resize to 0\n";
                 node.children.resize(0);
                 node.deepSize = node.count * serializedSize;
             }
             else {
-                std::cout << "Resize to " << newCount << "\n";
                 node.children.resize(newCount);
                 for (std::size_t i = 0; i < newCount; i++) {
                     auto& child = node.children[i];
@@ -176,7 +226,7 @@ public:
      * (i.e. the Layout on which you call this method) can happen either before or after the
      * recursion which is specified by \p executeBefore.
      */
-    template <typename F, bool executeBefore>
+    template <bool executeBefore, typename F>
     void visitNodeChildLayoutsRecursively(F&& func) {
         if constexpr (executeBefore) {
             func(this);
@@ -184,7 +234,7 @@ public:
         // Recursion
         forEachNode([&](auto& node) {
             visitNodeChildLayouts(node, [&](auto& childLayout) {
-                childLayout->visitNodeChildLayoutsRecursively(func);
+                childLayout->template visitNodeChildLayoutsRecursively<executeBefore>(func);
             });
         });
         if constexpr (!executeBefore) {

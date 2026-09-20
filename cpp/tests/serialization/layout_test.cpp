@@ -94,11 +94,29 @@ TEST_F(LayoutTest, Reconstruct) {
 }
 
 TEST_F(LayoutTest, EqualityOperator) {
-    Layout<ComplexB> emptyLayout{};
     Layout<ComplexB> layout{data};
+    Layout<ComplexB> otherLayout{};
 
-    // serialization::debug::dumpLayout(std::cout, emptyLayout, 0);
-    // serialization::debug::dumpLayout(std::cout, layout, 0);
+    EXPECT_FALSE(otherLayout == layout);
+
+    auto modifiedData = data;
+
+    modifiedData.tensor3[0][0][0] = 100;
+    otherLayout.update(modifiedData);
+    EXPECT_TRUE(otherLayout == layout);
+
+    modifiedData.tensor3.push_back(std::vector<std::vector<int>>{{1, 0}, {0, 1}});
+    otherLayout.update(modifiedData);
+    EXPECT_FALSE(otherLayout == layout);
+
+    modifiedData.tensor3.pop_back();
+    modifiedData.tensor3[0][0].pop_back();
+    modifiedData.tensor3[0][1].push_back(9);
+    otherLayout.update(modifiedData);
+    EXPECT_FALSE(otherLayout == layout);
+
+    serialization::debug::dumpLayout(std::cout, layout, 0);
+    serialization::debug::dumpLayout(std::cout, otherLayout, 0);
 }
 
 }  // namespace test
