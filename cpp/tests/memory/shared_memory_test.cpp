@@ -76,9 +76,9 @@ TEST_F(SharedMemoryTest, OpenComplexB) {
     SharedMemoryType shm = SharedMemoryType::create(name);
     id::id_t serializableId = shm.write(data);
 
-    SharedMemoryType shmOpen = SharedMemoryType::open(name);
-
     EXPECT_NO_THROW({
+        SharedMemoryType shmOpen = SharedMemoryType::open(name);
+
         auto writtenLayout =
             std::get<serialization::Layout<ComplexB>>(shm.getLayout(serializableId));
         auto openedLayout =

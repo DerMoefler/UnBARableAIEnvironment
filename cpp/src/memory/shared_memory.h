@@ -169,6 +169,12 @@ private:
         std::cout << "SharedMemory<...>::writeOnCreation\n";
         size_t segmentId = layout->getSegmentId().value();
 
+        auto linkChildSegment = [&](memory::id_t childSegmentId) {
+            auto serialized =
+                serialization::SerializeInformation<memory::id_t>::serialize(childSegmentId);
+            m_sharedMemoryImpl.appendToSegment(segmentId, serialized);
+        };
+
         auto funcBase = [&](const auto& node) {
             using Node = std::remove_cvref_t<decltype(node)>;
             std::cout << "Base (Inlining) for field \""
@@ -205,11 +211,15 @@ private:
                     assert(node.children[i]);  // cannot be nullptr
                     writeOnCreation(SerializeInformation::get(fieldKey, value, i),
                                     node.children[i].get());
+                    memory::id_t childSegmentId = node.children[i]->getSegmentId().value();
+                    linkChildSegment(childSegmentId);
                 }
             }
             else {
                 assert(node.child.get());  // cannot be nullptr
                 writeOnCreation(SerializeInformation::get(fieldKey, value), node.child.get());
+                memory::id_t childSegmentId = node.child->getSegmentId().value();
+                linkChildSegment(childSegmentId);
             }
         };
 

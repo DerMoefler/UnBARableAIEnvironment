@@ -2,11 +2,13 @@
 #define SHM_LAYOUT_UPDATE_CONTEXT_H_
 
 #include <cstddef>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
 #include "id/id_types.hpp"
+#include "memory/shared_memory_types.h"
 #include "memory/shared_memory_impl.h"
 #include "serialization/serialize_information.h"
 
@@ -58,10 +60,9 @@ public:
         , m_shmImpl(shmImpl) {
         assert(m_layout);
 
-        if (segmentId == 1000) return;
-
         layout->setSegmentId(segmentId);
 
+        // TODO FIX
         std::vector<std::byte> serializedSegment = m_shmImpl.readSegment(segmentId);
 
         auto updateMultiFieldSize = [&]<serialization::detail::Fieldlike F>(SizeHolder<F>& holder) {
@@ -105,16 +106,26 @@ private:
     template <serialization::Serializable T, serialization::detail::Fieldlike F>
     auto descendImpl(Layout<T>* childLayout, const FieldNode<F>& node, std::size_t index) const
         -> ShmLayoutUpdateContext<typename FieldNode<F>::ValueType, Shm> {
+        // static_assert(!serialization::FieldNode<F>::isFullyInlined,
+        // "Currently unsupported for a node to be fully inlined");
+
         using ValueType = typename std::remove_cvref_t<decltype(node)>::ValueType;
         static_assert(std::same_as<ValueType, T>,
                       "Child Layout's ValueType does not match node's ValueType");
         constexpr std::type_identity<F> key{};
+
+        memory::id_t parentSegmentId = m_layout->getSegmentId().value();
+        memory::position_t offset{};
+
         if constexpr (serialization::detail::Field<F>) {
-            return ShmLayoutUpdateContext<ValueType, Shm>{childLayout, m_shmImpl, 1000};
+            offset = node.offset;
         }
         else {
-            return ShmLayoutUpdateContext<ValueType, Shm>{childLayout, m_shmImpl, 1000};
+            offset = node.offset + sizeof(memory::link_t) * index;
         }
+
+        memory::id_t childSegmentId = m_shmImpl.getLinkedSegment(parentSegmentId, offset).value();
+        return ShmLayoutUpdateContext<ValueType, Shm>{childLayout, m_shmImpl, childSegmentId};
     }
 
     const Layout<S>* m_layout;
