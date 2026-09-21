@@ -482,6 +482,7 @@ struct SerializeInformation<std::vector<T, Alloc>> {
 
     struct F_Elements : public detail::MultiField_t {
         using Field = F_Element;
+        // TODO Document that this must be a std::size_t
         using SizeField = F_Length;
         // TODO check if needed
         inline static constexpr bool c_inline = true;

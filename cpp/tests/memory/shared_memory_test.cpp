@@ -11,6 +11,8 @@
 
 #include "memory/shared_memory_posix.h"
 #include "memory/debug/hexdump.hpp"
+#include "serialization/debug/layout_dump.hpp"
+#include "serialization/serialize_information.h"
 
 namespace UnBARableAINS {
 
@@ -54,14 +56,6 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
 
     std::optional<SegmentInformation> linkedSegment;
 
-    auto funcForEachNode = [&](const auto& node) {
-        using Node = std::remove_cvref_t<decltype(node)>;
-        if constexpr (Node::isFullyInlined) {
-        }
-        else {
-        }
-    };
-
     if (::testing::Test::HasFailure()) {
         std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);
         if (!file) {
@@ -85,7 +79,14 @@ TEST_F(SharedMemoryTest, OpenComplexB) {
     SharedMemoryType shmOpen = SharedMemoryType::open(name);
 
     EXPECT_NO_THROW({
-        auto layout = std::get<serialization::Layout<ComplexB>>(shmOpen.getLayout(serializableId));
+        auto writtenLayout =
+            std::get<serialization::Layout<ComplexB>>(shm.getLayout(serializableId));
+        auto openedLayout =
+            std::get<serialization::Layout<ComplexB>>(shmOpen.getLayout(serializableId));
+
+        EXPECT_EQ(writtenLayout, openedLayout);
+        serialization::debug::dumpLayout(std::cout, writtenLayout, 0);
+        serialization::debug::dumpLayout(std::cout, openedLayout, 0);
     });
 
     if (::testing::Test::HasFailure()) {

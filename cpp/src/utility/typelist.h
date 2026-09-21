@@ -32,6 +32,9 @@ struct PushFront_MF<Typelist<Elements...>, NewElement> {
 template <typename List, typename T>
 struct FindType_MF;
 
+template <typename T, typename... Tail>
+struct FindType_MF<Typelist<T, Tail...>, T> : std::integral_constant<std::size_t, 0> {};
+
 template <typename T, typename Head, typename... Tail>
 struct FindType_MF<Typelist<Head, Tail...>, T>
     : std::integral_constant<
@@ -45,6 +48,17 @@ struct FindType_MF<Typelist<>, T> {
                   "This specialization being instantiated means "
                   "that the requsted Type does not exist in the given Typelist.");
 };
+
+namespace test {
+
+using TestList = Typelist<bool, int, std::size_t, float>;
+
+static_assert(FindType_MF<TestList, bool>::value == 0, "Wrong index");
+static_assert(FindType_MF<TestList, int>::value == 1, "Wrong index");
+static_assert(FindType_MF<TestList, std::size_t>::value == 2, "Wrong index");
+static_assert(FindType_MF<TestList, float>::value == 3, "Wrong index");
+
+}  // namespace test
 
 template <typename List, typename T>
 struct Contains_MF : std::false_type {};

@@ -89,8 +89,6 @@ TEST_F(LayoutTest, Reconstruct) {
     Layout<ComplexB> layout{};
 
     EXPECT_NO_THROW(layout.update(StaticLayoutUpdateTest{&layout}););
-
-    serialization::debug::dumpLayout(std::cout, layout, 0);
 }
 
 TEST_F(LayoutTest, EqualityOperator) {
@@ -114,9 +112,6 @@ TEST_F(LayoutTest, EqualityOperator) {
     modifiedData.tensor3[0][1].push_back(9);
     otherLayout.update(modifiedData);
     EXPECT_FALSE(otherLayout == layout);
-
-    serialization::debug::dumpLayout(std::cout, layout, 0);
-    serialization::debug::dumpLayout(std::cout, otherLayout, 0);
 }
 
 }  // namespace test

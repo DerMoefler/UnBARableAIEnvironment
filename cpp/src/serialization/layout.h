@@ -178,7 +178,7 @@ public:
                     if (!child) {
                         child = std::make_shared<Layout<ValueType>>();
                     }
-                    child->update(context.descend(child.get(), node, i));
+                    child->template update<Context>(context.descend(child.get(), node, i));
                     node.deepSize += child->getDeepSize();
                 }
             }
@@ -194,7 +194,7 @@ public:
             }
             else {
                 if (node.child) {
-                    node.child->update(context.descend(node.child.get(), node));
+                    node.child->template update<Context>(context.descend(node.child.get(), node));
                     node.deepSize = node.child->getDeepSize();
                     initNodeInlineSize(node);
                 }
