@@ -13,6 +13,7 @@
 #include "serialization/debug/layout_dump.hpp"
 #include "id/id_allocator.hpp"
 #include "memory/shared_memory_types.h"
+#include "memory/shm_layout_update_context.hpp"
 #include "serialization/serialize_information.h"
 #include "serialization/layout.h"
 #include "shared_memory_impl.h"
@@ -28,6 +29,9 @@ class SharedMemory {
 public:
     /// \brief Variant able to hold a Layout for any of the \ref SupportedTypes.
     using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
+
+    template <serialization::Serializable S>
+    using ShmContext = ShmLayoutUpdateContext<S, T>;
 
     /// \brief Simple value template for getting the type index into supported types (starts at 1,
     /// not 0).
@@ -129,12 +133,13 @@ private:
     }
 
     template <id::id_t i = 0>
-    static LayoutVariant buildLayout(id::id_t serializableId, id::id_t mainSegmentId,
-                                     id::id_t typeIndex) {
+    LayoutVariant buildLayout(id::id_t serializableId, id::id_t mainSegmentId, id::id_t typeIndex) {
         if (typeIndex == i + 1) {
             using Serializable = std::tuple_element_t<i, std::tuple<SupportedTypes...>>;
             Serializable value{};
             serialization::Layout<Serializable> layout{};
+            layout.template update<ShmContext>(ShmLayoutUpdateContext<Serializable, T>{
+                &layout, m_sharedMemoryImpl, mainSegmentId});
             return layout;
         }
         if constexpr (i + 1 < sizeof...(SupportedTypes)) {
