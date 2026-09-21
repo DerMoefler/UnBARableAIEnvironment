@@ -22,6 +22,8 @@ namespace serialization {
 /**
  * \brief Holds information about the memory layout for a Serializable Type.
  * \tparam T A \ref Serializable.
+ * \todo Possibly default (or implement lol) the (move) assignmentOperator and copy/move
+ * constructor.
  */
 template <Serializable S>
 class Layout {

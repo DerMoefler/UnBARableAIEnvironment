@@ -109,12 +109,11 @@ template <typename T>
 concept Fieldlike = detail::IsFieldlike_MF<T>::value;
 
 /**
- * \brief Typelist of \ref Fieldlike%s.
- * \tparam F... Fieldlikes.
- * Struct to hold a parameter pack so you can define some operations on them.
+ * \brief Alias for a Typelist of Fieldlikes.
+ * \tparam Fs Fieldlikes.
  */
 template <Fieldlike... Fs>
-struct Fields : Typelist::Typelist<Fs...> {};
+using Fields = Typelist::Typelist<Fs...>;
 
 /**
  * \brief Implementation for \ref GetMultiFieldCount_MF.
@@ -128,7 +127,7 @@ template <typename T>
 struct GetMultiFieldCountImpl_MF {
     static_assert(AlwaysFalse_MF<T>::value,
                   "GetMultiFieldCountImpl is instantiated with a T that is not of the required "
-                  "form 'Fields<Fieldlikes... Fs>.'");
+                  "form 'Fields<Fieldlike... Fs>.'");
 };
 
 /**
@@ -150,8 +149,58 @@ struct GetMultiFieldCountImpl_MF<Fields<Fs...>>
  */
 template <Serializable S>
 struct GetMultiFieldCount_MF {
-    using Fields = SerializeInformation<S>::Fields;
+    using Fields = typename SerializeInformation<S>::Fields;
     inline static constexpr std::size_t value = GetMultiFieldCountImpl_MF<Fields>::value;
+};
+
+/**
+ * \brief Implementation for GetMultiFields_MF.
+ * \tparam T A Typelist of Fieldlikes.
+ */
+template <typename T>
+struct GetMultiFieldsImpl_MF;
+
+/// \brief End of recursion.
+template <>
+struct GetMultiFieldsImpl_MF<Fields<>> {
+    using Type = Fields<>;
+};
+
+/**
+ * \brief Partial specialization.
+ * \tparam Head The first Element in the typelist, a simple field.
+ * \tparam Tail The other Fieldlikes.
+ *
+ * Pops the head and continues the recursion.
+ */
+template <Field Head, Fieldlike... Tail>
+struct GetMultiFieldsImpl_MF<Fields<Head, Tail...>> {
+    using Type = typename GetMultiFieldsImpl_MF<Fields<Tail...>>::Type;
+};
+
+/**
+ * \brief Partial specialization.
+ * \tparam Head The first in the typelist, a multi field.
+ * \tparam Tail The other Fieldlikes.
+ *
+ * Computes the Typelist for the \p Tail and the pushed Head to the front of the result.
+ */
+template <MultiField Head, Fieldlike... Tail>
+struct GetMultiFieldsImpl_MF<Fields<Head, Tail...>> {
+    using TailTypelist = typename GetMultiFieldsImpl_MF<Fields<Tail...>>::Type;
+    using Type = typename Typelist::PushFront_MF<TailTypelist, Head>::Type;
+};
+
+/**
+ * \brief Metafunction to compute a Typelist of all MultiFields for a Serializable.
+ * \tparam S Some Serializable Type.
+ *
+ * \see GetMultiFieldsImpl_MF.
+ */
+template <Serializable S>
+struct GetMultiFields_MF {
+    using Fields = typename SerializeInformation<S>::Fields;
+    using Type = typename GetMultiFieldsImpl_MF<Fields>::Type;
 };
 
 /**
@@ -433,6 +482,7 @@ struct SerializeInformation<std::vector<T, Alloc>> {
 
     struct F_Elements : public detail::MultiField_t {
         using Field = F_Element;
+        using SizeField = F_Length;
         // TODO check if needed
         inline static constexpr bool c_inline = true;
         inline static constexpr std::string_view c_debug_name = "Elements";
@@ -458,6 +508,10 @@ struct SerializeInformation<std::vector<T, Alloc>> {
 static_assert(detail::SerializeMethodAvailable<int>, "Cannot serialize integers!");
 static_assert(detail::GetMultiFieldCount_MF<std::vector<int>>::value == 1,
               "std::vector must have a single MultiField.");
+static_assert(
+    std::same_as<typename detail::GetMultiFields_MF<std::vector<int>>::Type,
+                 detail::Fields<typename SerializeInformation<std::vector<int>>::F_Elements>>,
+    "Failure");
 
 };  // namespace serialization
 
