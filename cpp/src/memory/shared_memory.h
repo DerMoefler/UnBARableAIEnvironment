@@ -119,12 +119,12 @@ private:
                                           i * c_layout_table_entry_size +
                                           c_layout_table_entry_size};
 
-            id::id_t serializableId =
-                SerializeInformation::deserialize(entryView.subspan(0, sizeof(id::id_t)));
+            id::id_t serializableId = SerializeInformation::deserialize(
+                entryView.template subspan<0, sizeof(id::id_t)>());
             id::id_t mainSegmentId = SerializeInformation::deserialize(
-                entryView.subspan(sizeof(id::id_t), sizeof(id::id_t)));
+                entryView.template subspan<sizeof(id::id_t), sizeof(id::id_t)>());
             id::id_t typeIndex = SerializeInformation::deserialize(
-                entryView.subspan(2 * sizeof(id::id_t), sizeof(id::id_t)));
+                entryView.template subspan<2 * sizeof(id::id_t), sizeof(id::id_t)>());
             std::cout << "SharedMemory<...>::initializeLayouts: " << serializableId << ":"
                       << mainSegmentId << ":" << typeIndex << "\n";
             LayoutVariant layout = buildLayout(serializableId, mainSegmentId, typeIndex);

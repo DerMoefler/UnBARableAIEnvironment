@@ -72,9 +72,8 @@ public:
             const auto& sizeFieldNode = layout->get(std::type_identity<SizeField>{});
             static_assert(std::remove_cvref_t<decltype(sizeFieldNode)>::isFullyInlined,
                           "SizeFieldNode must be fully inlined.");
-            const std::span sizeFieldView = {
-                serializedSegment.begin() + sizeFieldNode.offset,
-                serializedSegment.begin() + sizeFieldNode.offset + sizeof(std::size_t)};
+            const std::span<const std::byte, sizeof(std::size_t)> sizeFieldView{
+                serializedSegment.data() + sizeFieldNode.offset, sizeof(std::size_t)};
             holder.size = SerializeInformation<std::size_t>::deserialize(sizeFieldView);
         };
 

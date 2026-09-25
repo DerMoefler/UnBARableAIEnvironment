@@ -450,10 +450,11 @@ struct SerializeInformation<T> {
     };
 
     // TODO concept for deserialization
-    inline static constexpr Type deserialize(memory::DataView serialized) {
+    inline static constexpr Type deserialize(
+        const std::span<const std::byte, sizeof(T)> serialized) {
         Type result{};
         for (std::size_t i = 0; i < sizeof(Type); i++) {
-            result |= static_cast<Type>(serialized[i]) << (sizeof(Type) - 1 - i);
+            result |= static_cast<Type>(serialized[i]) << ((sizeof(Type) - 1 - i) * 8);
         }
         return result;
     }
