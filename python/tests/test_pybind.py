@@ -1,6 +1,8 @@
+import os
 import sys
+import time
 
-print("🚀 Starte bar_ai UnitData- und Action-Test...")
+print("🚀 Starte bar_ai UnitData-, Action- und Shared-Memory-Test...")
 
 # ----------------------------------------------------
 # Modul importieren
@@ -20,7 +22,14 @@ print("📦 Modul:", bar_ai)
 # Prüfen, ob Klassen exportiert wurden
 # ----------------------------------------------------
 
-for class_name in ("UnitData", "Action"):
+required_classes = (
+    "UnitData",
+    "Action",
+    "ActionId",
+    "SharedMemory",
+)
+
+for class_name in required_classes:
     if not hasattr(bar_ai, class_name):
         print(f"❌ Fehlende Klasse: {class_name}")
         sys.exit(1)
@@ -63,13 +72,12 @@ try:
 
     # Fortschritt und Schaden
     bar_data.build_progress = 0.75
-    bar_data.capture_progress = 10
+    bar_data.capture_progress = 10.0
     bar_data.paralyze_damage = 15.0
 
     print("✅ UnitData erstellt und beschrieben")
 
     print("\n📊 UnitData:")
-
     print("unit_id:", bar_data.unit_id)
     print("unit_def_id:", bar_data.unit_def_id)
     print("unit_def_name:", bar_data.unit_def_name)
@@ -124,7 +132,7 @@ unit_expected_values = {
     "is_dead": False,
     "being_built": True,
     "build_progress": 0.75,
-    "capture_progress": 10,
+    "capture_progress": 10.0,
     "paralyze_damage": 15.0,
 }
 
@@ -145,6 +153,36 @@ except (AttributeError, AssertionError) as e:
     sys.exit(1)
 
 # ----------------------------------------------------
+# ActionId testen
+# ----------------------------------------------------
+
+try:
+    action_ids = {
+        "MoveRight": 1,
+        "MoveLeft": 2,
+        "MoveUp": 3,
+        "MoveDown": 4,
+        "Attack": 5,
+    }
+
+    print("\n🎮 Prüfe ActionId:")
+
+    for action_name, expected_value in action_ids.items():
+        action_id = getattr(bar_ai.ActionId, action_name)
+
+        print(
+            f"✅ ActionId.{action_name} vorhanden: "
+            f"{action_id}"
+        )
+
+    attack_action_id = bar_ai.ActionId.Attack
+
+except Exception as e:
+    print("❌ ActionId-Test fehlgeschlagen:")
+    print(f"{type(e).__name__}: {e}")
+    sys.exit(1)
+
+# ----------------------------------------------------
 # Action testen
 # ----------------------------------------------------
 
@@ -154,7 +192,11 @@ try:
     action.unit_id = 42
     action.team_id = 1
     action.ally_team_id = 0
-    action.action_id = 5
+
+    # Da Action::action_id vom Typ ActionId ist, wird hier der
+    # gebundene Enum-Wert verwendet und nicht direkt die Zahl 5.
+    action.action_id = bar_ai.ActionId.Attack
+
     action.target_unit_id = 99
 
     print("\n✅ Action erstellt und beschrieben")
@@ -179,7 +221,7 @@ action_expected_values = {
     "unit_id": 42,
     "team_id": 1,
     "ally_team_id": 0,
-    "action_id": 5,
+    "action_id": bar_ai.ActionId.Attack,
     "target_unit_id": 99,
 }
 
@@ -199,4 +241,157 @@ except (AttributeError, AssertionError) as e:
     print(e)
     sys.exit(1)
 
-print("\n🎉 bar_ai UnitData- und Action-Test erfolgreich abgeschlossen!")
+# ----------------------------------------------------
+# Shared Memory testen
+# ----------------------------------------------------
+
+# POSIX-Shared-Memory-Namen sollten mit "/" beginnen.
+# Die Prozess-ID verhindert Konflikte zwischen Testläufen.
+shared_memory_name = f"/bar_ai_test_{os.getpid()}"
+
+shared_memory = None
+opened_shared_memory = None
+shared_memory_created = False
+
+print("\n🧠 Starte Shared-Memory-Test")
+print("Shared-Memory-Name:", shared_memory_name)
+
+try:
+    # Überbleibsel eines vorherigen fehlgeschlagenen Testlaufs entfernen.
+    try:
+        bar_ai.SharedMemory.remove(shared_memory_name)
+        print("ℹ️ Vorhandenes Shared Memory wurde entfernt")
+    except Exception:
+        # Es ist normal, wenn der Name noch nicht existiert.
+        pass
+
+    # ------------------------------------------------
+    # Shared Memory erstellen
+    # ------------------------------------------------
+
+    shared_memory = bar_ai.SharedMemory.create(
+        shared_memory_name
+    )
+    shared_memory_created = True
+
+    print("✅ Shared Memory erfolgreich erstellt")
+
+    # ------------------------------------------------
+    # UnitData schreiben
+    # ------------------------------------------------
+
+    unit_serializable_id = shared_memory.write_unit_data(
+        bar_data
+    )
+
+    print(
+        "✅ UnitData in Shared Memory geschrieben, "
+        f"Serializable-ID: {unit_serializable_id}"
+    )
+
+    assert isinstance(unit_serializable_id, int), (
+        "write_unit_data() sollte eine Integer-ID zurückgeben, "
+        f"erhalten: {type(unit_serializable_id).__name__}"
+    )
+
+    assert unit_serializable_id >= 0, (
+        "Ungültige UnitData-ID: "
+        f"{unit_serializable_id}"
+    )
+
+    # ------------------------------------------------
+    # Action schreiben
+    # ------------------------------------------------
+
+    action_serializable_id = shared_memory.write_action(
+        action
+    )
+
+    print(
+        "✅ Action in Shared Memory geschrieben, "
+        f"Serializable-ID: {action_serializable_id}"
+    )
+
+    assert isinstance(action_serializable_id, int), (
+        "write_action() sollte eine Integer-ID zurückgeben, "
+        f"erhalten: {type(action_serializable_id).__name__}"
+    )
+
+    assert action_serializable_id >= 0, (
+        "Ungültige Action-ID: "
+        f"{action_serializable_id}"
+    )
+
+    # ------------------------------------------------
+    # IDs validieren
+    # ------------------------------------------------
+
+    assert unit_serializable_id != action_serializable_id, (
+        "UnitData und Action haben dieselbe Serializable-ID: "
+        f"{unit_serializable_id}"
+    )
+
+    print("✅ Serializable-IDs sind eindeutig")
+
+    # Bei einem frisch erstellten Shared Memory sollten die IDs
+    # mit dem aktuellen IdAllocator bei 0 beginnen.
+    assert unit_serializable_id == 0, (
+        "Für das erste Objekt wurde ID 0 erwartet, "
+        f"erhalten: {unit_serializable_id}"
+    )
+
+    assert action_serializable_id == 1, (
+        "Für das zweite Objekt wurde ID 1 erwartet, "
+        f"erhalten: {action_serializable_id}"
+    )
+
+    print("✅ Serializable-IDs entsprechen der erwarteten Reihenfolge")
+
+    # ------------------------------------------------
+    # Vorhandenes Shared Memory erneut öffnen
+    # ------------------------------------------------
+
+    opened_shared_memory = bar_ai.SharedMemory.open(
+        shared_memory_name
+    )
+
+    print("✅ Vorhandenes Shared Memory erfolgreich geöffnet")
+    print("✅ Layout-Tabelle wurde aus Shared Memory initialisiert")
+
+    # Noch nicht über opened_shared_memory schreiben:
+    # initializeLayouts() lädt zwar die Layouts, stellt aber den
+    # m_idAllocator aktuell nicht wieder her. Dadurch könnte eine
+    # bereits verwendete Serializable-ID erneut vergeben werden.
+
+except Exception as e:
+    print("❌ Shared-Memory-Test fehlgeschlagen:")
+    print(f"{type(e).__name__}: {e}")
+    sys.exit_code = 1
+
+else:
+    sys.exit_code = 0
+
+finally:
+    # Referenzen freigeben, damit die C++-Destruktoren aufgerufen
+    # und die mmap-Bereiche geschlossen werden können.
+    opened_shared_memory = None
+    shared_memory = None
+
+    if shared_memory_created:
+        try:
+            bar_ai.SharedMemory.remove(shared_memory_name)
+            print("✅ Shared Memory erfolgreich entfernt")
+        except Exception as cleanup_error:
+            print("⚠️ Shared Memory konnte nicht entfernt werden:")
+            print(
+                f"{type(cleanup_error).__name__}: "
+                f"{cleanup_error}"
+            )
+
+if sys.exit_code != 0:
+    sys.exit(sys.exit_code)
+
+print(
+    "\n🎉 bar_ai UnitData-, Action- und "
+    "Shared-Memory-Test erfolgreich abgeschlossen!"
+)

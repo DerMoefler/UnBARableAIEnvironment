@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # -----------------------------Pybind shit--------------------------------------
 project(bar_ai LANGUAGES CXX)
@@ -11,6 +14,8 @@ pybind11_add_module(bar_ai
     ../cpp/src/bindings/bindings.cpp
     ../cpp/include/UnBARableAI/unit_data.h
 )
+
+target_compile_features(bar_ai PRIVATE cxx_std_20)
 
 target_include_directories(bar_ai PRIVATE
     ../cpp/src
