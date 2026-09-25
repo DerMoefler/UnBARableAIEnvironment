@@ -1,15 +1,14 @@
 #pragma once
-#include <endian.h>
-
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <optional>
-#include <span>
 #include <string>
 #include <vector>
 
+#include "serialization/byte_container.h"
+#include "serialization/serialize_information.h"
 #include "shared_memory_types.h"
 #include "segment_information.h"
 #include "id/id_allocator.hpp"
@@ -330,34 +329,6 @@ private:
     std::vector<std::byte> read(position_t position, size_t numBytes) const;
 
     /**
-     * \brief Helper method to convert a value into big endian.
-     * \tparam T Some unsigned integral of size 1, 2, 4 or 8.
-     * \param value The value to be endianized.
-     * \returns Big endian version of \p value.
-     * \todo possibly extract into helper.h or something
-     */
-    template <std::unsigned_integral T>
-    inline static T getBigEndian(T value) {
-        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
-                      "Unsupported integer size");
-
-        T endianizedValue;
-        if constexpr (sizeof(T) == 1) {
-            endianizedValue = value;
-        }
-        else if constexpr (sizeof(T) == 2) {
-            endianizedValue = htobe16(value);
-        }
-        else if constexpr (sizeof(T) == 4) {
-            endianizedValue = htobe32(value);
-        }
-        else if constexpr (sizeof(T) == 8) {
-            endianizedValue = htobe64(value);
-        }
-        return endianizedValue;
-    }
-
-    /**
      * \brief Helper method to write binary data into memory at head.
      * \tparam T Some unsigned integral of size 1, 2, 4 or 8.
      * \param value The value to be endianized.
@@ -366,8 +337,11 @@ private:
      */
     template <std::unsigned_integral T>
     inline void write(T value) {
-        T endianizedValue = getBigEndian(value);
-        std::memcpy(m_memoryStart + m_head, &endianizedValue, sizeof(T));
+        using SerializeInformation = serialization::SerializeInformation<T>;
+        auto serialized = SerializeInformation::serialize(value);
+        static_assert(serialization::ByteContainer<std::remove_cvref_t<decltype(serialized)>>,
+                      "T's SerializeInformation does not return a ByteContainer on serialization.");
+        std::memcpy(m_memoryStart + m_head, serialized.data(), serialized.size());
         m_head += sizeof(T);
     }
 
@@ -379,8 +353,11 @@ private:
      */
     template <std::unsigned_integral T>
     inline void write(T value, uint64_t position) {
-        T endianizedValue = getBigEndian(value);
-        std::memcpy(m_memoryStart + position, &endianizedValue, sizeof(T));
+        using SerializeInformation = serialization::SerializeInformation<T>;
+        auto serialized = SerializeInformation::serialize(value);
+        static_assert(serialization::ByteContainer<std::remove_cvref_t<decltype(serialized)>>,
+                      "T's SerializeInformation does not return a ByteContainer on serialization.");
+        std::memcpy(m_memoryStart + position, serialized.data(), serialized.size());
     }
 
     /// \brief Checks that magic and version are valid at the start of the shm.
