@@ -1,4 +1,4 @@
 [submodule "RecoilEngine"]
 	path = RecoilEngine
-	url = ki-vm:/home/projekt/repos/RecoilEngine/.git
+	url = git@github.com:DerMoefler/RecoilEngine.git
 	branch = UnBARableAI
