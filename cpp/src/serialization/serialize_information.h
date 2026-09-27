@@ -306,10 +306,103 @@ struct GetFieldlikeValueType_MF<F> {
     using Type = F::Field::Type;
 };
 
+/**
+ * \brief Concept to check that the SerializeInformation of \p S provides a serialize method.
+ * \tparam S A Serializable Type.
+ *
+ * Checks that an explicit method SerializeInformation<S>::serialize(value) is valid to be called
+ * with a const instance of \p S.
+ */
 template <typename S>
 concept SerializeMethodAvailable = Serializable<S> && requires(const S value) {
     { SerializeInformation<S>::serialize(value) } -> ByteContainer;
 };
+
+/**
+ * \brief Concept to check that the SerializeInformation of \p S provides a deserialize method.
+ * \tparam S A Serializable Type.
+ *
+ * Checks that an explicit method SerializeInformation<S>::deserialize is valid to be called with
+ * a) std::span<const std::byte> of dynamic extent.
+ * b) std::span<const std::byte, size> where size is specified by c_serializable_size, i.e.
+ * requiring ConstSize<S>.
+ *
+ */
+template <typename T>
+concept DeserializeMethodAvailable =
+    Serializable<T> &&
+    (requires(const std::span<const std::byte> dataView) {
+        { SerializeInformation<T>::deserialize(dataView) } -> std::same_as<T>;
+    } ||
+     (detail::ConstSize<T> &&
+      requires(
+          const std::span<const std::byte, SerializeInformation<T>::c_serialized_size> dataView) {
+          { SerializeInformation<T>::deserialize(dataView) } -> std::same_as<T>;
+      }));
+
+/**
+ * \brief Metafunction to get the parameter type to pass to a constructFromFields method.
+ * \tparam F Field to get the parameter type for.
+ *
+ * For a single field, yields the ValueType. For a MultiField, yields std::vector<ValueType>.
+ */
+template <typename F>
+struct ConstructedFieldType_MF;
+
+/**
+ * \brief Implementation for Field.
+ * \tparam Field F.
+ * Yields the underlying ValueType of the field.
+ */
+template <Field F>
+struct ConstructedFieldType_MF<F> {
+    using Type = typename GetFieldlikeValueType_MF<F>::Type;
+};
+
+/**
+ * \brief Implementation for MultiField.
+ * \tparam MultiField F.
+ * Yields std::vector of the underlying ValueType of the field.
+ */
+template <MultiField F>
+struct ConstructedFieldType_MF<F> {
+    using Type = std::vector<typename GetFieldlikeValueType_MF<F>::Type>;
+};
+
+/**
+ * \brief Metafunction implementing the ConstructibleFromFields concept.
+ * \tparam S A Serializable to be checked.
+ * \tparam Fields SerializeInformation<S>::Fields.
+ *
+ * Checks that a method SerializeInformation<S>::constructFromFields is available, taking in a value
+ * for each field (either a single value or an std::vector of values).
+ */
+template <Serializable S, typename Fields>
+struct ConstructibleFromFieldsImpl_MF;
+
+/**
+ * \brief Implementation for Metafunction.
+ * \tparam S A Serializable to be checked.
+ * \tparam Fs The Fieldlikes.
+ */
+template <Serializable S, Fieldlike... Fs>
+struct ConstructibleFromFieldsImpl_MF<S, Fields<Fs...>> {
+    static constexpr bool value = requires(ConstructedFieldType_MF<Fs>::Type... values) {
+        {
+            SerializeInformation<S>::constructFromFields(std::move(values)...)
+        } -> std::same_as<typename SerializeInformation<S>::Type>;
+    };
+};
+
+/**
+ * \brief Concept to check whether the SerializeInformation for a type provides a
+ * constructoFromFields method.
+ * \tparam S Serializable to check.
+ */
+template <typename S>
+concept ConstructibleFromFields =
+    Serializable<S> &&
+    ConstructibleFromFieldsImpl_MF<S, typename SerializeInformation<S>::Fields>::value;
 
 }  // namespace detail
 
@@ -505,9 +598,17 @@ struct SerializeInformation<std::vector<T, Alloc>> {
     inline static constexpr size_t getSize(std::type_identity<F_Elements>, const Type& v) noexcept {
         return v.size();
     }
+
+    inline static Type constructFromFields(std::size_t length, const std::vector<T>& elements) {
+        assert(length == elements.size());
+        return elements;
+    }
 };
 
-static_assert(detail::SerializeMethodAvailable<int>, "Cannot serialize integers!");
+static_assert(detail::SerializeMethodAvailable<int>, "Serialize method not available for integer.");
+static_assert(detail::DeserializeMethodAvailable<int>,
+              "Deserialize method not available for integer.");
+static_assert(detail::ConstructibleFromFields<std::vector<int>>, "Not constructible from fields");
 static_assert(detail::GetMultiFieldCount_MF<std::vector<int>>::value == 1,
               "std::vector must have a single MultiField.");
 static_assert(
