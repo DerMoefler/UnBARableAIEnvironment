@@ -4,20 +4,14 @@
 #include "../../include/UnBARableAI/unit_data.h"
 #include "../../include/UnBARableAI/action.h"
 
-#include "../memory/shared_memory.h"
-#include "../memory/shared_memory_posix.h"
+#include "../memory/bar_shared_memory.h"
 
 namespace py = pybind11;
 
 using UnitData = UnBARableAINS::unit::UnitData;
 using Action = UnBARableAINS::Action;
 using ActionId = UnBARableAINS::ActionId;
-
-using BarSharedMemory =
-    UnBARableAINS::memory::SharedMemory<
-        UnBARableAINS::memory::SharedMemoryPosix,
-        UnitData,
-        Action>;
+using BarSharedMemory = UnBARableAINS::memory::BarSharedMemory;
 
 PYBIND11_MODULE(bar_ai, m) {
     m.doc() = "Python bindings for UnBARableAI";
@@ -81,36 +75,49 @@ PYBIND11_MODULE(bar_ai, m) {
     py::class_<BarSharedMemory>(m, "SharedMemory")
         .def_static(
             "create",
-            const std::string& name {
-                return BarSharedMemory::create(name);
-            },
+            &BarSharedMemory::create,
             py::arg("name"))
 
         .def_static(
             "open",
-            const std::string& name {
-                return BarSharedMemory::open(name);
-            },
+            &BarSharedMemory::open,
             py::arg("name"))
 
         .def_static(
             "remove",
-            const std::string& name {
-                BarSharedMemory::remove(name);
-            },
+            &BarSharedMemory::remove,
             py::arg("name"))
 
         .def(
             "write_action",
-            BarSharedMemory& sharedMemory, const Action& action {
-                return sharedMemory.write(action);
-            },
+            &BarSharedMemory::writeAction,
             py::arg("action"))
 
         .def(
             "write_unit_data",
-            BarSharedMemory& sharedMemory, const UnitData& unitData {
-                return sharedMemory.write(unitData);
-            },
-            py::arg("unit_data"));
+            &BarSharedMemory::writeUnitData,
+            py::arg("unit_data"))
+
+        .def(
+            "get_unit_by_id",
+            &BarSharedMemory::getUnitById,
+            py::arg("unit_id"))
+
+        .def(
+            "get_enemy_units_in_sight",
+            &BarSharedMemory::getEnemyUnitsInSight,
+            py::arg("agent_id"))
+
+        .def(
+            "get_ally_units_in_sight",
+            &BarSharedMemory::getAllyUnitsInSight,
+            py::arg("agent_id"))
+
+        .def(
+            "get_ally_unit_IDs",
+            &BarSharedMemory::getAllyUnitIds)
+
+        .def(
+            "get_own_team_id",
+            &BarSharedMemory::getOwnTeamId);
 }

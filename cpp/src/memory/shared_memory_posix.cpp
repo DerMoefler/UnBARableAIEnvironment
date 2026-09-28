@@ -5,6 +5,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#define UNBAR_MMAP_FLAG MAP_SHARED
+#else
+#define UNBAR_MMAP_FLAG MAP_SHARED_VALIDATE
+#endif
+
 #include <algorithm>
 #include <iostream>  // TODO remove
 #include <stdexcept>
@@ -230,7 +236,7 @@ void SharedMemoryPosix::increaseSize(const size_t size) {
 
 void SharedMemoryPosix::map(void) {
     m_memoryStart = static_cast<std::byte*>(
-        mmap(NULL, m_size, PROT_READ | PROT_WRITE, MAP_SHARED_VALIDATE, m_id, 0));
+        mmap(NULL, m_size, PROT_READ | PROT_WRITE, UNBAR_MMAP_FLAG, m_id, 0));
 }
 
 void SharedMemoryPosix::release(void) {
