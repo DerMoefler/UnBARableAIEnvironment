@@ -4,11 +4,11 @@
 #include <string_view>
 #include <vector>
 
-#include "UnBARableAI/action.h"
-#include "UnBARableAI/unit_data.h"
+#include "../../include/UnBARableAI/action.h"
+#include "../../include/UnBARableAI/unit_data.h"
 
-#include "memory/shared_memory.h"
-#include "memory/shared_memory_posix.h"
+#include "shared_memory.h"
+#include "shared_memory_posix.h"
 
 namespace UnBARableAINS::memory {
 
