@@ -306,6 +306,21 @@ struct GetFieldlikeValueType_MF<F> {
     using Type = F::Field::Type;
 };
 
+template <typename List>
+struct GetFieldsValueTypelist_MF;
+
+template <>
+struct GetFieldsValueTypelist_MF<Fields<>> {
+    using Type = Typelist::Typelist<>;
+};
+
+template <Fieldlike Head, Fieldlike... Tail>
+struct GetFieldsValueTypelist_MF<Fields<Head, Tail...>> {
+    using TailTypelist = typename GetFieldsValueTypelist_MF<Fields<Tail...>>::Type;
+    using HeadValueType = typename GetFieldlikeValueType_MF<Head>::Type;
+    using Type = typename Typelist::PushFront_MF<TailTypelist, HeadValueType>::Type;
+};
+
 /**
  * \brief Concept to check that the SerializeInformation of \p S provides a serialize method.
  * \tparam S A Serializable Type.
