@@ -4,7 +4,7 @@
 #include "../../include/UnBARableAI/unit_data.h"
 #include "../../include/UnBARableAI/action.h"
 
-#include "../memory/bar_shared_memory.h"
+#include "../../include/UnBARableAI/bar_shared_memory.h"
 
 namespace py = pybind11;
 
