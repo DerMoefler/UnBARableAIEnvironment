@@ -318,6 +318,20 @@ concept SerializeMethodAvailable = Serializable<S> && requires(const S value) {
     { SerializeInformation<S>::serialize(value) } -> ByteContainer;
 };
 
+template <typename S>
+struct GetDeserializeDataViewType_MF;
+
+template <Serializable S>
+    requires(ConstSize<S>)
+struct GetDeserializeDataViewType_MF<S> {
+    using Type = const std::span<const std::byte, SerializeInformation<S>::c_serialized_size>;
+};
+
+template <Serializable S>
+struct GetDeserializeDataViewType_MF<S> {
+    using Type = const std::span<const std::byte>;
+};
+
 /**
  * \brief Concept to check that the SerializeInformation of \p S provides a deserialize method.
  * \tparam S A Serializable Type.
@@ -328,17 +342,11 @@ concept SerializeMethodAvailable = Serializable<S> && requires(const S value) {
  * requiring ConstSize<S>.
  *
  */
-template <typename T>
+template <typename S>
 concept DeserializeMethodAvailable =
-    Serializable<T> &&
-    (requires(const std::span<const std::byte> dataView) {
-        { SerializeInformation<T>::deserialize(dataView) } -> std::same_as<T>;
-    } ||
-     (detail::ConstSize<T> &&
-      requires(
-          const std::span<const std::byte, SerializeInformation<T>::c_serialized_size> dataView) {
-          { SerializeInformation<T>::deserialize(dataView) } -> std::same_as<T>;
-      }));
+    Serializable<S> && requires(GetDeserializeDataViewType_MF<S>::Type dataView) {
+        { SerializeInformation<S>::deserialize(dataView) } -> std::same_as<S>;
+    };
 
 /**
  * \brief Metafunction to get the parameter type to pass to a constructFromFields method.
