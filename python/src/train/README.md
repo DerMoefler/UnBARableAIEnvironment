@@ -106,6 +106,79 @@ The replay buffer allocates observations, values, returns, masks, and recurrent
 states with `buffer_size + 1` entries. The extra entry stores the next state or
 bootstrap value associated with the final transition.
 
+### How `train.py` initializes R-MAPPO
+
+When `main()` starts, it parses the command-line arguments, applies the random
+seed to Python, NumPy, and PyTorch, and selects the PyTorch device. The defaults
+that define the model and rollout are:
+
+| Argument | Default | Purpose |
+| --- | ---: | --- |
+| `--num-agents` | `3` | Number of controlled agents sharing one policy |
+| `--obs-dim` | `32` | Number of features in each agent and shared observation |
+| `--action-dim` | `7` | Number of action-type choices produced by the actor |
+| `--lr` | `0.0001` | Learning rate for the actor and critic optimizers |
+| `--buffer-size` | `128` | Maximum rollout length before an update |
+| `--num-mini-batch` | `4` | Number of minibatches per PPO epoch |
+| `--gamma` | `0.99` | Discount factor used when computing returns |
+| `--device` | `cpu` | Device used for policy inference and updates |
+| `--seed` | `42` | Seed for Python, NumPy, and PyTorch random generators |
+
+Initialization then proceeds in this order:
+
+1. **Environment:** `_create_env(args)` creates the simulated BAR 3v3
+  environment. This runner does not start the live BAR engine or use its shared
+  memory.
+2. **Policy:** `R_MAPPO_Policy(obs_dim, action_dim, device, lr)` creates an
+  actor that maps each 32-value local observation to `action_dim` logits, a
+  second actor that samples one of 3 target indices, and a critic that maps a
+  shared observation to one value estimate. The actor and target actor share
+  one Adam optimizer; the critic has its own Adam optimizer. Both use `--lr`.
+3. **Replay buffer:** `SharedReplayBuffer` allocates storage for `num_agents`
+  agents, observations of shape `(32,)`, and actions of shape `(2,)` per agent.
+  Each action stores an action type and a target index. The buffer holds up to
+  `buffer_size` transitions, plus an extra state entry for return bootstrapping.
+4. **Trainer:** `TrainerArgs` supplies the PPO settings, then
+  `--num-mini-batch` overrides its minibatch default. The other defaults are
+  `clip_param=0.2`, `ppo_epoch=10`, `data_chunk_length=4`,
+  `value_loss_coef=1.0`, `entropy_coef=0.05`, and `max_grad_norm=0.5`.
+  Recurrent policies, Huber loss, POPArt, and value normalization are disabled;
+  clipped value loss and active-agent masks are enabled.
+
+During rollout, the policy samples actions and value predictions, and the
+environment returns the next observations, rewards, and termination flags. The
+buffer stores those transitions. After the rollout, it computes returns and
+advantages, and `R_MAPPO.train()` performs the PPO epochs and optimizer updates.
+
+
+
+#### BAR observation layout
+
+The current BAR observation builder creates one `float32` vector with 32 values
+for each agent. Its order is:
+
+| Indices | Features | Details |
+| --- | --- | --- |
+| `0-6` | Own unit | `unit_def_id`, world `pos_x`, `pos_y`, `pos_z`, `health`, health fraction (`health / max_health`), `los_radius` |
+| `7-11` | Nearest visible enemy | `unit_def_id`, relative `x`, `y`, `z` from the observing unit, `health` |
+| `12-16` | Second-nearest visible enemy | Same five features |
+| `17-21` | Third-nearest visible enemy | Same five features |
+| `22-26` | Nearest visible ally | `unit_def_id`, relative `x`, `y`, `z` from the observing unit, `health` |
+| `27-31` | Second-nearest visible ally | Same five features |
+
+This is `7 + (3 * 5) + (2 * 5) = 32` values. Enemy and ally slots are ordered
+by distance. Missing or unused slots are zero-filled; if the observing unit is
+missing or dead, its entire observation is zero-filled. The values are currently
+raw numeric features rather than normalized inputs. `get_obs()` returns one
+vector per agent with shape `(num_agents, 32)`. When the environment does not
+provide a separate shared observation, the training loop uses the mean of the
+agent observations as the critic input.
+
+> **Current integration status:** `BAR_Environment.reset()` still returns a
+> 10-value placeholder instead of this observation. The 32-value layout is
+> produced by its observation builder, but reading it from live engine shared
+> memory is not wired into `reset()` yet.
+
 ## Policy behavior
 
 `R_MAPPO_Policy` contains two categorical distributions:
