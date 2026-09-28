@@ -105,6 +105,7 @@ if(UNBARABLEAI_BUILD_TESTS)
 
     target_include_directories(tests
         PUBLIC
+            "include/"
             "src/"
     )
 
