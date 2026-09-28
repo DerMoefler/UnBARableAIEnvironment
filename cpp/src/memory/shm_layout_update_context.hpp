@@ -11,6 +11,7 @@
 #include "memory/shared_memory_types.h"
 #include "memory/shared_memory_impl.h"
 #include "serialization/serialize_information.h"
+#include "utility/typelist.h"
 
 namespace UnBARableAINS {
 
@@ -43,15 +44,8 @@ private:
 
     using MultiFields = typename serialization::detail::GetMultiFields_MF<S>::Type;
 
-    template <typename List>
-    struct GetTuple_MF;
-
-    template <serialization::detail::Fieldlike... Fs>
-    struct GetTuple_MF<serialization::detail::Fields<Fs...>> {
-        using Type = std::tuple<SizeHolder<Fs>...>;
-    };
-
-    using SizeHolderTuple = typename GetTuple_MF<MultiFields>::Type;
+    using SizeHolderTuple =
+        typename Typelist::TransformRebind_MF<SizeHolder, std::tuple, MultiFields>::Type;
 
 public:
     /// \todo Change to not having to copy value here.
