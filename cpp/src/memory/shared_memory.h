@@ -14,6 +14,7 @@
 #include "id/id_allocator.hpp"
 #include "memory/shared_memory_types.h"
 #include "memory/shm_layout_update_context.hpp"
+#include "memory/shm_read_context.hpp"
 #include "serialization/serialize_information.h"
 #include "serialization/layout.h"
 #include "shared_memory_impl.h"
@@ -29,6 +30,8 @@ class SharedMemory {
 public:
     /// \brief Variant able to hold a Layout for any of the \ref SupportedTypes.
     using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
+
+    using ValueVariant = std::variant<SupportedTypes...>;
 
     template <serialization::Serializable S>
     using ShmContext = ShmLayoutUpdateContext<S, T>;
@@ -69,6 +72,18 @@ public:
         createLayoutTableEntry<S>(serializableId, layout.getSegmentId().value());
         m_layouts.push_back(std::move(layout));
         return serializableId;
+    }
+
+    ValueVariant read(id::id_t serializableId) const {
+        const LayoutVariant& layout = getLayoutVariant(serializableId);
+
+        std::visit(
+            [&](auto&& arg) {
+                using Layout = std::remove_cvref_t<decltype(arg)>;
+                ShmReadContext<typename Layout::SI::Type, T>{&arg, m_sharedMemoryImpl};
+            },
+            layout);
+        return ValueVariant{};
     }
 
     LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
@@ -224,6 +239,13 @@ private:
         };
 
         layout->visitNodesByInlining(funcBase, funcRecursive);
+    }
+
+    const LayoutVariant& getLayoutVariant(id::id_t serializableId) const {
+        // TODO currently no deletion possible, change when implemented
+        if (serializableId >= m_layouts.size())
+            throw std::out_of_range("Serializable ID out of range");
+        return m_layouts[serializableId];
     }
 
     LayoutVariant& getLayoutVariant(id::id_t serializableId) {
