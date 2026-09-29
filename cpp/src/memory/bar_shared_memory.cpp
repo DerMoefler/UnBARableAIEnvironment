@@ -71,10 +71,7 @@ std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
              * Das Shared Memory kann sowohl UnitData als auch Action
              * enthalten. Nur UnitData-Einträge werden gelesen.
              */
-            const bool containsUnitData =
-                std::holds_alternative<
-                    serialization::Layout<UnitData>
-                >(layoutVariant);
+            const bool containsUnitData = std::holds_alternative<serialization::Layout<UnitData> >(layoutVariant);
 
             if (containsUnitData) {
                 /*
@@ -87,9 +84,7 @@ std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
                  * template <serialization::Serializable S>
                  * S read(id::id_t serializableId);
                  */
-                UnitData unit =
-                    m_sharedMemory.template read<UnitData>(
-                        serializableId);
+                UnitData unit = m_sharedMemory.template read<UnitData>(serializableId);
 
                 units.push_back(std::move(unit));
             }
