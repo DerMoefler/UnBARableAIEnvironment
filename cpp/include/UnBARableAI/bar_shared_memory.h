@@ -70,35 +70,12 @@ public:
     SerializableId writeUnitData(const UnitData& unitData);
 
     /**
-     * Sucht eine Unit anhand von UnitData::unit_id.
+     * Liest alle UnitData-Objekte in Serializable-ID-Reihenfolge.
      *
-     * @throws std::out_of_range, wenn keine passende Unit gefunden wurde.
+     * TODO:
+     * Benötigt SharedMemory::read<UnitData>(serializableId).
      */
-    UnitData getUnitById(int unitId);
-
-    /**
-     * Liefert alle bereits sichtbaren gegnerischen Units.
-     *
-     * Der Parameter agentId wird verwendet, um sicherzustellen,
-     * dass der angegebene Agent existiert und zum eigenen Team gehört.
-     *
-     * Es wird keine Distanz- oder LOS-Berechnung durchgeführt.
-     * Die gegnerischen Units im Shared Memory gelten bereits als sichtbar.
-     */
-    std::vector<UnitData> getEnemyUnitsInSight(int agentId);
-
-    /**
-     * Liefert alle Units des eigenen Teams außer dem Agenten selbst.
-     *
-     * Weil alle Friendly Units zuerst in das Shared Memory geschrieben
-     * werden, wird beim ersten Enemy-Eintrag abgebrochen.
-     */
-    std::vector<UnitData> getAllyUnitsInSight(int agentId);
-
-    /**
-     * Liefert die unit_id aller lebenden Units des eigenen Teams.
-     */
-    std::vector<int> getAllyUnitIds();
+    std::vector<UnitData> readAllUnits();
 
     /**
      * Liefert die Team-ID der ersten gespeicherten UnitData.
@@ -109,14 +86,6 @@ public:
 
 private:
     explicit BarSharedMemory(Impl impl);
-
-    /**
-     * Liest alle UnitData-Objekte in Serializable-ID-Reihenfolge.
-     *
-     * TODO:
-     * Benötigt SharedMemory::read<UnitData>(serializableId).
-     */
-    std::vector<UnitData> readAllUnits();
 
     /**
      * Liefert die eigene Team-ID.

@@ -97,25 +97,9 @@ PYBIND11_MODULE(bar_ai, m) {
             "write_unit_data",
             &BarSharedMemory::writeUnitData,
             py::arg("unit_data"))
-
-        .def(
-            "get_unit_by_id",
-            &BarSharedMemory::getUnitById,
-            py::arg("unit_id"))
-
-        .def(
-            "get_enemy_units_in_sight",
-            &BarSharedMemory::getEnemyUnitsInSight,
-            py::arg("agent_id"))
-
-        .def(
-            "get_ally_units_in_sight",
-            &BarSharedMemory::getAllyUnitsInSight,
-            py::arg("agent_id"))
-
-        .def(
-            "get_ally_unit_IDs",
-            &BarSharedMemory::getAllyUnitIds)
+        
+        .def("read_all_units",
+            &BarSharedMemory::readAllUnits)
 
         .def(
             "get_own_team_id",

@@ -64,7 +64,7 @@ def create_unit(
 
 
 def validate_fields(instance, expected_values, object_name):
-    """Vergleicht die Python-Attribute eines gebundenen C++-Objekts."""
+    """Vergleicht Attribute eines gebundenen C++-Objekts."""
     for field_name, expected_value in expected_values.items():
         actual_value = getattr(instance, field_name)
 
@@ -81,7 +81,7 @@ def validate_fields(instance, expected_values, object_name):
 
 
 def unit_ids(units):
-    """Extrahiert Unit-IDs aus einer Liste von UnitData-Objekten."""
+    """Extrahiert die BAR-Unit-IDs aus einer UnitData-Liste."""
     return [unit.unit_id for unit in units]
 
 
@@ -99,7 +99,7 @@ print("📦 Modul:", bar_ai)
 
 
 # ----------------------------------------------------
-# Prüfen, ob Klassen exportiert wurden
+# Exportierte Klassen prüfen
 # ----------------------------------------------------
 
 required_classes = (
@@ -117,7 +117,7 @@ for class_name in required_classes:
 
 
 # ----------------------------------------------------
-# Prüfen, ob Shared-Memory-Methoden exportiert wurden
+# Exportierte Shared-Memory-Methoden prüfen
 # ----------------------------------------------------
 
 required_shared_memory_methods = (
@@ -126,10 +126,7 @@ required_shared_memory_methods = (
     "remove",
     "write_unit_data",
     "write_action",
-    "get_unit_by_id",
-    "get_enemy_units_in_sight",
-    "get_ally_units_in_sight",
-    "get_ally_unit_IDs",
+    "read_all_units",
     "get_own_team_id",
 )
 
@@ -162,7 +159,10 @@ try:
     print("\n🎮 Prüfe ActionId:")
 
     for action_name in action_id_names:
-        action_id = getattr(bar_ai.ActionId, action_name)
+        action_id = getattr(
+            bar_ai.ActionId,
+            action_name,
+        )
 
         print(
             f"✅ ActionId.{action_name} vorhanden: "
@@ -176,14 +176,14 @@ except Exception as e:
 # ----------------------------------------------------
 # Test-Units erzeugen
 #
-# Speicherreihenfolge:
+# Reihenfolge im Shared Memory:
 #
-# 1. Friendly Agent, team_id 1
-# 2. Friendly Unit, team_id 1
-# 3. Sichtbarer Enemy, team_id 2
-# 4. Sichtbarer Enemy, team_id 3
+# 1. Friendly Agent, Team 1
+# 2. Friendly Unit, Team 1
+# 3. Sichtbarer Enemy, Team 2
+# 4. Sichtbarer Enemy, Team 3
 #
-# Die erste Unit bestimmt die eigene team_id.
+# Die erste Unit bestimmt die eigene Team-ID.
 # ----------------------------------------------------
 
 try:
@@ -243,14 +243,14 @@ try:
         max_health=100.0,
     )
 
-    print("\n✅ Test-Units erfolgreich erstellt")
+    print("\n✅ Vier Test-Units erfolgreich erstellt")
 
 except Exception as e:
     fail("Fehler beim Erstellen der Test-Units", e)
 
 
 # ----------------------------------------------------
-# Friendly Agent validieren
+# Erste UnitData direkt über das Binding validieren
 # ----------------------------------------------------
 
 friendly_agent_expected_values = {
@@ -300,29 +300,15 @@ try:
     action.action_id = bar_ai.ActionId.Attack
     action.target_unit_id = 99
 
-    print("\n✅ Action erstellt und beschrieben")
+    print("\n✅ Action erstellt")
 
-    print("\n📊 Action:")
-    print("unit_id:", action.unit_id)
-    print("team_id:", action.team_id)
-    print("ally_team_id:", action.ally_team_id)
-    print("action_id:", action.action_id)
-    print("target_unit_id:", action.target_unit_id)
-
-except Exception as e:
-    fail("Fehler beim Erstellen der Action", e)
-
-
-action_expected_values = {
-    "unit_id": 42,
-    "team_id": 1,
-    "ally_team_id": 0,
-    "action_id": bar_ai.ActionId.Attack,
-    "target_unit_id": 99,
-}
-
-try:
-    print("\n📊 Validiere Action:")
+    action_expected_values = {
+        "unit_id": 42,
+        "team_id": 1,
+        "ally_team_id": 0,
+        "action_id": bar_ai.ActionId.Attack,
+        "target_unit_id": 99,
+    }
 
     validate_fields(
         action,
@@ -330,15 +316,14 @@ try:
         "action",
     )
 
-except (AttributeError, AssertionError) as e:
-    fail("Action-Validierung fehlgeschlagen", e)
+except (AttributeError, AssertionError, Exception) as e:
+    fail("Action-Test fehlgeschlagen", e)
 
 
 # ----------------------------------------------------
 # Shared Memory vorbereiten
 # ----------------------------------------------------
 
-# Prozess-ID und Zeitstempel verhindern Namenskonflikte.
 shared_memory_name = (
     f"/bar_ai_test_{os.getpid()}_{time.time_ns()}"
 )
@@ -358,10 +343,11 @@ try:
     # ------------------------------------------------
 
     try:
-        bar_ai.SharedMemory.remove(shared_memory_name)
-        print("ℹ️ Vorhandenes Shared Memory wurde entfernt")
+        bar_ai.SharedMemory.remove(
+            shared_memory_name
+        )
     except Exception:
-        # Der Shared-Memory-Name existiert normalerweise noch nicht.
+        # Normal, wenn der Name noch nicht existiert.
         pass
 
     # ------------------------------------------------
@@ -381,55 +367,63 @@ try:
     # ------------------------------------------------
 
     friendly_agent_serializable_id = (
-        shared_memory.write_unit_data(friendly_agent)
+        shared_memory.write_unit_data(
+            friendly_agent
+        )
     )
 
     friendly_unit_serializable_id = (
-        shared_memory.write_unit_data(friendly_unit)
+        shared_memory.write_unit_data(
+            friendly_unit
+        )
     )
 
     print(
-        "✅ Friendly Agent geschrieben, Serializable-ID:",
+        "✅ Friendly Agent geschrieben, ID:",
         friendly_agent_serializable_id,
     )
 
     print(
-        "✅ Friendly Unit geschrieben, Serializable-ID:",
+        "✅ Friendly Unit geschrieben, ID:",
         friendly_unit_serializable_id,
     )
 
     # ------------------------------------------------
-    # Danach bereits sichtbare Enemy Units schreiben
+    # Sichtbare Enemy Units danach schreiben
     # ------------------------------------------------
 
     enemy_one_serializable_id = (
-        shared_memory.write_unit_data(visible_enemy_one)
+        shared_memory.write_unit_data(
+            visible_enemy_one
+        )
     )
 
     enemy_two_serializable_id = (
-        shared_memory.write_unit_data(visible_enemy_two)
+        shared_memory.write_unit_data(
+            visible_enemy_two
+        )
     )
 
     print(
-        "✅ Sichtbarer Enemy 1 geschrieben, Serializable-ID:",
+        "✅ Enemy 1 geschrieben, ID:",
         enemy_one_serializable_id,
     )
 
     print(
-        "✅ Sichtbarer Enemy 2 geschrieben, Serializable-ID:",
+        "✅ Enemy 2 geschrieben, ID:",
         enemy_two_serializable_id,
     )
 
     # ------------------------------------------------
-    # Action nach den UnitData-Einträgen schreiben
+    # Action schreiben
     # ------------------------------------------------
 
-    action_serializable_id = shared_memory.write_action(
-        action
+    action_serializable_id = (
+        shared_memory.write_action(action)
     )
 
     print(
-        "✅ Action geschrieben, Serializable-ID:",
+        "✅ Action geschrieben, ID:",
         action_serializable_id,
     )
 
@@ -449,184 +443,208 @@ try:
         isinstance(serializable_id, int)
         for serializable_id in serializable_ids
     ), (
-        "Alle write-Funktionen müssen Integer-IDs zurückgeben. "
-        f"Erhalten: {serializable_ids!r}"
+        "Alle write-Funktionen müssen Integer-IDs "
+        f"zurückgeben: {serializable_ids!r}"
     )
 
-    assert all(
-        serializable_id >= 0
-        for serializable_id in serializable_ids
-    ), (
-        "Alle Serializable-IDs müssen nichtnegativ sein. "
-        f"Erhalten: {serializable_ids!r}"
-    )
-
-    assert len(set(serializable_ids)) == len(serializable_ids), (
+    assert len(set(serializable_ids)) == 5, (
         "Serializable-IDs sind nicht eindeutig: "
         f"{serializable_ids!r}"
     )
 
     assert serializable_ids == [0, 1, 2, 3, 4], (
-        "Unerwartete Reihenfolge der Serializable-IDs. "
+        "Unerwartete Serializable-ID-Reihenfolge. "
         f"Erwartet [0, 1, 2, 3, 4], "
         f"erhalten {serializable_ids!r}"
     )
 
-    print("✅ Serializable-IDs sind eindeutig und korrekt sortiert")
+    print(
+        "✅ Serializable-IDs sind eindeutig und "
+        "korrekt sortiert"
+    )
 
     # ------------------------------------------------
-    # Eigene Team-ID testen
+    # Eigene Team-ID prüfen
     # ------------------------------------------------
 
-    own_team_id = shared_memory.get_own_team_id()
+    own_team_id = (
+        shared_memory.get_own_team_id()
+    )
 
     assert own_team_id == 1, (
-        "Die erste Unit sollte team_id 1 als eigenes Team "
-        f"festlegen, erhalten: {own_team_id}"
+        "Die erste Unit sollte Team-ID 1 festlegen, "
+        f"erhalten: {own_team_id}"
     )
 
     print(
-        "✅ Eigene Team-ID wurde aus der ersten Unit bestimmt:",
+        "✅ Eigene Team-ID:",
         own_team_id,
     )
 
     # ------------------------------------------------
-    # Unit anhand ihrer BAR-Unit-ID lesen
+    # Alle UnitData-Objekte lesen
     # ------------------------------------------------
 
-    found_agent = shared_memory.get_unit_by_id(42)
+    units = shared_memory.read_all_units()
 
-    assert found_agent.unit_id == 42, (
-        "get_unit_by_id(42) gab die falsche Unit zurück: "
-        f"{found_agent.unit_id}"
+    assert isinstance(units, list), (
+        "read_all_units() sollte eine Python-Liste "
+        f"zurückgeben, erhalten: {type(units).__name__}"
     )
 
-    assert found_agent.team_id == 1, (
-        "Der gelesene Agent besitzt die falsche team_id: "
-        f"{found_agent.team_id}"
+    assert len(units) == 4, (
+        "read_all_units() sollte genau vier UnitData-Objekte "
+        "zurückgeben. Der Action-Eintrag muss übersprungen "
+        f"werden. Erhalten: {len(units)}"
     )
 
-    assert found_agent.unit_def_name == "armcom", (
-        "Der gelesene Agent besitzt den falschen Namen: "
-        f"{found_agent.unit_def_name!r}"
-    )
+    read_unit_ids = unit_ids(units)
 
-    print("✅ get_unit_by_id(42) liefert den Friendly Agent")
-
-    found_enemy = shared_memory.get_unit_by_id(99)
-
-    assert found_enemy.unit_id == 99
-    assert found_enemy.team_id == 2
-    assert found_enemy.unit_def_name == "corcom"
-
-    print("✅ get_unit_by_id(99) liefert Enemy 1")
-
-    # ------------------------------------------------
-    # Friendly Unit-IDs testen
-    # ------------------------------------------------
-
-    ally_ids = shared_memory.get_ally_unit_IDs()
-
-    assert ally_ids == [42, 43], (
-        "Unerwartete Friendly Unit-IDs. "
-        f"Erwartet [42, 43], erhalten {ally_ids!r}"
-    )
-
-    print("✅ Friendly Unit-IDs:", ally_ids)
-
-    # ------------------------------------------------
-    # Friendly Units für Agent 42 testen
-    # ------------------------------------------------
-
-    ally_units = (
-        shared_memory.get_ally_units_in_sight(42)
-    )
-
-    ally_ids_in_sight = unit_ids(ally_units)
-
-    # Der Agent selbst wird von der C++-Methode ausgeschlossen.
-    assert ally_ids_in_sight == [43], (
-        "Unerwartete Friendly Units für Agent 42. "
-        f"Erwartet [43], erhalten {ally_ids_in_sight!r}"
+    assert read_unit_ids == [42, 43, 99, 100], (
+        "Falsche Unit-Reihenfolge. "
+        f"Erwartet [42, 43, 99, 100], "
+        f"erhalten {read_unit_ids!r}"
     )
 
     print(
-        "✅ Friendly Units für Agent 42:",
-        ally_ids_in_sight,
+        "✅ read_all_units() liefert vier Units:",
+        read_unit_ids,
     )
 
     # ------------------------------------------------
-    # Bereits sichtbare Enemy Units testen
+    # Team-Reihenfolge prüfen
     # ------------------------------------------------
 
-    enemy_units = (
-        shared_memory.get_enemy_units_in_sight(42)
-    )
+    read_team_ids = [
+        unit.team_id
+        for unit in units
+    ]
 
-    enemy_ids_in_sight = unit_ids(enemy_units)
-
-    # Es findet keine Distanz- oder LOS-Berechnung statt.
-    # Alle nach den Friendly Units gespeicherten Enemy Units
-    # gelten bereits als sichtbar.
-    assert enemy_ids_in_sight == [99, 100], (
-        "Unerwartete sichtbare Enemy Units. "
-        f"Erwartet [99, 100], "
-        f"erhalten {enemy_ids_in_sight!r}"
+    assert read_team_ids == [1, 1, 2, 3], (
+        "Falsche Team-Reihenfolge. "
+        f"Erwartet [1, 1, 2, 3], "
+        f"erhalten {read_team_ids!r}"
     )
 
     print(
-        "✅ Bereits sichtbare Enemy Units:",
-        enemy_ids_in_sight,
+        "✅ Team-Reihenfolge korrekt:",
+        read_team_ids,
     )
 
     # ------------------------------------------------
-    # Fehlerfall: unbekannte Unit-ID
+    # Typen der gelesenen Objekte prüfen
     # ------------------------------------------------
 
-    try:
-        shared_memory.get_unit_by_id(999999)
-    except (IndexError, KeyError, RuntimeError) as expected_error:
-        print(
-            "✅ Unbekannte Unit-ID löst erwarteten Fehler aus:",
-            type(expected_error).__name__,
-        )
-    else:
-        raise AssertionError(
-            "get_unit_by_id(999999) hätte einen Fehler "
-            "auslösen müssen."
+    for index, unit in enumerate(units):
+        assert isinstance(unit, bar_ai.UnitData), (
+            f"Element {index} ist kein UnitData-Objekt: "
+            f"{type(unit).__name__}"
         )
 
-    # ------------------------------------------------
-    # Fehlerfall: Enemy darf nicht als eigener Agent gelten
-    # ------------------------------------------------
-
-    try:
-        shared_memory.get_enemy_units_in_sight(99)
-    except (ValueError, RuntimeError) as expected_error:
-        print(
-            "✅ Enemy-ID als Agent wird korrekt abgelehnt:",
-            type(expected_error).__name__,
-        )
-    else:
-        raise AssertionError(
-            "get_enemy_units_in_sight(99) hätte einen Fehler "
-            "auslösen müssen, weil Unit 99 nicht zum eigenen "
-            "Team gehört."
-        )
-
-    # ------------------------------------------------
-    # Vorhandenes Shared Memory erneut öffnen
-    # ------------------------------------------------
-
-    opened_shared_memory = bar_ai.SharedMemory.open(
-        shared_memory_name
+    print(
+        "✅ Alle gelesenen Elemente sind UnitData-Objekte"
     )
 
-    print("✅ Vorhandenes Shared Memory erfolgreich geöffnet")
-    print("✅ Layout-Tabelle wurde initialisiert")
+    # ------------------------------------------------
+    # Inhalt der gelesenen Units prüfen
+    # ------------------------------------------------
+
+    expected_units = (
+        {
+            "unit_id": 42,
+            "team_id": 1,
+            "unit_def_name": "armcom",
+            "human_name": "Armada Commander",
+            "health": 3000.0,
+        },
+        {
+            "unit_id": 43,
+            "team_id": 1,
+            "unit_def_name": "armmex",
+            "human_name": "Metal Extractor",
+            "health": 100.0,
+        },
+        {
+            "unit_id": 99,
+            "team_id": 2,
+            "unit_def_name": "corcom",
+            "human_name": "Cortex Commander",
+            "health": 2800.0,
+        },
+        {
+            "unit_id": 100,
+            "team_id": 3,
+            "unit_def_name": "corak",
+            "human_name": "Grunt",
+            "health": 75.0,
+        },
+    )
+
+    for index, expected_values in enumerate(
+        expected_units
+    ):
+        validate_fields(
+            units[index],
+            expected_values,
+            f"units[{index}]",
+        )
+
+    print(
+        "✅ Inhalte aller gelesenen Units sind korrekt"
+    )
 
     # ------------------------------------------------
-    # Team-ID nach open() rekonstruieren
+    # Friendly/Enemy-Aufteilung in Python prüfen
+    # ------------------------------------------------
+
+    friendly_units = [
+        unit
+        for unit in units
+        if unit.team_id == own_team_id
+    ]
+
+    enemy_units = [
+        unit
+        for unit in units
+        if unit.team_id != own_team_id
+    ]
+
+    assert unit_ids(friendly_units) == [42, 43], (
+        "Falsche Friendly Units: "
+        f"{unit_ids(friendly_units)!r}"
+    )
+
+    assert unit_ids(enemy_units) == [99, 100], (
+        "Falsche Enemy Units: "
+        f"{unit_ids(enemy_units)!r}"
+    )
+
+    print(
+        "✅ Friendly Units:",
+        unit_ids(friendly_units),
+    )
+
+    print(
+        "✅ Sichtbare Enemy Units:",
+        unit_ids(enemy_units),
+    )
+
+    # ------------------------------------------------
+    # Shared Memory durch ein zweites Objekt öffnen
+    # ------------------------------------------------
+
+    opened_shared_memory = (
+        bar_ai.SharedMemory.open(
+            shared_memory_name
+        )
+    )
+
+    print(
+        "✅ Vorhandenes Shared Memory erfolgreich geöffnet"
+    )
+
+    # ------------------------------------------------
+    # Eigene Team-ID nach open() prüfen
     # ------------------------------------------------
 
     opened_own_team_id = (
@@ -634,7 +652,7 @@ try:
     )
 
     assert opened_own_team_id == 1, (
-        "Nach open() wurde eine falsche eigene Team-ID "
+        "Nach open() wurde eine falsche Team-ID "
         f"ermittelt: {opened_own_team_id}"
     )
 
@@ -644,50 +662,36 @@ try:
     )
 
     # ------------------------------------------------
-    # Abfragen nach open() erneut testen
+    # Alle Units nach open() erneut lesen
     # ------------------------------------------------
 
-    opened_ally_ids = (
-        opened_shared_memory.get_ally_unit_IDs()
+    reopened_units = (
+        opened_shared_memory.read_all_units()
     )
 
-    opened_ally_units = (
-        opened_shared_memory.get_ally_units_in_sight(42)
+    reopened_unit_ids = unit_ids(
+        reopened_units
     )
 
-    opened_enemy_units = (
-        opened_shared_memory.get_enemy_units_in_sight(42)
+    assert reopened_unit_ids == [42, 43, 99, 100], (
+        "Nach open() wurden falsche Units gelesen. "
+        f"Erwartet [42, 43, 99, 100], "
+        f"erhalten {reopened_unit_ids!r}"
     )
 
-    assert opened_ally_ids == [42, 43], (
-        "Falsche Friendly IDs nach open(): "
-        f"{opened_ally_ids!r}"
+    assert len(reopened_units) == 4, (
+        "Nach open() sollte read_all_units() vier "
+        f"Units liefern, erhalten: {len(reopened_units)}"
     )
 
-    assert unit_ids(opened_ally_units) == [43], (
-        "Falsche Friendly Units nach open(): "
-        f"{unit_ids(opened_ally_units)!r}"
-    )
-
-    assert unit_ids(opened_enemy_units) == [99, 100], (
-        "Falsche Enemy Units nach open(): "
-        f"{unit_ids(opened_enemy_units)!r}"
-    )
-
-    print("✅ Friendly IDs nach open():", opened_ally_ids)
     print(
-        "✅ Friendly Units nach open():",
-        unit_ids(opened_ally_units),
-    )
-    print(
-        "✅ Enemy Units nach open():",
-        unit_ids(opened_enemy_units),
+        "✅ Units nach open():",
+        reopened_unit_ids,
     )
 
-    # Aktuell absichtlich nicht über opened_shared_memory schreiben.
-    #
-    # initializeLayouts() muss den IdAllocator korrekt wiederherstellen,
-    # bevor nach open() neue Objekte sicher geschrieben werden können.
+    # Nicht über opened_shared_memory schreiben.
+    # Der IdAllocator wird nach open() aktuell noch nicht
+    # zuverlässig aus den vorhandenen IDs rekonstruiert.
 
 except Exception as e:
     print("❌ Shared-Memory-Test fehlgeschlagen:")
@@ -695,17 +699,26 @@ except Exception as e:
     test_exit_code = 1
 
 finally:
-    # Zuerst die Python-Referenzen freigeben. Dadurch können die
-    # C++-Destruktoren ihre Shared-Memory-Mappings schließen.
+    # C++-Objekte und mmap-Verbindungen freigeben.
     opened_shared_memory = None
     shared_memory = None
 
     if shared_memory_created:
         try:
-            bar_ai.SharedMemory.remove(shared_memory_name)
-            print("✅ Shared Memory erfolgreich entfernt")
+            bar_ai.SharedMemory.remove(
+                shared_memory_name
+            )
+
+            print(
+                "✅ Shared Memory erfolgreich entfernt"
+            )
+
         except Exception as cleanup_error:
-            print("⚠️ Shared Memory konnte nicht entfernt werden:")
+            print(
+                "⚠️ Shared Memory konnte nicht "
+                "entfernt werden:"
+            )
+
             print(
                 f"{type(cleanup_error).__name__}: "
                 f"{cleanup_error}"
