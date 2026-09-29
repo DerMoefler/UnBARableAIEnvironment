@@ -70,6 +70,16 @@ public:
     SerializableId writeUnitData(const UnitData& unitData);
 
     /**
+     * Liest alle Action-Objekte in Serializable-ID-Reihenfolge.
+     *
+     * UnitData-Einträge werden übersprungen.
+     *
+     * TODO:
+     * Benötigt SharedMemory::read<Action>(serializableId).
+     */
+    std::vector<Action> readAllActions()
+
+    /**
      * Liest alle UnitData-Objekte in Serializable-ID-Reihenfolge.
      *
      * TODO:

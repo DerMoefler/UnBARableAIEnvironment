@@ -1,4 +1,4 @@
-#include "memory/bar_shared_memory.h"
+#include "../../include/UnBARableAI/bar_shared_memory.h"
 
 #include <stdexcept>
 #include <string>
@@ -64,8 +64,7 @@ std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
 
     while (true) {
         try {
-            auto& layoutVariant =
-                m_sharedMemory.getLayout(serializableId);
+            auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
 
             /*
              * Das Shared Memory kann sowohl UnitData als auch Action
@@ -103,7 +102,50 @@ std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
     return units;
 }
 
-}  // namespace UnBARableAINS::memory
+std::vector<BarSharedMemory::Action> BarSharedMemory::readAllActions() {
+    std::vector<Action> actions;
+
+    SerializableId serializableId = 0;
+
+    while (true) {
+        try {
+            auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
+
+            /*
+             * Das Shared Memory kann sowohl UnitData als auch Action
+             * enthalten. Nur Action-Einträge werden gelesen.
+             */
+            const bool containsAction = std::holds_alternative<serialization::Layout<Action> >(layoutVariant);
+
+            if (containsAction) {
+                /*
+                 * TODO:
+                 * SharedMemory::read<S>(serializableId) existiert
+                 * aktuell noch nicht.
+                 *
+                 * Erwartete Signatur in shared_memory.h:
+                 *
+                 * template <serialization::Serializable S>
+                 * S read(id::id_t serializableId);
+                 */
+                Action action = m_sharedMemory.template read<Action>(serializableId);
+
+                actions.push_back(std::move(action));
+            }
+        }
+        catch (const std::out_of_range&) {
+            /*
+             * getLayout() wirft std::out_of_range, wenn serializableId
+             * nicht mehr in m_layouts vorhanden ist.
+             */
+            break;
+        }
+
+        ++serializableId;
+    }
+
+    return actions;
+}
 
 int BarSharedMemory::resolveOwnTeamId() {
     if (m_ownTeamId.has_value()) {
@@ -127,3 +169,5 @@ int BarSharedMemory::resolveOwnTeamId() {
 
     return m_ownTeamId.value();
 }
+
+}  // namespace UnBARableAINS::memory
