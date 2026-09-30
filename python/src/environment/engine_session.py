@@ -8,8 +8,6 @@ import logging
 from pprint import pformat
 from typing import Optional, Dict, Any, List, Union, Callable
 
-from src.environment.shared_memory_reader import SharedMemoryReader
-
 @dataclass
 class EngineSessionConfig:
     """
@@ -43,8 +41,6 @@ class EngineSession:
         self.proc: Optional[subprocess.Popen] = None
         self._stdout_handle: Optional[Any] = None
         self._stderr_handle: Optional[Any] = None
-
-        self.reader = SharedMemoryReader()
 
         self._monitor_thread: Optional[threading.Thread] = None
 

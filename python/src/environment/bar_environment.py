@@ -5,8 +5,6 @@ from src.train.reward import RewardCalculator
 import numpy as np
 
 import bar_ai
-
-
 class BAR_Environment:
     def __init__(
         self,
@@ -150,12 +148,12 @@ class BAR_Environment:
 
         observation = None
         reward = 0.0
+        shared_memory_name = (
+            f"/unabarable_ai_read_{self.current_update_id}"
+        )
         if not terminated and not truncated:
-            # TODO: hier observation aus shared memory auslesen
-            #observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
-            observation = self.get_obs()
-
-            # Calculate the configured training reward from the current team state.
+            shared_memory = bar_ai.SharedMemory.create(shared_memory_name)
+            self.create_observation_dictionary(shared_memory)
             reward = self.reward_calculator.calculate(self._get_team_stats())
 
         # Aktuelle Unit-Zahlen für Debugging
@@ -317,10 +315,10 @@ class BAR_Environment:
 
         self.grpc_server.stop()
 
-    def create_observation_dictionary(self):
+    def create_observation_dictionary(self, shared_memory: bar_ai.SharedMemory):
         obs_session = self._require_session()
-        reader = obs_session.reader
-        dictionary = {reader.read_all()}
+        unit_list = shared_memory.read_all_units()
+        dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
         
