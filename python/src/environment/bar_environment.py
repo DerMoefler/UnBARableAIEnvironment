@@ -2,9 +2,11 @@ from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.grpc_server import UnBARableAIGRPCServer
 from src.train.reward import RewardCalculator
-import numpy as np
 
+import numpy as np
 import bar_ai
+
+
 class BAR_Environment:
     def __init__(
         self,
@@ -94,6 +96,11 @@ class BAR_Environment:
         # TODO: hier observation aus shared memory auslesen
         observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
         #observation = self.get_obs()
+        
+        #Potenially, you can read the observation from shared memory like this:
+        #shared_memory_name = f"/unabarable_ai_read_{self.current_update_id}"
+        #shared_memory = bar_ai.SharedMemory.create(shared_memory_name)
+        #observation = self.create_observation_dictionary(shared_memory)
 
         self.reward_calculator.reset(self._get_team_stats())
         info = {}
@@ -153,7 +160,7 @@ class BAR_Environment:
         )
         if not terminated and not truncated:
             shared_memory = bar_ai.SharedMemory.create(shared_memory_name)
-            self.create_observation_dictionary(shared_memory)
+            observation = self.create_observation_dictionary(shared_memory)
             reward = self.reward_calculator.calculate(self._get_team_stats())
 
         # Aktuelle Unit-Zahlen für Debugging

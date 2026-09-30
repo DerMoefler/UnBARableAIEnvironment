@@ -54,6 +54,7 @@ except ImportError:
 from src.train.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.r_mappo import R_MAPPO
+from src.train.obs_r_mappo import OBS_DIM, build_r_mappo_observations
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +140,12 @@ def _set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-def _prepare_obs(obs: Any, num_agents: int, obs_dim: int) -> np.ndarray:
+def _prepare_obs(
+    obs: Any,
+    num_agents: int,
+    obs_dim: int,
+    training_team_id: int = 0,
+) -> np.ndarray:
     """
     Converts raw observations to a fixed per-agent float32 array.
 
@@ -164,6 +170,12 @@ def _prepare_obs(obs: Any, num_agents: int, obs_dim: int) -> np.ndarray:
     """
     if obs is None:
         return np.zeros((num_agents, obs_dim), dtype=np.float32)
+
+    if isinstance(obs, dict):
+        obs = build_r_mappo_observations(
+            obs,
+            training_team_id=training_team_id,
+        )
 
     arr = np.asarray(obs, dtype=np.float32)
 
@@ -995,9 +1007,10 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--obs-dim", type=int, default=32)
+    parser.add_argument("--obs-dim", type=int, default=OBS_DIM)
     parser.add_argument("--action-dim", type=int, default=5)
     parser.add_argument("--max-steps", type=int, default=128)
+    parser.add_argument("--training-team-id", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--debug-env", action="store_true")
     parser.add_argument("--debug-shapes", action="store_true")
@@ -1084,6 +1097,7 @@ def main() -> None:
                 obs_raw,
                 args.num_agents,
                 obs_dim,
+                training_team_id=args.training_team_id,
             )
 
             share_obs = _prepare_share_obs(
@@ -1224,6 +1238,7 @@ def main() -> None:
                     next_obs_raw,
                     args.num_agents,
                     obs_dim,
+                    training_team_id=args.training_team_id,
                 )
 
                 next_share_obs = _prepare_share_obs(
