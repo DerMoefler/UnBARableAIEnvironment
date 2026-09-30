@@ -316,7 +316,19 @@ class BAR_Environment:
         self.grpc_server.stop()
 
     def create_observation_dictionary(self, shared_memory: bar_ai.SharedMemory):
-        obs_session = self._require_session()
+        """
+        A dictionary with numpy arraays with all info is being created. The np arrays 
+
+        Parameters
+        ----------
+        shared_memory : bar_ai.SharedMemory
+            the created shared Memory instance
+        
+        Return
+        ------
+        dictionary : dict
+            a dict where every agent is a key and the data is a numpy array with the infos from the UniData
+        """
         unit_list = shared_memory.read_all_units()
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
