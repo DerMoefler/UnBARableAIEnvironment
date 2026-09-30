@@ -13,113 +13,208 @@
 namespace UnBARableAINS::memory {
 
 /**
- * BAR-spezifische Fassade für das generische Shared-Memory-System.
+ * \brief Provides a BAR-specific interface to the generic shared-memory system.
  *
- * Erwartete Reihenfolge der UnitData-Objekte:
+ * The expected order of UnitData objects in shared memory is:
  *
- * 1. Alle Units des eigenen Teams
- * 2. Alle bereits sichtbaren gegnerischen Units
+ * 1. All units belonging to the own team.
+ * 2. All currently visible enemy units.
  *
- * Die erste gespeicherte UnitData bestimmt die eigene team_id.
+ * The team_id of the first stored UnitData object is interpreted as
+ * the own team ID.
  */
 class BarSharedMemory {
 public:
+    /**
+     * \brief Alias for the UnitData type used by this shared-memory interface.
+     */
     using UnitData = UnBARableAINS::unit::UnitData;
+
+    /**
+     * \brief Alias for the Action type used by this shared-memory interface.
+     */
     using Action = UnBARableAINS::Action;
 
+    /**
+     * \brief Concrete shared-memory implementation used internally.
+     *
+     * The implementation uses POSIX shared memory and supports serialization
+     * of UnitData and Action objects.
+     */
     using Impl = SharedMemory<
         SharedMemoryPosix,
         UnitData,
         Action>;
 
+    /**
+     * \brief Type used to identify serialized objects in shared memory.
+     */
     using SerializableId = UnBARableAINS::id::id_t;
 
     /**
-     * Erstellt einen neuen POSIX-Shared-Memory-Bereich.
+     * \brief Creates a new POSIX shared-memory region.
+     * \param name name of the shared-memory region
+     * \return BarSharedMemory object connected to the newly created region
+     *
+     * The name must not already refer to an existing POSIX shared-memory
+     * region. POSIX shared-memory names should start with a forward slash,
+     * for example "/bar_shared_memory".
+     *
+     * \throws std::system_error if the shared-memory region cannot be created
      */
     static BarSharedMemory create(std::string_view name);
 
     /**
-     * Öffnet einen vorhandenen POSIX-Shared-Memory-Bereich.
+     * \brief Opens an existing POSIX shared-memory region.
+     * \param name name of the existing shared-memory region
+     * \return BarSharedMemory object connected to the opened region
+     *
+     * The shared-memory region must already have been created by another
+     * process or by an earlier call to create().
+     *
+     * \throws std::system_error if the shared-memory region cannot be opened
      */
     static BarSharedMemory open(std::string_view name);
 
     /**
-     * Entfernt einen POSIX-Shared-Memory-Namen.
+     * \brief Removes the name of a POSIX shared-memory region.
+     * \param name name of the shared-memory region to remove
+     *
+     * Existing mappings may remain valid until the connected processes
+     * release them.
+     *
+     * \throws std::system_error if the shared-memory region cannot be removed
      */
     static void remove(std::string_view name);
 
+    /**
+     * \brief Deleted copy constructor.
+     *
+     * A BarSharedMemory object owns a shared-memory connection and therefore
+     * cannot be copied.
+     */
     BarSharedMemory(const BarSharedMemory&) = delete;
+
+    /**
+     * \brief Deleted copy-assignment operator.
+     * \return reference to this object
+     *
+     * A BarSharedMemory object owns a shared-memory connection and therefore
+     * cannot be copied.
+     */
     BarSharedMemory& operator=(const BarSharedMemory&) = delete;
 
-    BarSharedMemory(BarSharedMemory&&) noexcept = default;
-    BarSharedMemory& operator=(BarSharedMemory&&) noexcept = default;
+    /**
+     * \brief Move constructor.
+     * \param other BarSharedMemory object whose resources are transferred
+     *
+     * After the move, other remains valid but no longer owns the transferred
+     * shared-memory resources.
+     */
+    BarSharedMemory(BarSharedMemory&& other) noexcept = default;
 
+    /**
+     * \brief Move-assignment operator.
+     * \param other BarSharedMemory object whose resources are transferred
+     * \return reference to this object
+     */
+    BarSharedMemory& operator=(BarSharedMemory&& other) noexcept = default;
+
+    /**
+     * \brief Destroys the BarSharedMemory wrapper.
+     *
+     * The underlying shared-memory implementation releases its local
+     * resources. Removing the POSIX shared-memory name should be performed
+     * explicitly through remove().
+     */
     ~BarSharedMemory() = default;
 
     /**
-     * Schreibt eine Action in das Shared Memory.
+     * \brief Writes an Action object to shared memory.
+     * \param action action that should be serialized and stored
+     * \return serializable ID assigned to the stored Action object
+     *
+     * The returned serializable ID identifies the object inside the generic
+     * shared-memory system.
      */
     SerializableId writeAction(const Action& action);
 
     /**
-     * Schreibt UnitData in das Shared Memory.
+     * \brief Writes a UnitData object to shared memory.
+     * \param unitData unit data that should be serialized and stored
+     * \return serializable ID assigned to the stored UnitData object
      *
-     * Die team_id der ersten UnitData wird als eigene Team-ID gespeichert.
+     * The team_id of the first UnitData object written through this wrapper
+     * is stored as the own team ID.
+     *
      */
     SerializableId writeUnitData(const UnitData& unitData);
 
     /**
-     * Liest alle Action-Objekte in Serializable-ID-Reihenfolge.
+     * \brief Reads all Action objects in serializable-ID order.
+     * \return vector containing all Action objects stored in shared memory
      *
-     * UnitData-Einträge werden übersprungen.
+     * UnitData entries are skipped. The method currently assumes that
+     * serializable IDs start at zero, are contiguous and are not deleted.
      *
-     * TODO:
-     * Benötigt SharedMemory::read<Action>(serializableId).
+     * \todo Implement SharedMemory::read<Action>(SerializableId).
      */
-    std::vector<Action> readAllActions()
+    std::vector<Action> readAllActions();
 
     /**
-     * Liest alle UnitData-Objekte in Serializable-ID-Reihenfolge.
+     * \brief Reads all UnitData objects in serializable-ID order.
+     * \return vector containing all UnitData objects stored in shared memory
      *
-     * TODO:
-     * Benötigt SharedMemory::read<UnitData>(serializableId).
+     * Action entries are skipped. The returned vector preserves the order in
+     * which the UnitData objects appear in the shared-memory layout table.
+     *
+     * The method currently assumes that serializable IDs start at zero, are
+     * contiguous and are not deleted.
+     *
+     * \todo Implement SharedMemory::read<UnitData>(SerializableId).
      */
     std::vector<UnitData> readAllUnits();
 
     /**
-     * Liefert die Team-ID der ersten gespeicherten UnitData.
+     * \brief Returns the team ID of the first stored UnitData object.
+     * \return team_id of the first UnitData object
      *
-     * @throws std::runtime_error, wenn keine UnitData vorhanden ist.
+     * If the team ID was not set by writeUnitData(), the first UnitData
+     * object is read from shared memory to reconstruct the own team ID.
+     *
+     * \throws std::runtime_error if shared memory contains no UnitData object
      */
     int getOwnTeamId();
 
 private:
+    /**
+     * \brief Constructs the BAR-specific wrapper from a shared-memory implementation.
+     * \param impl initialized generic shared-memory implementation
+     *
+     * This constructor is private because BarSharedMemory objects should be
+     * constructed through create() or open().
+     */
     explicit BarSharedMemory(Impl impl);
 
     /**
-     * Liefert die eigene Team-ID.
+     * \brief Resolves and caches the own team ID.
+     * \return team_id of the first stored UnitData object
      *
-     * Wenn die Team-ID noch nicht bekannt ist, wird die erste
-     * UnitData aus dem Shared Memory gelesen.
+     * If the team ID is already cached, the cached value is returned.
+     * Otherwise, the first UnitData object is read from shared memory and its
+     * team_id is stored in m_ownTeamId.
+     *
+     * \throws std::runtime_error if shared memory contains no UnitData object
      */
     int resolveOwnTeamId();
 
     /**
-     * Prüft, ob agentId eine lebende Unit des eigenen Teams bezeichnet.
-     *
-     * @throws std::out_of_range, wenn die Unit nicht existiert.
-     * @throws std::invalid_argument, wenn die Unit nicht zum eigenen Team gehört.
+     * \brief Generic shared-memory implementation used by this wrapper.
      */
-    UnitData getOwnAgentById(int agentId);
-
     Impl m_sharedMemory;
 
     /**
-     * Wird beim ersten writeUnitData() gesetzt.
-     *
-     * Nach open() wird die Team-ID bei Bedarf aus der ersten
-     * gespeicherten UnitData rekonstruiert.
+     * \brief Cached team ID of the first stored UnitData object.
      */
     std::optional<int> m_ownTeamId;
 };

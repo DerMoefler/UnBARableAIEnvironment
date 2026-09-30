@@ -38,16 +38,7 @@ BarSharedMemory::SerializableId BarSharedMemory::writeUnitData(const UnitData& u
     if (!m_ownTeamId.has_value()) {
         m_ownTeamId = unitData.team_id;
     }
-
-    /*
-     * Optionaler Konsistenzhinweis:
-     *
-     * Friendly Units sollen zuerst geschrieben werden. Sobald Enemy Units
-     * geschrieben werden, sollte danach keine Friendly Unit mehr folgen.
-     *
-     * Diese Reihenfolge kann hier ohne zusätzlichen Zustand noch nicht
-     * vollständig geprüft werden.
-     */
+    
     return m_sharedMemory.write(unitData);
 }
 
