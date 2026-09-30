@@ -1064,7 +1064,7 @@ def main() -> None:
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu/cuda)")
     parser.add_argument("--obs-dim", type=int, default=32, help="Observation dimension")
-    parser.add_argument("--action-dim", type=int, default=7, help="Action dimension")
+    parser.add_argument("--action-dim", type=int, default=5, help="Action dimension (0:north, 1:south, 2:east, 3:west, 4:attack)")
     parser.add_argument("--max-steps", type=int, default=128, help="Max simulation steps per episode")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--debug-env", action="store_true", help="Print simulated env debug info")

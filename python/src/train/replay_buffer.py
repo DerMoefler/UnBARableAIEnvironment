@@ -87,7 +87,7 @@ class SharedReplayBuffer:
         #
         # Important:
         # - action_shape describes the stored selected action, e.g. (1,)
-        # - action_dim describes the number of possible discrete actions, e.g. 7
+        # - action_dim describes the number of possible discrete actions, e.g. 5
         #
         # If action_dim is not explicitly provided, we infer a fallback from
         # action_shape to keep old constructor calls compatible.

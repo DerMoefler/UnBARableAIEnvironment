@@ -85,8 +85,21 @@ when an episode ends.
 ## Data shapes
 
 The default training configuration uses three agents, 32 observation features,
-and seven action types. The policy samples a second target value as well, so
+and five action types. The policy samples a second target value as well, so
 stored actions have two components.
+
+For the current BAR action space, the first component is the action type and the
+second component is a target selector:
+
+- `0`: move north
+- `1`: move south
+- `2`: move east
+- `3`: move west
+- `4`: attack
+
+When the selected action is `attack`, the second component chooses which target
+unit or target class to attack. For movement actions, the second component is
+ignored.
 
 | Data | Shape | Meaning |
 | --- | --- | --- |
@@ -116,7 +129,7 @@ that define the model and rollout are:
 | --- | ---: | --- |
 | `--num-agents` | `3` | Number of controlled agents sharing one policy |
 | `--obs-dim` | `32` | Number of features in each agent and shared observation |
-| `--action-dim` | `7` | Number of action-type choices produced by the actor |
+| `--action-dim` | `5` | Number of action-type choices produced by the actor: north, south, east, west, attack |
 | `--lr` | `0.0001` | Learning rate for the actor and critic optimizers |
 | `--buffer-size` | `128` | Maximum rollout length before an update |
 | `--num-mini-batch` | `4` | Number of minibatches per PPO epoch |
@@ -184,8 +197,26 @@ agent observations as the critic input.
 `R_MAPPO_Policy` contains two categorical distributions:
 
 1. `actor` samples the action type from `action_dim` choices.
-2. `target_actor` samples a target from `target_dim` choices. `target_dim` is
-   `3` by default.
+   The default action set is: north, south, east, west, and attack.
+2. `target_actor` samples a target from `target_dim` choices. When the action
+   type is `attack`, the second action component selects the target unit or
+   target class. In the engine adapter, this is mapped to the `target_unit_id`
+   field of the final action message.
+
+The action tensor therefore has the form:
+
+```python
+actions = [action_type, target_index]
+# action_type in {0, 1, 2, 3, 4}
+# target_index is ignored unless action_type == 4
+```
+
+For example:
+
+```python
+[4, 2]  # attack; target_unit_id = 2
+[0, 0]  # move north; target_index is ignored
+```
 
 `get_action(obs)` returns:
 
@@ -210,6 +241,11 @@ index and advances the index circularly. The buffer stores:
 - rewards,
 - continuation and active-agent masks,
 - optional available-action arrays.
+
+The stored action layout matches the engine action contract: one row per agent,
+with a two-value action tuple `(action_type, target_index)`. The engine
+adapter then converts this into an action object with `unit_id` and
+`target_unit_id` fields for the actual game command.
 
 `compute_returns(next_value, gamma, gae_lambda)` calculates GAE backwards
 through the rollout. Its continuation mask is used in both the TD residual and
@@ -261,7 +297,7 @@ uv run python src/train/train.py \
   --buffer-size 128 \
   --num-agents 3 \
   --obs-dim 32 \
-  --action-dim 7 \
+  --action-dim 5 \
   --lr 0.0001 \
   --gamma 0.99 \
   --device cpu \

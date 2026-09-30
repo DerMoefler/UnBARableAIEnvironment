@@ -996,7 +996,7 @@ def main() -> None:
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--obs-dim", type=int, default=32)
-    parser.add_argument("--action-dim", type=int, default=7)
+    parser.add_argument("--action-dim", type=int, default=5)
     parser.add_argument("--max-steps", type=int, default=128)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--debug-env", action="store_true")
