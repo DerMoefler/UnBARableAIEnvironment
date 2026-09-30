@@ -4,6 +4,7 @@ from typing import Any
 import numpy as np
 
 
+# One self record, two ally slots, and three enemy slots for a 3v3 match.
 SELF_FEATURE_DIM = 8
 UNIT_SLOT_FEATURE_DIM = 9
 MAX_ALLY_SLOTS = 2
@@ -35,14 +36,14 @@ def _health_fraction(unit: Any) -> float:
 
 def _self_features(unit: Any) -> list[float]:
     return [
-        float(_field(unit, "unit_def_id")),
-        _health_fraction(unit),
-        float(_field(unit, "pos_x")) / POSITION_SCALE,
-        float(_field(unit, "pos_y")) / POSITION_SCALE,
-        float(_field(unit, "pos_z")) / POSITION_SCALE,
-        float(_field(unit, "los_radius")) / POSITION_SCALE,
-        float(bool(_field(unit, "is_dead"))),
-        float(bool(_field(unit, "being_built"))),
+        float(_field(unit, "unit_def_id")),  # Unit type
+        _health_fraction(unit),  # Current health / maximum health
+        float(_field(unit, "pos_x")) / POSITION_SCALE,  # Scaled world X
+        float(_field(unit, "pos_y")) / POSITION_SCALE,  # Scaled world Y
+        float(_field(unit, "pos_z")) / POSITION_SCALE,  # Scaled world Z
+        float(_field(unit, "los_radius")) / POSITION_SCALE,  # Scaled sight radius
+        float(bool(_field(unit, "is_dead"))),  # Dead-state flag
+        float(bool(_field(unit, "being_built"))),  # Construction-state flag
     ]
 
 
@@ -55,18 +56,18 @@ def _distance_squared(first: Any, second: Any) -> float:
 
 def _unit_slot(unit: Any, observing_unit: Any) -> list[float]:
     return [
-        1.0,
-        float(_field(unit, "unit_def_id")),
-        _health_fraction(unit),
+        1.0,  # Slot is occupied
+        float(_field(unit, "unit_def_id")),  # Unit type
+        _health_fraction(unit),  # Current health / maximum health
         (float(_field(unit, "pos_x")) - float(_field(observing_unit, "pos_x")))
-        / POSITION_SCALE,
+        / POSITION_SCALE,  # Relative X
         (float(_field(unit, "pos_y")) - float(_field(observing_unit, "pos_y")))
-        / POSITION_SCALE,
+        / POSITION_SCALE,  # Relative Y
         (float(_field(unit, "pos_z")) - float(_field(observing_unit, "pos_z")))
-        / POSITION_SCALE,
-        float(_field(unit, "los_radius")) / POSITION_SCALE,
-        float(bool(_field(unit, "is_dead"))),
-        float(bool(_field(unit, "being_built"))),
+        / POSITION_SCALE,  # Relative Z
+        float(_field(unit, "los_radius")) / POSITION_SCALE,  # Scaled sight radius
+        float(bool(_field(unit, "is_dead"))),  # Dead-state flag
+        float(bool(_field(unit, "being_built"))),  # Construction-state flag
     ]
 
 
@@ -85,7 +86,9 @@ def build_r_mappo_observations(
     training_team_id: int = 0,
 ) -> np.ndarray:
     """Convert BAR's agent-to-UnitData dictionary into MAPPO's agent matrix."""
+    # Each scalar NumPy array wraps one bound UnitData object.
     units = [_unit_record(value) for value in unit_dictionary.values()]
+    # Keep only controlled units and give their rows a stable order.
     controlled_units = sorted(
         (
             unit
@@ -99,6 +102,7 @@ def build_r_mappo_observations(
     for row, unit in enumerate(controlled_units):
         unit_id = int(_field(unit, "unit_id"))
         ally_team_id = int(_field(unit, "ally_team_id"))
+        # Team membership determines ally/enemy slots; distance picks their order.
         allies = [
             candidate
             for candidate in units
@@ -120,6 +124,7 @@ def build_r_mappo_observations(
         ):
             for neighbor in neighbors:
                 features.extend(_unit_slot(neighbor, unit))
+            # Empty slots stay zero, with their occupied flag therefore false.
             for _ in range(slot_count - len(neighbors)):
                 features.extend([0.0] * UNIT_SLOT_FEATURE_DIM)
 

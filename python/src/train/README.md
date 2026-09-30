@@ -20,10 +20,13 @@ reinforcement learning with one policy shared across agents.
 - `reward.py`
   - `RewardConfig`: configures BAR-specific reward shaping and controlled team.
   - `RewardCalculator`: tracks reward baselines and computes per-step rewards.
+- `obs_r_mappo.py`
+  - Converts BAR's unit dictionary into fixed-width, per-agent MAPPO observations.
 - `train.py`
-  - command-line training loop for the simulated BAR environment.
-  - accepts several environment result formats and normalizes their shapes
-    before inserting data into the buffer.
+  - command-line MAPPO training loop, using the simulated BAR environment by
+    default.
+  - converts dictionary observations with `build_r_mappo_observations()` and
+    normalizes input shapes before inserting data into the buffer.
 
 For a custom live-environment reward, pass a configured calculator to
 `BAR_Environment`:
@@ -49,7 +52,8 @@ env.reset()
 policy samples actions
     -> values, actions, action log-probabilities
 env.step(actions)
-    -> next observations, reward, terminated, truncated, info
+  -> next observations, reward, terminated, truncated, info
+     dictionary observations are converted by obs_r_mappo.py
 buffer.insert(...)
     -> transition is stored
 buffer.compute_returns(next_value)
@@ -101,7 +105,7 @@ when an episode ends.
 
 ## Data shapes
 
-The default training configuration uses three agents, 32 observation features,
+The default training configuration uses three agents, 53 observation features,
 and five action types. The policy samples a second target value as well, so
 stored actions have two components.
 
@@ -145,7 +149,7 @@ that define the model and rollout are:
 | Argument | Default | Purpose |
 | --- | ---: | --- |
 | `--num-agents` | `3` | Number of controlled agents sharing one policy |
-| `--obs-dim` | `32` | Number of features in each agent and shared observation |
+| `--obs-dim` | `53` | Number of features in each agent and shared observation |
 | `--action-dim` | `5` | Number of action-type choices produced by the actor: north, south, east, west, attack |
 | `--lr` | `0.0001` | Learning rate for the actor and critic optimizers |
 | `--buffer-size` | `128` | Maximum rollout length before an update |
@@ -154,60 +158,36 @@ that define the model and rollout are:
 | `--device` | `cpu` | Device used for policy inference and updates |
 | `--seed` | `42` | Seed for Python, NumPy, and PyTorch random generators |
 
-Initialization then proceeds in this order:
-
-1. **Environment:** `_create_env(args)` creates the simulated BAR 3v3
-  environment. This runner does not start the live BAR engine or use its shared
-  memory.
-2. **Policy:** `R_MAPPO_Policy(obs_dim, action_dim, device, lr)` creates an
-  actor that maps each 32-value local observation to `action_dim` logits, a
-  second actor that samples one of 3 target indices, and a critic that maps a
-  shared observation to one value estimate. The actor and target actor share
-  one Adam optimizer; the critic has its own Adam optimizer. Both use `--lr`.
-3. **Replay buffer:** `SharedReplayBuffer` allocates storage for `num_agents`
-  agents, observations of shape `(32,)`, and actions of shape `(2,)` per agent.
-  Each action stores an action type and a target index. The buffer holds up to
-  `buffer_size` transitions, plus an extra state entry for return bootstrapping.
-4. **Trainer:** `TrainerArgs` supplies the PPO settings, then
-  `--num-mini-batch` overrides its minibatch default. The other defaults are
-  `clip_param=0.2`, `ppo_epoch=10`, `data_chunk_length=4`,
-  `value_loss_coef=1.0`, `entropy_coef=0.05`, and `max_grad_norm=0.5`.
-  Recurrent policies, Huber loss, POPArt, and value normalization are disabled;
-  clipped value loss and active-agent masks are enabled.
-
-During rollout, the policy samples actions and value predictions, and the
-environment returns the next observations, rewards, and termination flags. The
-buffer stores those transitions. After the rollout, it computes returns and
-advantages, and `R_MAPPO.train()` performs the PPO epochs and optimizer updates.
-
-
-
 #### BAR observation layout
 
-The current BAR observation builder creates one `float32` vector with 32 values
-for each agent. Its order is:
+`build_r_mappo_observations()` in `obs_r_mappo.py` takes the dictionary returned
+by `BAR_Environment.create_observation_dictionary()` and creates a `float32`
+matrix with one row per unit on `training_team_id`. Rows are ordered by stable
+`unit_id`; the ID is used for ordering but is not itself a policy feature.
 
-| Indices | Features | Details |
+The default layout is `8 + (2 + 3) * 9 = 53` values per controlled unit:
+
+| Indices | Slot | Features |
 | --- | --- | --- |
-| `0-6` | Own unit | `unit_def_id`, world `pos_x`, `pos_y`, `pos_z`, `health`, health fraction (`health / max_health`), `los_radius` |
-| `7-11` | Nearest visible enemy | `unit_def_id`, relative `x`, `y`, `z` from the observing unit, `health` |
-| `12-16` | Second-nearest visible enemy | Same five features |
-| `17-21` | Third-nearest visible enemy | Same five features |
-| `22-26` | Nearest visible ally | `unit_def_id`, relative `x`, `y`, `z` from the observing unit, `health` |
-| `27-31` | Second-nearest visible ally | Same five features |
+| `0-7` | Own unit | `unit_def_id`, health fraction, scaled world `pos_x/y/z`, scaled `los_radius`, `is_dead`, `being_built` |
+| `8-16` | Nearest ally | Present mask, `unit_def_id`, health fraction, scaled relative `x/y/z`, scaled `los_radius`, `is_dead`, `being_built` |
+| `17-25` | Second-nearest ally | Same nine features |
+| `26-34` | Nearest enemy | Same nine features |
+| `35-43` | Second-nearest enemy | Same nine features |
+| `44-52` | Third-nearest enemy | Same nine features |
 
-This is `7 + (3 * 5) + (2 * 5) = 32` values. Enemy and ally slots are ordered
-by distance. Missing or unused slots are zero-filled; if the observing unit is
-missing or dead, its entire observation is zero-filled. The values are currently
-raw numeric features rather than normalized inputs. `get_obs()` returns one
-vector per agent with shape `(num_agents, 32)`. When the environment does not
-provide a separate shared observation, the training loop uses the mean of the
-agent observations as the critic input.
+Health fraction is clipped to `[0, 1]`; position and sight values are divided
+by `1000`. Ally slots use matching `ally_team_id`; enemy slots use a different
+`ally_team_id`. Neighbors are sorted by 3D distance, with `unit_id` as a tie
+breaker. Missing slots are zero-filled, so their present mask is zero. The
+converter does not filter by visibility; it uses the units present in the input
+dictionary. `train.py` defaults to `obs_dim=53` and uses the mean of agent
+observations as `share_obs` when the environment supplies no separate shared
+state.
 
-> **Current integration status:** `BAR_Environment.reset()` still returns a
-> 10-value placeholder instead of this observation. The 32-value layout is
-> produced by its observation builder, but reading it from live engine shared
-> memory is not wired into `reset()` yet.
+`BAR_Environment.step()` returns the dictionary on non-terminal steps. Its
+`reset()` still returns a placeholder observation, so the initial live-engine
+state is not yet converted through this pipeline.
 
 ## Policy behavior
 
@@ -313,8 +293,9 @@ uv run python src/train/train.py \
   --num-mini-batch 4 \
   --buffer-size 128 \
   --num-agents 3 \
-  --obs-dim 32 \
+  --obs-dim 53 \
   --action-dim 5 \
+  --training-team-id 0 \
   --lr 0.0001 \
   --gamma 0.99 \
   --device cpu \
@@ -322,14 +303,15 @@ uv run python src/train/train.py \
 ```
 
 Available command-line options are defined in `train.py`, including
-`--max-steps`, `--seed`, `--debug-env`, and `--debug-shapes`.
+`--max-steps`, `--training-team-id`, `--seed`, `--debug-env`, and
+`--debug-shapes`.
 
 ## Current limitations
 
 This folder is still partly experimental:
 
-- `train.py` imports a simulated environment through fallback import paths;
-  verify the selected environment before running a real BAR experiment.
+- `train.py` creates the simulated environment by default. The live BAR
+  environment is not selected by this runner yet.
 - The environment adapters accept malformed or differently shaped arrays by
   padding, truncating, or tiling them. This helps compatibility but can hide
   integration errors.
@@ -340,9 +322,9 @@ This folder is still partly experimental:
 - `terminated` and `truncated` are currently combined into one continuation
   mask in the rollout loop. Natural termination and time-limit truncation
   should be separated before using this code for production training.
-- The BAR environment currently contains placeholder observations and action
-  handling. See `src/environment/bar_environment.py` for the live integration
-  status.
+- `BAR_Environment.reset()` still returns a placeholder, and `step()` does not
+  yet send MAPPO actions to the engine. Its shared-memory ownership/read path
+  also needs to be confirmed before relying on live observations.
 
 ## Related tests
 
