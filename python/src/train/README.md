@@ -17,10 +17,27 @@ reinforcement learning with one policy shared across agents.
 - `r_mappo.py`
   - `R_MAPPO`: performs PPO-style actor and critic updates from the buffer.
   - `ValueNorm`: optional running normalization for value targets.
+- `reward.py`
+  - `RewardConfig`: configures BAR-specific reward shaping and controlled team.
+  - `RewardCalculator`: tracks reward baselines and computes per-step rewards.
 - `train.py`
   - command-line training loop for the simulated BAR environment.
   - accepts several environment result formats and normalizes their shapes
     before inserting data into the buffer.
+
+For a custom live-environment reward, pass a configured calculator to
+`BAR_Environment`:
+
+```python
+from src.environment.bar_environment import BAR_Environment
+from src.train.reward import RewardCalculator, RewardConfig
+
+env = BAR_Environment(
+    reward_calculator=RewardCalculator(
+        RewardConfig(training_team_id=1, win=8.0)
+    )
+)
+```
 
 ## Training flow
 

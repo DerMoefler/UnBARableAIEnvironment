@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.grpc_server import UnBARableAIGRPCServer
+from src.train.reward import RewardCalculator
 import numpy as np
 
 import bar_ai
@@ -12,6 +13,7 @@ class BAR_Environment:
         session_cfg: Optional[EngineSessionConfig] = None,
         max_episode_steps: int = 512,
         max_episode_frames: Optional[int] = None,
+        reward_calculator: Optional[RewardCalculator] = None,
     ):
         self.session_cfg = session_cfg or EngineSessionConfig()
         self.session: Optional[EngineSession] = None
@@ -33,49 +35,9 @@ class BAR_Environment:
         # Wird in reset() gesetzt.
         self.episode_start_frame = -1
 
-        # Team-ID der lernenden Agenten.
-        # Laut aktuellem Setup ist Team 0 die KI.
-        self.training_team_id = 0
-
-        # ------------------------------------------------------------------
-        # Reward tracking
-        # ------------------------------------------------------------------
-        # Diese Werte speichern den vorherigen Zustand.
-        # Der Reward wird aus der Differenz zwischen vorherigem und aktuellem
-        # Zustand berechnet.
-        self.prev_own_health_sum = 0.0
-        self.prev_enemy_health_sum = 0.0
-        self.prev_own_alive_count = 0
-        self.prev_enemy_alive_count = 0
-
-        # Gibt an, ob der Reward-State nach reset() erfolgreich initialisiert wurde.
-        self.reward_state_initialized = False
-
-        # Letzte Reward-Komponenten für Debugging im info-Dict.
-        self.last_reward_info = {}
-
-        # Reward-Koeffizienten.
-        # Positive Rewards:
-        # - Schaden an Gegnern
-        # - Gegner töten
-        # - Spiel gewinnen
-        #
-        # Negative Rewards:
-        # - Eigener Schaden
-        # - Eigene Units verlieren
-        # - Spiel verlieren
-        # - Zeitstrafe
-        self.reward_damage_enemy_coef = 0.01
-        self.reward_damage_own_coef = 0.01
-        self.reward_enemy_kill = 1.0
-        self.reward_own_death = 1.0
-        self.reward_win = 5.0
-        self.reward_loss = 5.0
-        self.reward_time_penalty = 0.001
-
-        # Reward-Clipping verhindert extrem große Werte.
-        self.reward_clip_min = -10.0
-        self.reward_clip_max = 10.0
+        self.reward_calculator = (
+            reward_calculator if reward_calculator is not None else RewardCalculator()
+        )
 
         # grpc_server für handleEventUpdate() starten.
         self.current_update_id = 0
@@ -135,17 +97,14 @@ class BAR_Environment:
         observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
         #observation = self.get_obs()
 
-        # Reward-State initialisieren.
-        # Das ist wichtig, damit compute_reward() später Deltas berechnen kann:
-        # vorherige Gegner-HP - aktuelle Gegner-HP.
-        self._init_reward_state()
+        self.reward_calculator.reset(self._get_team_stats())
         info = {}
         # Zusätzliche Debug-Informationen zurückgeben
         info["episode_step"] = self.episode_step
         info["episode_start_frame"] = self.episode_start_frame
         info["max_episode_steps"] = self.max_episode_steps
         info["max_episode_frames"] = self.max_episode_frames
-        info["reward_state_initialized"] = self.reward_state_initialized
+        info["reward_state_initialized"] = self.reward_calculator.initialized
 
 
         return observation, info
@@ -196,8 +155,8 @@ class BAR_Environment:
             #observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
             observation = self.get_obs()
 
-            # Reward aus Damage, Kills, Deaths, Win/Loss und Time-Penalty berechnen.
-            reward = self.compute_reward()
+            # Calculate the configured training reward from the current team state.
+            reward = self.reward_calculator.calculate(self._get_team_stats())
 
         # Aktuelle Unit-Zahlen für Debugging
         own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
@@ -211,7 +170,7 @@ class BAR_Environment:
             "terminated": terminated,
             "truncated": truncated,
             "reward": reward,
-            "reward_info": self.last_reward_info,
+            "reward_info": self.reward_calculator.last_info,
         }
 
         return observation, reward, terminated, truncated, info
@@ -277,7 +236,7 @@ class BAR_Environment:
         Returns
         -------
         own_alive : list
-            Alive units of self.training_team_id.
+            Alive units of the configured training team.
         enemy_alive : list
             Alive units of all other teams.
         """
@@ -291,14 +250,14 @@ class BAR_Environment:
 
         own_alive = [
             unit for unit in alive_units
-            if int(unit.team_id) == self.training_team_id
+            if int(unit.team_id) == self.reward_calculator.config.training_team_id
             and not unit.is_dead
             and float(unit.health) > 0.0
         ]
 
         enemy_alive = [
             unit for unit in alive_units
-            if int(unit.team_id) != self.training_team_id
+            if int(unit.team_id) != self.reward_calculator.config.training_team_id
             and not unit.is_dead
             and float(unit.health) > 0.0
         ]
@@ -341,196 +300,6 @@ class BAR_Environment:
         }
 
         return stats
-
-    def _init_reward_state(self) -> None:
-        """
-        Initializes the reward baseline after reset().
-
-        This function stores the current health sums and alive counts.
-        Later compute_reward() compares the new state with these stored values.
-        """
-        stats = self._get_team_stats()
-
-        self.prev_own_health_sum = stats["own_health_sum"]
-        self.prev_enemy_health_sum = stats["enemy_health_sum"]
-        self.prev_own_alive_count = stats["own_alive_count"]
-        self.prev_enemy_alive_count = stats["enemy_alive_count"]
-
-        # If both sides are zero, shared memory probably did not provide units yet.
-        # In that case reward calculation should stay safe and return 0.0.
-        self.reward_state_initialized = not (
-            self.prev_own_alive_count == 0
-            and self.prev_enemy_alive_count == 0
-        )
-
-        self.last_reward_info = {
-            "reward_state_initialized": self.reward_state_initialized,
-            "own_health_sum": self.prev_own_health_sum,
-            "enemy_health_sum": self.prev_enemy_health_sum,
-            "own_alive_count": self.prev_own_alive_count,
-            "enemy_alive_count": self.prev_enemy_alive_count,
-            "enemy_damage_done": 0.0,
-            "own_damage_taken": 0.0,
-            "enemy_kills": 0,
-            "own_deaths": 0,
-            "win_bonus": 0.0,
-            "loss_penalty": 0.0,
-            "time_penalty": 0.0,
-            "raw_reward": 0.0,
-            "clipped_reward": 0.0,
-        }
-
-    def compute_reward(self) -> float:
-        """
-        Computes the team reward for the controlled team.
-
-        Reward components:
-        ------------------
-        + enemy damage dealt
-        - own damage taken
-        + enemy kills
-        - own deaths
-        + win bonus
-        - loss penalty
-        - small time penalty
-
-        Returns
-        -------
-        reward : float
-            Team reward for this environment step.
-        """
-        stats = self._get_team_stats()
-
-        own_health_sum = stats["own_health_sum"]
-        enemy_health_sum = stats["enemy_health_sum"]
-        own_alive_count = stats["own_alive_count"]
-        enemy_alive_count = stats["enemy_alive_count"]
-
-        # If no unit data is available yet, return 0.0 and try to initialize.
-        # This prevents fake win/loss rewards when shared memory is not ready.
-        if own_alive_count == 0 and enemy_alive_count == 0:
-            self.reward_state_initialized = False
-
-            self.last_reward_info = {
-                "reward_state_initialized": False,
-                "own_health_sum": own_health_sum,
-                "enemy_health_sum": enemy_health_sum,
-                "own_alive_count": own_alive_count,
-                "enemy_alive_count": enemy_alive_count,
-                "enemy_damage_done": 0.0,
-                "own_damage_taken": 0.0,
-                "enemy_kills": 0,
-                "own_deaths": 0,
-                "win_bonus": 0.0,
-                "loss_penalty": 0.0,
-                "time_penalty": 0.0,
-                "raw_reward": 0.0,
-                "clipped_reward": 0.0,
-            }
-
-            return 0.0
-
-        # If the reward state was not initialized yet, initialize it now.
-        # This can happen if reset() was called before shared memory had unit data.
-        if not self.reward_state_initialized:
-            self.prev_own_health_sum = own_health_sum
-            self.prev_enemy_health_sum = enemy_health_sum
-            self.prev_own_alive_count = own_alive_count
-            self.prev_enemy_alive_count = enemy_alive_count
-            self.reward_state_initialized = True
-
-            self.last_reward_info = {
-                "reward_state_initialized": True,
-                "own_health_sum": own_health_sum,
-                "enemy_health_sum": enemy_health_sum,
-                "own_alive_count": own_alive_count,
-                "enemy_alive_count": enemy_alive_count,
-                "enemy_damage_done": 0.0,
-                "own_damage_taken": 0.0,
-                "enemy_kills": 0,
-                "own_deaths": 0,
-                "win_bonus": 0.0,
-                "loss_penalty": 0.0,
-                "time_penalty": 0.0,
-                "raw_reward": 0.0,
-                "clipped_reward": 0.0,
-            }
-
-            return 0.0
-
-        # Damage/kills/deaths are calculated as deltas from the previous step.
-        enemy_damage_done = max(0.0, self.prev_enemy_health_sum - enemy_health_sum)
-        own_damage_taken = max(0.0, self.prev_own_health_sum - own_health_sum)
-
-        enemy_kills = max(0, self.prev_enemy_alive_count - enemy_alive_count)
-        own_deaths = max(0, self.prev_own_alive_count - own_alive_count)
-
-        reward = 0.0
-
-        # Reward for damaging enemy units.
-        reward += self.reward_damage_enemy_coef * enemy_damage_done
-
-        # Penalty for taking damage.
-        reward -= self.reward_damage_own_coef * own_damage_taken
-
-        # Reward for killing enemy units.
-        reward += self.reward_enemy_kill * enemy_kills
-
-        # Penalty for losing own units.
-        reward -= self.reward_own_death * own_deaths
-
-        win_bonus = 0.0
-        loss_penalty = 0.0
-
-        # Win/loss reward.
-        if enemy_alive_count == 0 and own_alive_count > 0:
-            win_bonus = self.reward_win
-            reward += win_bonus
-
-        if own_alive_count == 0 and enemy_alive_count > 0:
-            loss_penalty = self.reward_loss
-            reward -= loss_penalty
-
-        # Small time penalty to discourage doing nothing forever.
-        time_penalty = self.reward_time_penalty
-        reward -= time_penalty
-
-        raw_reward = float(reward)
-
-        # Clip reward to avoid unstable training from extreme values.
-        clipped_reward = float(
-            np.clip(
-                raw_reward,
-                self.reward_clip_min,
-                self.reward_clip_max,
-            )
-        )
-
-        # Store current values as previous values for the next step.
-        self.prev_own_health_sum = own_health_sum
-        self.prev_enemy_health_sum = enemy_health_sum
-        self.prev_own_alive_count = own_alive_count
-        self.prev_enemy_alive_count = enemy_alive_count
-
-        # Store reward components for debugging/logging.
-        self.last_reward_info = {
-            "reward_state_initialized": self.reward_state_initialized,
-            "own_health_sum": own_health_sum,
-            "enemy_health_sum": enemy_health_sum,
-            "own_alive_count": own_alive_count,
-            "enemy_alive_count": enemy_alive_count,
-            "enemy_damage_done": float(enemy_damage_done),
-            "own_damage_taken": float(own_damage_taken),
-            "enemy_kills": int(enemy_kills),
-            "own_deaths": int(own_deaths),
-            "win_bonus": float(win_bonus),
-            "loss_penalty": float(loss_penalty),
-            "time_penalty": float(time_penalty),
-            "raw_reward": raw_reward,
-            "clipped_reward": clipped_reward,
-        }
-
-        return clipped_reward
 
     def end_of_session(self, return_code: int):
         """
