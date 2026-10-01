@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 #include <type_traits>
+
 #include "serialization/serialize_information.h"
 #include "serialization/layout.h"
 #include "serialization/debug/layout_dump.hpp"
 #include "complex_type.h"
+
+#include "serialization/floating_point.tpp"
 
 namespace UnBARableAINS {
 
@@ -22,6 +25,21 @@ TEST(SerializationTest, Integrals) {
     constexpr Serialized<2> serialized16 = SerializeInformation<uint16_t>::serialize(0xA0B1);
     constexpr Serialized<2> expected16 = {std::byte(0xA0), std::byte(0xB1)};
     EXPECT_EQ(expected16, serialized16);
+}
+
+TEST(SerializationTest, Floats) {
+    constexpr float floatIn = 1234.56f;
+    constexpr double doubleIn = 123456.789;
+
+    constexpr auto serializedFloat = SerializeInformation<float>::serialize(floatIn);
+    constexpr auto serializedDouble = SerializeInformation<double>::serialize(doubleIn);
+
+    constexpr float deserializedFloat = SerializeInformation<float>::deserialize(serializedFloat);
+    constexpr double deserializedDouble =
+        SerializeInformation<double>::deserialize(serializedDouble);
+
+    EXPECT_EQ(floatIn, deserializedFloat);
+    EXPECT_EQ(doubleIn, deserializedDouble);
 }
 
 // TEST(SerializationTest, VectorIntegral) {
