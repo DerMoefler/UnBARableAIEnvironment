@@ -64,6 +64,10 @@ struct SerializeInformation<test::ComplexB> {
                                                const Type& v) noexcept {
         return v.tensor3;
     }
+
+    inline static Type constructFromFields(const typename F_Tensor3::Type& tensor3) {
+        return test::ComplexB{tensor3};
+    }
 };
 
 }  // namespace serialization
