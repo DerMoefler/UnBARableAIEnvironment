@@ -81,7 +81,7 @@ public:
             [&](auto&& arg) -> ValueVariant {
                 using Layout = std::remove_cvref_t<decltype(arg)>;
                 using ValueType = typename Layout::SI::Type;
-                ShmReadContext<ValueType, T>{&arg, m_sharedMemoryImpl};
+                // ShmReadContext<ValueType, T>{&arg, m_sharedMemoryImpl};
                 return ValueType{};
             },
             layout);
