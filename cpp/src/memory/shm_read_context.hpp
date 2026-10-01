@@ -2,9 +2,10 @@
 #define SHM_READ_CONTEXT_H_
 
 #include <cstddef>
-#include <iostream>  // TODO remove
+#include <optional>
 #include <span>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 #include "memory/shared_memory_impl.h"
@@ -269,7 +270,6 @@ public:
 
 private:
     DeserializablesTuple getDeserializableValues(void) const {
-        std::cout << "ShmReadContext::getDeserializableValues\n";
         assert(m_layout->getSegmentId().has_value() && "Layout must have a segmentId");
         using DataViews =
             typename detail::GetDeserializableDataViewTypes_MF<DeserializableFields>::Type;
@@ -280,7 +280,7 @@ private:
         // TODO make this more efficient than reading the entire segment when its possibly not even
         // used
         const std::vector<std::byte> serializedSegment = m_shmImpl.readSegment(segmentId);
-        const std::span segmentView{serializedSegment};
+        memory::DataView segmentView{serializedSegment};
         return [&]<std::size_t... Is>(std::index_sequence<Is...>) -> DeserializablesTuple {
             return DeserializablesTuple{
                 [&]() -> typename Typelist::TypeAtIndex_MF<DeserializableValueTypes, Is>::Type {
@@ -290,19 +290,57 @@ private:
                     using DataView = typename Typelist::TypeAtIndex_MF<DataViews, Is>::Type;
                     using DeserializableType =
                         typename Typelist::TypeAtIndex_MF<DeserializableValueTypes, Is>::Type;
+                    using ValueType =
+                        typename serialization::detail::GetFieldlikeValueType_MF<Field>::Type;
+                    using ValueTypeSI = serialization::SerializeInformation<ValueType>;
                     const auto& node = m_layout->get(std::type_identity<Field>{});
+                    static_assert(serialization::detail::DeserializeMethodAvailable<ValueType>,
+                                  "ValueType must be deserializable here");
                     // TODO Implement
                     if constexpr (serialization::detail::MultiField<Field>) {
-                        return DeserializableType{};
+                        static_assert(serialization::detail::ConstSize<ValueType>,
+                                      "Currently only supports ValueTypes of ConstSize");
+                        static_assert(std::same_as<DeserializableType, std::vector<ValueType>>,
+                                      "Must be same");
+                        DeserializableType multiField;
+                        multiField.reserve(node.count);
+                        for (std::size_t i = 0; i < node.count; i++) {
+                            const auto& child = node.children[i];
+                            assert(child && "Child cannot be nullptr here");
+                            multiField.push_back(
+                                ValueTypeSI::deserialize(getView(segmentView, node, i)));
+                        }
+                        return multiField;
                     }
                     else if constexpr (serialization::detail::Field<Field>) {
-                        return DeserializableType{};
+                        return ValueTypeSI::deserialize(getView(segmentView, node, std::nullopt));
                     }
                     else {
                         static_assert(AlwaysFalse_MF<Field>::value, "Unsupported FieldType.");
                     }
                 }()...};
         }(std::make_index_sequence<c_deserializable_fields_count>{});
+    }
+
+    static const auto getView(memory::DataView segmentView, const auto& node,
+                              std::optional<std::size_t> index) {
+        using Node = std::remove_cvref_t<decltype(node)>;
+        static_assert(Node::isFullyInlined, "Node must be fully inlined");
+        using Field = typename std::remove_cvref_t<Node>::Tag;
+        using ValueType = typename Node::ValueType;
+        using ValueTypeSI = serialization::SerializeInformation<ValueType>;
+        using DataView =
+            typename serialization::detail::GetDeserializeDataViewType_MF<ValueType>::Type;
+        if constexpr (serialization::detail::MultiField<Field>) {
+            assert(index.has_value() && "Index must provide a value for multi fields");
+            static_assert(serialization::detail::ConstSize<ValueType>,
+                          "ValueType must satisfy ConstSize here");
+            constexpr std::size_t size = ValueTypeSI::c_serialized_size;
+            return DataView{segmentView.begin() + node.offset + index.value() * size, size};
+        }
+        else {
+            return DataView{segmentView.begin() + node.offset, node.deepSize};
+        }
     }
 
     const serialization::Layout<S>* m_layout;
