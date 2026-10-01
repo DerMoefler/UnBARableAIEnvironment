@@ -13,6 +13,8 @@ namespace test {
  * essentially the same data can be constructed and tested/verified against each other.
  */
 struct ComplexBase {
+    bool operator==(const ComplexBase& other) const = default;
+
     /// \brief A tensor of third order (storing ints) to test nesting multiple vector's in each
     /// other.
     std::vector<std::vector<std::vector<int>>> tensor3;

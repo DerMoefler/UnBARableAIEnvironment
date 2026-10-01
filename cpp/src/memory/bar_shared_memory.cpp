@@ -11,20 +11,14 @@ BarSharedMemory::BarSharedMemory(Impl impl)
     : m_sharedMemory(std::move(impl)) {}
 
 BarSharedMemory BarSharedMemory::create(std::string_view name) {
-    return BarSharedMemory{
-        Impl::create(name)
-    };
+    return BarSharedMemory{Impl::create(name)};
 }
 
 BarSharedMemory BarSharedMemory::open(std::string_view name) {
-    return BarSharedMemory{
-        Impl::open(name)
-    };
+    return BarSharedMemory{Impl::open(name)};
 }
 
-void BarSharedMemory::remove(std::string_view name) {
-    Impl::remove(std::string{name});
-}
+void BarSharedMemory::remove(std::string_view name) { Impl::remove(std::string{name}); }
 
 BarSharedMemory::SerializableId BarSharedMemory::writeAction(const Action& action) {
     return m_sharedMemory.write(action);
@@ -38,15 +32,11 @@ BarSharedMemory::SerializableId BarSharedMemory::writeUnitData(const UnitData& u
     if (!m_ownTeamId.has_value()) {
         m_ownTeamId = unitData.team_id;
     }
-    
+
     return m_sharedMemory.write(unitData);
 }
 
-
-int BarSharedMemory::getOwnTeamId() {
-    return resolveOwnTeamId();
-}
-
+int BarSharedMemory::getOwnTeamId() { return resolveOwnTeamId(); }
 
 std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
     std::vector<UnitData> units;
@@ -61,25 +51,17 @@ std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
              * Das Shared Memory kann sowohl UnitData als auch Action
              * enthalten. Nur UnitData-Einträge werden gelesen.
              */
-            const bool containsUnitData = std::holds_alternative<serialization::Layout<UnitData> >(layoutVariant);
+            const bool containsUnitData =
+                std::holds_alternative<serialization::Layout<UnitData> >(layoutVariant);
 
             if (containsUnitData) {
-                /*
-                 * TODO:
-                 * SharedMemory::read<S>(serializableId) existiert
-                 * aktuell noch nicht.
-                 *
-                 * Erwartete Signatur in shared_memory.h:
-                 *
-                 * template <serialization::Serializable S>
-                 * S read(id::id_t serializableId);
-                 */
-                UnitData unit = m_sharedMemory.template read<UnitData>(serializableId);
+                ValueVariant unit = m_sharedMemory.read(serializableId);
+                assert(std::holds_alternative<UnitData>(unit) &&
+                       "Read Serializable must be of type Unit at this point");
 
-                units.push_back(std::move(unit));
+                units.push_back(std::get<UnitData>(std::move(unit));
             }
-        }
-        catch (const std::out_of_range&) {
+        } catch (const std::out_of_range&) {
             /*
              * getLayout() wirft std::out_of_range, wenn serializableId
              * nicht mehr in m_layouts vorhanden ist.
@@ -106,25 +88,17 @@ std::vector<BarSharedMemory::Action> BarSharedMemory::readAllActions() {
              * Das Shared Memory kann sowohl UnitData als auch Action
              * enthalten. Nur Action-Einträge werden gelesen.
              */
-            const bool containsAction = std::holds_alternative<serialization::Layout<Action> >(layoutVariant);
+            const bool containsAction =
+                std::holds_alternative<serialization::Layout<Action> >(layoutVariant);
 
             if (containsAction) {
-                /*
-                 * TODO:
-                 * SharedMemory::read<S>(serializableId) existiert
-                 * aktuell noch nicht.
-                 *
-                 * Erwartete Signatur in shared_memory.h:
-                 *
-                 * template <serialization::Serializable S>
-                 * S read(id::id_t serializableId);
-                 */
-                Action action = m_sharedMemory.template read<Action>(serializableId);
+                ValueVariant action = m_sharedMemory.read(serializableId);
+                assert(std::holds_alternative<UnitData>(unit) &&
+                       "Read Serializable must be of type Action at this point");
 
-                actions.push_back(std::move(action));
+                actions.push_back(std::get<Action>(std::move(action));
             }
-        }
-        catch (const std::out_of_range&) {
+        } catch (const std::out_of_range&) {
             /*
              * getLayout() wirft std::out_of_range, wenn serializableId
              * nicht mehr in m_layouts vorhanden ist.

@@ -113,6 +113,8 @@ TEST_F(SharedMemoryTest, ReadComplexB) {
 
     auto result = shmOpen.read(serializableId);
 
+    EXPECT_EQ(std::get<ComplexB>(result), ComplexB{});
+
     if (::testing::Test::HasFailure()) {
         std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);
         if (!file) {

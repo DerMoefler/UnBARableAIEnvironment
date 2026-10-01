@@ -77,13 +77,14 @@ public:
     ValueVariant read(id::id_t serializableId) const {
         const LayoutVariant& layout = getLayoutVariant(serializableId);
 
-        std::visit(
-            [&](auto&& arg) {
+        return std::visit(
+            [&](auto&& arg) -> ValueVariant {
                 using Layout = std::remove_cvref_t<decltype(arg)>;
-                ShmReadContext<typename Layout::SI::Type, T>{&arg, m_sharedMemoryImpl};
+                using ValueType = typename Layout::SI::Type;
+                ShmReadContext<ValueType, T>{&arg, m_sharedMemoryImpl};
+                return ValueType{};
             },
             layout);
-        return ValueVariant{};
     }
 
     LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }

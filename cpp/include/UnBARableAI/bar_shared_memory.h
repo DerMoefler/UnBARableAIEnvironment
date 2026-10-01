@@ -41,10 +41,11 @@ public:
      * The implementation uses POSIX shared memory and supports serialization
      * of UnitData and Action objects.
      */
-    using Impl = SharedMemory<
-        SharedMemoryPosix,
-        UnitData,
-        Action>;
+    using Impl = SharedMemory<SharedMemoryPosix, UnitData, Action>;
+
+    /// \brief Type alias for the ValueVariant of the implementation, i.e.
+    /// std::variant<SupportedTypes...>
+    using ValueVariant = typename Impl::ValueVariant;
 
     /**
      * \brief Type used to identify serialized objects in shared memory.
