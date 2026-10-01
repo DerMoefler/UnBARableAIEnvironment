@@ -113,7 +113,7 @@ TEST_F(SharedMemoryTest, ReadComplexB) {
 
     auto result = shmOpen.read(serializableId);
 
-    EXPECT_EQ(std::get<ComplexB>(result), ComplexB{});
+    EXPECT_EQ(std::get<ComplexB>(result).tensor3, data.tensor3);
 
     if (::testing::Test::HasFailure()) {
         std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);

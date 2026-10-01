@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <memory>

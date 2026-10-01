@@ -259,8 +259,11 @@ public:
                 }()...};
             }(std::make_index_sequence<std::tuple_size_v<NodeValuesTuple>>{});
 
-            // TODO fix
-            return S{};
+            return std::apply(
+                []<typename... Values>(Values&&... values) -> S {
+                    return SI::constructFromFields(std::forward<Values>(values)...);
+                },
+                std::move(values));
         }
     }
 
