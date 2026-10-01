@@ -2,6 +2,7 @@
 #define SHM_READ_CONTEXT_H_
 
 #include <cstddef>
+#include <iostream>  // TODO remove
 #include <span>
 #include <tuple>
 #include <vector>
@@ -27,7 +28,9 @@ struct GetDeserializeType_MF;
 template <serialization::detail::Fieldlike F>
     requires(serialization::detail::ConstructibleFromFields<GetFieldlikeValueType_T<F>>)
 struct GetDeserializeType_MF<F> {
-    using Type = GetFieldlikeValueType_T<F>;
+    using ValueType = GetFieldlikeValueType_T<F>;
+    using Type =
+        std::conditional_t<serialization::detail::MultiField<F>, std::vector<ValueType>, ValueType>;
 };
 
 template <serialization::detail::Fieldlike F>
@@ -110,6 +113,43 @@ struct GetConstructibleValueTypes_MF<Fields<Head, Tail...>> {
         TailTypelist>;
 };
 
+template <typename List>
+struct GetNodeValueTypes_MF;
+
+template <>
+struct GetNodeValueTypes_MF<Fields<>> {
+    using Type = Typelist::Typelist<>;
+};
+
+template <serialization::detail::Fieldlike Head, serialization::detail::Fieldlike... Tail>
+struct GetNodeValueTypes_MF<Fields<Head, Tail...>> {
+    using TailTypes = typename GetNodeValueTypes_MF<Fields<Tail...>>::Type;
+    using ValueType = GetFieldlikeValueType_T<Head>;
+
+    using NodeValueType = std::conditional_t<serialization::detail::MultiField<Head>,
+                                             std::vector<ValueType>, ValueType>;
+
+    using Type = typename Typelist::PushFront_MF<TailTypes, NodeValueType>::Type;
+};
+
+template <typename List>
+struct GetDeserializableValueTypes_MF;
+
+template <>
+struct GetDeserializableValueTypes_MF<Fields<>> {
+    using Type = Typelist::Typelist<>;
+};
+
+template <serialization::detail::Fieldlike Head, serialization::detail::Fieldlike... Tail>
+struct GetDeserializableValueTypes_MF<Fields<Head, Tail...>> {
+    using TailTypelist = typename GetDeserializableValueTypes_MF<Fields<Tail...>>::Type;
+
+    using Type = typename Typelist::PushFront_MF<
+        TailTypelist, std::conditional_t<serialization::detail::MultiField<Head>,
+                                         std::vector<GetFieldlikeValueType_T<Head>>,
+                                         GetFieldlikeValueType_T<Head>>>::Type;
+};
+
 namespace test {
 
 using VSI = serialization::SerializeInformation<std::vector<int>>;
@@ -138,7 +178,7 @@ static_assert(std::same_as<typename GetDeserializableDataViewTypes_MF<typename V
                            Typelist::Typelist<const std::span<const std::byte, 8>>>,
               "std::vector<std::vector<int>> produces wrong DeserializableDataViewTypes");
 static_assert(std::same_as<typename GetConstructibleValueTypes_MF<typename VVSI::Fields>::Type,
-                           Typelist::Typelist<std::vector<int>>>,
+                           Typelist::Typelist<std::vector<std::vector<int>>>>,
               "std::vector<std::vector<int>> produces wrong ConstructibleValueTypes");
 
 }  // namespace test
@@ -151,26 +191,26 @@ private:
     using SI = serialization::SerializeInformation<S>;
     using Fields = typename SI::Fields;
 
-    using NodeValueTypes = typename serialization::detail::GetFieldsValueTypelist_MF<Fields>::Type;
+    using NodeValueTypes = typename detail::GetNodeValueTypes_MF<Fields>::Type;
 
     using NodeValuesTuple = typename Typelist::Rebind_MF<std::tuple, NodeValueTypes>::Type;
 
     using DeserializableFields = typename detail::GetDeserializableFields_MF<Fields>::Type;
     using DeserializableValueTypes =
-        typename serialization::detail::GetFieldsValueTypelist_MF<DeserializableFields>::Type;
+        typename detail::GetDeserializableValueTypes_MF<DeserializableFields>::Type;
     using DeserializablesTuple =
         typename Typelist::Rebind_MF<std::tuple, DeserializableValueTypes>::Type;
 
+public:
     using ConstructibleFields = typename detail::GetConstructibleFields_MF<Fields>::Type;
     using ConstructibleValueTypes = typename detail::GetConstructibleValueTypes_MF<Fields>::Type;
     using ConstructiblesTuple =
         typename Typelist::Rebind_MF<std::tuple, ConstructibleValueTypes>::Type;
 
-public:
     inline static constexpr bool c_is_fully_deserializable =
         serialization::detail::DeserializeMethodAvailable<S>;
     inline static constexpr bool c_is_partially_deserializable =
-        Typelist::IsEmpty_MF<DeserializableFields>::value;
+        !(Typelist::IsEmpty_MF<DeserializableFields>::value);
     inline static constexpr std::size_t c_deserializable_fields_count =
         Typelist::Size_MF<DeserializableFields>::value;
 
@@ -195,39 +235,38 @@ public:
         else {
             static_assert(serialization::detail::ConstructibleFromFields<S>,
                           "Serializable must be constructible from Fields here.");
-            DeserializablesTuple deserializedValues{getDeserializableValues()};
+            DeserializablesTuple deserializedValues = getDeserializableValues();
 
             NodeValuesTuple values =
                 [&]<std::size_t... Is>(std::index_sequence<Is...>) -> NodeValuesTuple {
-                (
-                    [&]() -> typename Typelist::TypeAtIndex_MF<NodeValueTypes, Is> {
-                        using Field = typename Typelist::TypeAtIndex_MF<Fields, Is>::Type;
-                        if constexpr (Typelist::Contains_MF<ConstructibleFields, Field>::value) {
-                            constexpr std::size_t index =
-                                Typelist::FindType_MF<ConstructibleFields, Field>::value;
-                            return std::get<index>(m_constructedValues);
-                        }
-                        else if constexpr (Typelist::Contains_MF<DeserializableValueTypes,
-                                                                 Field>::value) {
-                            constexpr std::size_t index =
-                                Typelist::FindType_MF<DeserializableFields, Field>::value;
-                            return std::get<index>(deserializedValues);
-                        }
-                        else {
-                            static_assert(
-                                AlwaysFalse_MF<Field>::value,
-                                "Field not contained in Constructibles nor Deserializables");
-                        }
-                    }(),
-                    ...);
+                return NodeValuesTuple{[&]() -> typename Typelist::TypeAtIndex_MF<NodeValueTypes,
+                                                                                  Is>::Type {
+                    using Field = typename Typelist::TypeAtIndex_MF<Fields, Is>::Type;
+                    if constexpr (Typelist::Contains_MF<ConstructibleFields, Field>::value) {
+                        constexpr std::size_t index =
+                            Typelist::FindType_MF<ConstructibleFields, Field>::value;
+                        return std::get<index>(m_constructedValues);
+                    }
+                    else if constexpr (Typelist::Contains_MF<DeserializableFields, Field>::value) {
+                        constexpr std::size_t index =
+                            Typelist::FindType_MF<DeserializableFields, Field>::value;
+                        return std::get<index>(deserializedValues);
+                    }
+                    else {
+                        static_assert(AlwaysFalse_MF<Field>::value,
+                                      "Field not contained in Constructibles nor Deserializables");
+                    }
+                }()...};
             }(std::make_index_sequence<std::tuple_size_v<NodeValuesTuple>>{});
+
+            // TODO fix
+            return S{};
         }
     }
 
 private:
-    DeserializablesTuple getDeserializableValues(void) const
-        requires(c_is_partially_deserializable)
-    {
+    DeserializablesTuple getDeserializableValues(void) const {
+        std::cout << "ShmReadContext::getDeserializableValues\n";
         assert(m_layout->getSegmentId().has_value() && "Layout must have a segmentId");
         using DataViews =
             typename detail::GetDeserializableDataViewTypes_MF<DeserializableFields>::Type;
@@ -240,10 +279,11 @@ private:
         const std::vector<std::byte> serializedSegment = m_shmImpl.readSegment(segmentId);
         const std::span segmentView{serializedSegment};
         return [&]<std::size_t... Is>(std::index_sequence<Is...>) -> DeserializablesTuple {
-            (
-                [&]() -> typename Typelist::TypeAtIndex_MF<DeserializableValueTypes, Is> {
+            return DeserializablesTuple{
+                [&]() -> typename Typelist::TypeAtIndex_MF<DeserializableValueTypes, Is>::Type {
                     using Field = typename Typelist::TypeAtIndex_MF<DeserializableFields, Is>::Type;
-                    static_assert(Field::isFullyInlined, "Field must be fully inlined");
+                    static_assert(serialization::FieldNode<Field>::isFullyInlined,
+                                  "Field must be fully inlined");
                     using DataView = typename Typelist::TypeAtIndex_MF<DataViews, Is>::Type;
                     using DeserializableType =
                         typename Typelist::TypeAtIndex_MF<DeserializableValueTypes, Is>::Type;
@@ -258,8 +298,7 @@ private:
                     else {
                         static_assert(AlwaysFalse_MF<Field>::value, "Unsupported FieldType.");
                     }
-                }(),
-                ...);
+                }()...};
         }(std::make_index_sequence<c_deserializable_fields_count>{});
     }
 

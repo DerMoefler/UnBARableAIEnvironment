@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -20,6 +21,7 @@
 #include "shared_memory_impl.h"
 #include "utility/always_false.h"
 #include "utility/type_index.hpp"
+#include "utility/typelist.h"
 
 namespace UnBARableAINS {
 
@@ -75,16 +77,66 @@ public:
     }
 
     ValueVariant read(id::id_t serializableId) const {
+        std::cout << "SharedMemory::read\n";
         const LayoutVariant& layout = getLayoutVariant(serializableId);
 
-        return std::visit(
-            [&](auto&& arg) -> ValueVariant {
-                using Layout = std::remove_cvref_t<decltype(arg)>;
-                using ValueType = typename Layout::SI::Type;
-                // ShmReadContext<ValueType, T>{&arg, m_sharedMemoryImpl};
-                return ValueType{};
-            },
-            layout);
+        return std::visit([&](auto&& layout) -> ValueVariant { return readImpl(&layout); }, layout);
+    }
+
+    template <serialization::Serializable S>
+    S readImpl(const serialization::Layout<S>* layout) const {
+        using Layout = serialization::Layout<S>;
+        using SI = typename Layout::SI;
+        using ValueType = typename SI::Type;
+        using Context = ShmReadContext<ValueType, T>;
+
+        if constexpr (Context::c_is_fully_deserializable) {
+            std::cout << "SharedMemory::readImpl: Fully deserializable\n";
+            Context context{layout, m_sharedMemoryImpl};
+            return context.deserialize();
+        }
+        else {
+            std::cout << "SharedMemory::readImpl: Not fully deserializable (recursing)\n";
+            using ConstructibleFields = typename Context::ConstructibleFields;
+            using ConstructibleValueTypes = typename Context::ConstructibleValueTypes;
+            using ConstructiblesTuple = typename Context::ConstructiblesTuple;
+
+            auto constructedValues =
+                [&]<std::size_t... Is>(std::index_sequence<Is...>) -> ConstructiblesTuple {
+                return ConstructiblesTuple{
+                    [&]() -> typename Typelist::TypeAtIndex_MF<ConstructibleValueTypes, Is>::Type {
+                        using Field =
+                            typename Typelist::TypeAtIndex_MF<ConstructibleFields, Is>::Type;
+                        using ConstructibleValueType =
+                            typename Typelist::TypeAtIndex_MF<ConstructibleValueTypes, Is>::Type;
+                        const auto& node = layout->get(std::type_identity<Field>{});
+                        if constexpr (serialization::detail::MultiField<Field>) {
+                            ConstructibleValueType multiFieldValues;
+                            static_assert(std::same_as<typename ConstructibleValueType::value_type,
+                                                       typename serialization::detail::
+                                                           GetFieldlikeValueType_MF<Field>::Type>,
+                                          "Error");
+                            multiFieldValues.reserve(node.count);
+                            const auto& children = node.children;
+                            for (const auto& child : children) {
+                                assert(child && "Child canot be nullptr");
+                                multiFieldValues.push_back(readImpl(child.get()));
+                            }
+                            return multiFieldValues;
+                        }
+                        else if constexpr (serialization::detail::Field<Field>) {
+                            assert(node.child && "Child cannot be nullptr");
+                            return readImpl(node.child.get());
+                        }
+                        else {
+                            static_assert(AlwaysFalse_MF<Field>::value, "Unsupported FieldType.");
+                        }
+                    }()...};
+            }(std::make_index_sequence<std::tuple_size_v<ConstructiblesTuple>>{});
+
+            Context context{layout, m_sharedMemoryImpl, constructedValues};
+            return context.deserialize();
+        }
     }
 
     LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
