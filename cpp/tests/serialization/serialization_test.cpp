@@ -27,6 +27,17 @@ TEST(SerializationTest, Integrals) {
     EXPECT_EQ(expected16, serialized16);
 }
 
+TEST(SerializationTest, Bool) {
+    constexpr auto serializedTrue = SerializeInformation<bool>::serialize(true);
+    constexpr auto serializedFalse = SerializeInformation<bool>::serialize(false);
+
+    constexpr bool deserializedTrue = SerializeInformation<bool>::deserialize(serializedTrue);
+    constexpr bool deserializedFalse = SerializeInformation<bool>::deserialize(serializedFalse);
+
+    EXPECT_TRUE(deserializedTrue);
+    EXPECT_FALSE(deserializedFalse);
+}
+
 TEST(SerializationTest, Floats) {
     constexpr float floatIn = 1234.56f;
     constexpr double doubleIn = 123456.789;

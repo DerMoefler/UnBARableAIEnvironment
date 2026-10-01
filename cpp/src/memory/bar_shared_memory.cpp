@@ -59,7 +59,7 @@ std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
                 assert(std::holds_alternative<UnitData>(unit) &&
                        "Read Serializable must be of type Unit at this point");
 
-                units.push_back(std::get<UnitData>(std::move(unit));
+                units.push_back(std::get<UnitData>(std::move(unit)));
             }
         } catch (const std::out_of_range&) {
             /*
@@ -96,7 +96,7 @@ std::vector<BarSharedMemory::Action> BarSharedMemory::readAllActions() {
                 assert(std::holds_alternative<UnitData>(unit) &&
                        "Read Serializable must be of type Action at this point");
 
-                actions.push_back(std::get<Action>(std::move(action));
+                actions.push_back(std::get<Action>(std::move(action)));
             }
         } catch (const std::out_of_range&) {
             /*
