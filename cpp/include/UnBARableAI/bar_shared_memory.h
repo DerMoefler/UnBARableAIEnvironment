@@ -8,7 +8,12 @@
 #include "unit_data.h"
 
 #include "../../src/memory/shared_memory.h"
+#include "../../src/memory/shared_memory_types.h"
 #include "../../src/memory/shared_memory_posix.h"
+
+#include "../../src/serialization/floating_point.tpp"
+#include "../../src/serialization/unit_data.tpp"
+#include "../../src/serialization/action.tpp"
 
 namespace UnBARableAINS::memory {
 
@@ -50,7 +55,7 @@ public:
     /**
      * \brief Type used to identify serialized objects in shared memory.
      */
-    using SerializableId = UnBARableAINS::id::id_t;
+    using SerializableId = memory::id_t;
 
     /**
      * \brief Creates a new POSIX shared-memory region.

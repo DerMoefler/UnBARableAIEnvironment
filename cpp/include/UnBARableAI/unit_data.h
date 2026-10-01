@@ -6,20 +6,26 @@
  *
  * \brief Contains all relevant runtime information about a unit.
  *
- * This structure stores the current state of a game unit. it can be stored in the shared memory. All units in the game have forms the observation.
+ * This structure stores the current state of a game unit. it can be stored in the shared memory.
+ * All units in the game have forms the observation.
  */
 #pragma once
+
+#include <cstdint>
+
 namespace UnBARableAINS {
 
 namespace unit {
 
 struct UnitData {
-    int unit_id;
-    int unit_def_id;
-    std::string unit_def_name;
-    std::string human_name;
-    int team_id;
-    int ally_team_id;
+    bool operator==(const UnitData& other) const = default;
+
+    uint32_t unit_id;
+    uint32_t unit_def_id;
+    // std::string unit_def_name;
+    // std::string human_name;
+    uint32_t team_id;
+    uint32_t ally_team_id;
     float health;
     float max_health;
     float pos_x;
@@ -34,6 +40,6 @@ struct UnitData {
     float paralyze_damage;
 };
 
-}; // namespace unit
+};  // namespace unit
 
-}; // namespace UnBARableAI
+};  // namespace UnBARableAINS

@@ -90,6 +90,7 @@ if(UNBARABLEAI_BUILD_TESTS)
     include(GoogleTest)
 
     add_executable(tests
+        "tests/memory/bar_shared_memory_test.cpp"
         "tests/memory/shared_memory_test.cpp"
         "tests/memory/shared_memory_posix_test.cpp"
         "tests/memory/partially_linked_list_information_test.cpp"
@@ -98,6 +99,7 @@ if(UNBARABLEAI_BUILD_TESTS)
         "tests/serialization/serialization_test.cpp"
         "src/id/id_allocator.cpp"
         "src/memory/debug/hexdump.cpp"
+        "src/memory/bar_shared_memory.cpp"
         "src/memory/partially_linked_list_information.cpp"
         "src/memory/segment_information.cpp"
         "src/memory/shared_memory_posix.cpp"
