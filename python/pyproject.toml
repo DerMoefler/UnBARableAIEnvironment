@@ -5,7 +5,7 @@ description = "Environment for the UnBARableAI"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "grpcio>=1.83.0",
+    "grpcio>=1.84.0",
     "grpcio-tools>=1.83.1",
     "pybind11>=3.0.4",
     "numpy",
