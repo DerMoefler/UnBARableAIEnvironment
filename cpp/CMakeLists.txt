@@ -141,32 +141,92 @@ add_custom_target(docs
 # ----------------------------------------------------------------------
 # Core library
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Core library
+# ----------------------------------------------------------------------
 
-add_library(unbarableai_core STATIC
-    src/grpc_client/UnBARableAIClient.cpp
+# Nur Quellen aufnehmen, die tatsächlich zur Core-Library gehören.
+# bindings/ und engine_bridge/ sind separate Komponenten.
+
+file(
+    GLOB_RECURSE UNBARABLEAI_CORE_SOURCES
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/grpc_client/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/memory/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/id/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/serialization/*.cpp"
 )
 
-# Die erzeugten Proto-Objekte direkt in die Core-Library einbinden.
-# Objekt-Libraries sind genau dafür gedacht: eine Sammlung von Objekten,
-# die von einem realen Target verwendet werden kann. [4](https://cmake.org/cmake/help/latest/command/add_library.html)[5](https://cmake.org/cmake/help/latest/guide/tutorial/In-Depth%20CMake%20Library%20Concepts.html)
-target_sources(unbarableai_core
-    PRIVATE
-        $<TARGET_OBJECTS:unbarableai_proto>
+add_library(unbarableai_core STATIC
+    ${UNBARABLEAI_CORE_SOURCES}
+    $<TARGET_OBJECTS:unbarableai_proto>
 )
 
 set_target_properties(unbarableai_core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
-add_library(UnBARableAI::unbarableai_core ALIAS unbarableai_core)
+add_library(
+    UnBARableAI::unbarableai_core
+    ALIAS unbarableai_core
+)
+
+# bar_shared_memory.h verwendet:
+#   <UnBARableAI/src/memory/shared_memory.h>
+#
+# Deshalb wird für den Build dieselbe Struktur erzeugt,
+# die später auch im Installationsverzeichnis vorhanden ist.
+set(
+    UNBARABLEAI_BUILD_INCLUDE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/generated-include"
+)
+
+set(
+    UNBARABLEAI_BUILD_SRC_LINK
+    "${UNBARABLEAI_BUILD_INCLUDE_DIR}/UnBARableAI/src"
+)
+
+file(MAKE_DIRECTORY
+    "${UNBARABLEAI_BUILD_INCLUDE_DIR}/UnBARableAI"
+)
+
+if(EXISTS "${UNBARABLEAI_BUILD_SRC_LINK}"
+   OR IS_SYMLINK "${UNBARABLEAI_BUILD_SRC_LINK}")
+    file(REMOVE_RECURSE "${UNBARABLEAI_BUILD_SRC_LINK}")
+endif()
+
+file(
+    CREATE_LINK
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${UNBARABLEAI_BUILD_SRC_LINK}"
+    SYMBOLIC
+    RESULT UNBARABLEAI_SRC_LINK_RESULT
+)
+
+if(NOT UNBARABLEAI_SRC_LINK_RESULT STREQUAL "0")
+    message(FATAL_ERROR
+        "Failed to create UnBARableAI src include link: "
+        "${UNBARABLEAI_SRC_LINK_RESULT}"
+    )
+endif()
 
 target_include_directories(unbarableai_core
     PUBLIC
+        # <UnBARableAI/...>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+
+        # "serialization/...", "id/..." usw.
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+
+        # <UnBARableAI/src/...>
+        $<BUILD_INTERFACE:${UNBARABLEAI_BUILD_INCLUDE_DIR}>
+
+        # Generierte *.pb.h und *.grpc.pb.h
         $<BUILD_INTERFACE:${GENERATED_DIR}>
+
+        # Installierte Package-Struktur
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-    PRIVATE
-        ${GENERATED_DIR}
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI/src>
 )
 
 target_link_libraries(unbarableai_core
@@ -202,6 +262,19 @@ install(FILES
     "${GENERATED_DIR}/UnBARableAI.pb.h"
     "${GENERATED_DIR}/UnBARableAI.grpc.pb.h"
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI
+)
+
+# Gesamten cpp/src-Verzeichnisbaum übernehmen
+install(
+    DIRECTORY
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    DESTINATION
+        "${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI"
+    FILES_MATCHING
+        PATTERN "*.h"
+        PATTERN "*.hpp"
+        PATTERN "*.tpp"
+        PATTERN "*.inl"
 )
 
 install(EXPORT UnBARableAITargets

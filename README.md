@@ -55,13 +55,22 @@ in Recoilengine:
 ```console
 CONTAINER_IMAGE=localhost/recoil-build-amd64-linux:latest docker-build-v2/build.sh linux
 ```
-on my pc with wsl the image had a different name there i have to run this command (also make sure your wsl has more than 10 GB ram and 8 GB swap):
+on my pc with wsl the image had a different name there i have to run this command:
 
 ```console
 CONTAINER_IMAGE=recoil-build-amd64-linux:latest docker-build-v2/build.sh linux
 ```
 
-if you dont have the image yet check the last part in the [ImageReadme](RecoilEngine/docker-build-v2/README.md)
+## Problems with Engine Build
+
+- if you dont have the image yet check the last part in the [ImageReadme](RecoilEngine/docker-build-v2/README.md)
+- make sure your wsl has more than 10 GB ram and 8 GB swap
+- Engine has no git tag, run:
+
+```console
+cd RecoilEngine
+git tag 1.0.0
+```
 
 ## Engine run
 if you want to run the engine (e.g. via env_reset)

@@ -7,13 +7,13 @@
 #include "action.h"
 #include "unit_data.h"
 
-#include "../../src/memory/shared_memory.h"
-#include "../../src/memory/shared_memory_types.h"
-#include "../../src/memory/shared_memory_posix.h"
+#include <UnBARableAI/src/memory/shared_memory.h>
+#include <UnBARableAI/src/memory/shared_memory_types.h>
+#include <UnBARableAI/src/memory/shared_memory_posix.h>
 
-#include "../../src/serialization/floating_point.tpp"
-#include "../../src/serialization/unit_data.tpp"
-#include "../../src/serialization/action.tpp"
+#include <UnBARableAI/src/serialization/floating_point.tpp>
+#include <UnBARableAI/src/serialization/unit_data.tpp>
+#include <UnBARableAI/src/serialization/action.tpp>
 
 namespace UnBARableAINS::memory {
 
