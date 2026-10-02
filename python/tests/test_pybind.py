@@ -2,6 +2,7 @@ import os
 import sys
 import time
 
+
 print("🚀 Starte bar_ai UnitData-, Action- und Shared-Memory-Test...")
 
 
@@ -24,8 +25,6 @@ def create_unit(
     team_id,
     ally_team_id,
     unit_def_id,
-    unit_def_name,
-    human_name,
     pos_x,
     pos_y,
     pos_z,
@@ -37,8 +36,6 @@ def create_unit(
 
     unit.unit_id = unit_id
     unit.unit_def_id = unit_def_id
-    unit.unit_def_name = unit_def_name
-    unit.human_name = human_name
 
     unit.team_id = team_id
     unit.ally_team_id = ally_team_id
@@ -192,8 +189,6 @@ try:
         team_id=1,
         ally_team_id=0,
         unit_def_id=101,
-        unit_def_name="armcom",
-        human_name="Armada Commander",
         pos_x=100.0,
         pos_y=20.0,
         pos_z=100.0,
@@ -206,8 +201,6 @@ try:
         team_id=1,
         ally_team_id=0,
         unit_def_id=3,
-        unit_def_name="armmex",
-        human_name="Metal Extractor",
         pos_x=150.0,
         pos_y=20.0,
         pos_z=120.0,
@@ -220,8 +213,6 @@ try:
         team_id=2,
         ally_team_id=1,
         unit_def_id=201,
-        unit_def_name="corcom",
-        human_name="Cortex Commander",
         pos_x=800.0,
         pos_y=20.0,
         pos_z=700.0,
@@ -234,8 +225,6 @@ try:
         team_id=3,
         ally_team_id=1,
         unit_def_id=202,
-        unit_def_name="corak",
-        human_name="Grunt",
         pos_x=900.0,
         pos_y=20.0,
         pos_z=750.0,
@@ -256,8 +245,6 @@ except Exception as e:
 friendly_agent_expected_values = {
     "unit_id": 42,
     "unit_def_id": 101,
-    "unit_def_name": "armcom",
-    "human_name": "Armada Commander",
     "team_id": 1,
     "ally_team_id": 0,
     "health": 3000.0,
@@ -316,7 +303,7 @@ try:
         "action",
     )
 
-except (AttributeError, AssertionError, Exception) as e:
+except Exception as e:
     fail("Action-Test fehlgeschlagen", e)
 
 
@@ -553,29 +540,21 @@ try:
         {
             "unit_id": 42,
             "team_id": 1,
-            "unit_def_name": "armcom",
-            "human_name": "Armada Commander",
             "health": 3000.0,
         },
         {
             "unit_id": 43,
             "team_id": 1,
-            "unit_def_name": "armmex",
-            "human_name": "Metal Extractor",
             "health": 100.0,
         },
         {
             "unit_id": 99,
             "team_id": 2,
-            "unit_def_name": "corcom",
-            "human_name": "Cortex Commander",
             "health": 2800.0,
         },
         {
             "unit_id": 100,
             "team_id": 3,
-            "unit_def_name": "corak",
-            "human_name": "Grunt",
             "health": 75.0,
         },
     )

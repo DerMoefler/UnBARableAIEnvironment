@@ -35,8 +35,8 @@ PYBIND11_MODULE(bar_ai, m) {
 
         .def_readwrite("unit_id", &UnitData::unit_id)
         .def_readwrite("unit_def_id", &UnitData::unit_def_id)
-        .def_readwrite("unit_def_name", &UnitData::unit_def_name)
-        .def_readwrite("human_name", &UnitData::human_name)
+        //.def_readwrite("unit_def_name", &UnitData::unit_def_name)
+        //.def_readwrite("human_name", &UnitData::human_name)
 
         .def_readwrite("team_id", &UnitData::team_id)
         .def_readwrite("ally_team_id", &UnitData::ally_team_id)
