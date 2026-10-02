@@ -93,14 +93,9 @@ class BAR_Environment:
         # Falls der Frame noch nicht gelesen werden kann, bleibt er -1.
         self.episode_start_frame = self._safe_get_world_frame(self.session)
 
-        # TODO: hier observation aus shared memory auslesen
-        observation = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   # Placeholder for actual observation
-        #observation = self.get_obs()
-        
-        #Potenially, you can read the observation from shared memory like this:
-        #shared_memory_name = f"/unabarable_ai_read_{self.current_update_id}"
-        #shared_memory = bar_ai.SharedMemory.create(shared_memory_name)
-        #observation = self.create_observation_dictionary(shared_memory)
+        shared_memory_name = f"/unabarable_ai_read_{self.current_update_id}"
+        shared_memory = bar_ai.SharedMemory.create(shared_memory_name)
+        observation = self.create_observation_dictionary(shared_memory)
 
         self.reward_calculator.reset(self._get_team_stats())
         info = {}
