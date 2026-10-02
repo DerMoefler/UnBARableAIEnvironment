@@ -59,6 +59,43 @@ target_link_libraries(unbarableai_proto
         gRPC::grpc++
 )
 
+
+# ----------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------
+
+if(UNBARABLEAI_BUILD_TESTS)
+    enable_testing()
+    include(GoogleTest)
+
+    add_executable(tests
+        tests/memory/bar_shared_memory_test.cpp
+        tests/memory/shared_memory_test.cpp
+        tests/memory/shared_memory_posix_test.cpp
+        tests/memory/partially_linked_list_information_test.cpp
+        tests/memory/segment_information_test.cpp
+        tests/serialization/layout_test.cpp
+        tests/serialization/serialization_test.cpp
+    )
+
+    target_link_libraries(tests
+        PRIVATE
+            unbarableai_core
+            GTest::gtest_main
+    )
+
+    gtest_discover_tests(tests)
+
+    add_executable(send_event_client
+        tests/grpc/send_event_client.cpp
+    )
+
+    target_link_libraries(send_event_client
+        PRIVATE
+            unbarableai_core
+    )
+endif()
+
 # Normale protobuf-C++ Dateien erzeugen:
 #   UnBARableAI.pb.h / UnBARableAI.pb.cc
 protobuf_generate(
@@ -81,47 +118,7 @@ protobuf_generate(
     PLUGIN "protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
 )
 
-# ----------------------------------------------------------------------
-# Tests
-# ----------------------------------------------------------------------
 
-if(UNBARABLEAI_BUILD_TESTS)
-    enable_testing()
-    include(GoogleTest)
-
-    add_executable(tests
-        "tests/memory/bar_shared_memory_test.cpp"
-        "tests/memory/shared_memory_test.cpp"
-        "tests/memory/shared_memory_posix_test.cpp"
-        "tests/memory/partially_linked_list_information_test.cpp"
-        "tests/memory/segment_information_test.cpp"
-        "tests/serialization/layout_test.cpp"
-        "tests/serialization/serialization_test.cpp"
-        "src/id/id_allocator.cpp"
-        "src/memory/debug/hexdump.cpp"
-        "src/memory/bar_shared_memory.cpp"
-        "src/memory/partially_linked_list_information.cpp"
-        "src/memory/segment_information.cpp"
-        "src/memory/shared_memory_posix.cpp"
-    )
-
-    target_include_directories(tests
-        PUBLIC
-            "include/"
-            "src/"
-    )
-
-    target_link_libraries(tests
-        PRIVATE
-            GTest::gtest_main
-    )
-
-    gtest_discover_tests(tests)
-
-    add_executable(send_event_client
-        tests/grpc/send_event_client.cpp
-    )
-endif()
 
 # ----------------------------------------------------------------------
 # Docs
@@ -138,9 +135,6 @@ add_custom_target(docs
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 
-# ----------------------------------------------------------------------
-# Core library
-# ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # Core library
 # ----------------------------------------------------------------------
@@ -171,61 +165,26 @@ add_library(
     ALIAS unbarableai_core
 )
 
-# bar_shared_memory.h verwendet:
-#   <UnBARableAI/src/memory/shared_memory.h>
-#
-# Deshalb wird für den Build dieselbe Struktur erzeugt,
-# die später auch im Installationsverzeichnis vorhanden ist.
-set(
-    UNBARABLEAI_BUILD_INCLUDE_DIR
-    "${CMAKE_CURRENT_BINARY_DIR}/generated-include"
-)
-
-set(
-    UNBARABLEAI_BUILD_SRC_LINK
-    "${UNBARABLEAI_BUILD_INCLUDE_DIR}/UnBARableAI/src"
-)
-
-file(MAKE_DIRECTORY
-    "${UNBARABLEAI_BUILD_INCLUDE_DIR}/UnBARableAI"
-)
-
-if(EXISTS "${UNBARABLEAI_BUILD_SRC_LINK}"
-   OR IS_SYMLINK "${UNBARABLEAI_BUILD_SRC_LINK}")
-    file(REMOVE_RECURSE "${UNBARABLEAI_BUILD_SRC_LINK}")
-endif()
-
-file(
-    CREATE_LINK
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${UNBARABLEAI_BUILD_SRC_LINK}"
-    SYMBOLIC
-    RESULT UNBARABLEAI_SRC_LINK_RESULT
-)
-
-if(NOT UNBARABLEAI_SRC_LINK_RESULT STREQUAL "0")
-    message(FATAL_ERROR
-        "Failed to create UnBARableAI src include link: "
-        "${UNBARABLEAI_SRC_LINK_RESULT}"
-    )
-endif()
 
 target_include_directories(unbarableai_core
     PUBLIC
-        # <UnBARableAI/...>
+        # Öffentliche Header:
+        # <UnBARableAI/bar_shared_memory.h>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 
-        # "serialization/...", "id/..." usw.
+        # Header unter src:
+        # <memory/shared_memory.h>
+        # <serialization/...>
+        # <id/...>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 
-        # <UnBARableAI/src/...>
-        $<BUILD_INTERFACE:${UNBARABLEAI_BUILD_INCLUDE_DIR}>
-
-        # Generierte *.pb.h und *.grpc.pb.h
+        # Generierte Protobuf-/gRPC-Header
         $<BUILD_INTERFACE:${GENERATED_DIR}>
 
-        # Installierte Package-Struktur
+        # Öffentliche Header nach der Installation
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+
+        # Installierte src-Header
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI/src>
 )
 
@@ -235,12 +194,6 @@ target_link_libraries(unbarableai_core
         gRPC::grpc++
 )
 
-if(UNBARABLEAI_BUILD_TESTS)
-    target_link_libraries(send_event_client
-        PRIVATE
-            unbarableai_core
-    )
-endif()
 
 # ----------------------------------------------------------------------
 # Install / export
@@ -266,14 +219,13 @@ install(FILES
 
 # Gesamten cpp/src-Verzeichnisbaum übernehmen
 install(
-    DIRECTORY
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    DESTINATION
-        "${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI"
+    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/UnBARableAI"
     FILES_MATCHING
         PATTERN "*.h"
         PATTERN "*.hpp"
         PATTERN "*.tpp"
+        PATTERN "*.ipp"
         PATTERN "*.inl"
 )
 
