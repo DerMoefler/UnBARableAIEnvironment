@@ -25,6 +25,16 @@ public:
      */
     bool release(id_t id);
 
+    /**
+     * \brief Sets the used id's to the set.
+     * \param usedIds The used ids.
+     *
+     * Calculates the freedIds as the gaps inside the usedIds. Requires isEmpty() == true.
+     */
+    void setUsedIds(const std::set<id_t>& usedIds);
+
+    inline bool isEmpty(void) const { return m_nextId == 0 && m_freedIds.empty(); }
+
     /// \brief Get number of allocated ids.
     inline size_t size(void) const { return m_nextId - m_freedIds.size(); }
 

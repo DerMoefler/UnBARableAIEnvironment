@@ -59,6 +59,7 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
     if (!vThis.initializeSegmentsInformation()) {
         throw std::runtime_error("Initializing segments information failed");
     }
+    vThis.initializeIdAllocator();
 
     return vThis;
 }
@@ -102,6 +103,7 @@ void SharedMemoryPosix::remove(std::string_view name) {
 }
 
 id_t SharedMemoryPosix::createSegment(const size_t size) {
+    std::cout << "SharedMemoryPosix::createSegment: Requested size = " << size << std::endl;
     if (!size) {
         throw std::length_error("Don't dare create an empty segment.");
     }
@@ -109,7 +111,7 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
     if (newSegmentId >= m_segmentsInformation.capacity() - 1) {
         extendSegmentTable();
     }
-
+    std::cout << "Trying to create segment with id " << newSegmentId << std::endl;
     // Initialize segment information
     SegmentInformation& sInformation = m_segmentsInformation[newSegmentId];
     sInformation.initialize(m_head, size);
@@ -132,6 +134,7 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
 
     // Move head to after the segment
     m_head += segmentSize;
+    std::cout << "SharedMemoryPosix::createSegment: Successfully created segment." << std::endl;
     return newSegmentId;
 }
 
@@ -259,12 +262,14 @@ void SharedMemoryPosix::release(void) {
 }
 
 bool SharedMemoryPosix::initializeSegmentsInformation(void) {
-    if (!m_segmentsInformation.empty()) {
+    if (!m_segmentsInformation.empty() || !m_segmentTableOffsets.empty()) {
         return false;
     }
 
     size_t partialSegmentTableStart = c_segment_table_start;
     constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
+
+    m_segmentTableOffsets.push_back(partialSegmentTableStart);
 
     // Returns whether another partial segment table follows
     auto initializePartialSegmentsInformation = [&]() -> bool {
@@ -316,6 +321,17 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
     return true;
 }
 
+void SharedMemoryPosix::initializeIdAllocator(void) {
+    m_idAllocator = id::IdAllocator();
+    std::set<id::id_t> usedIds{};
+    for (std::size_t i = 0; i < m_segmentsInformation.size(); i++) {
+        if (m_segmentsInformation[i].isValid()) {
+            usedIds.insert(static_cast<id::id_t>(i));
+        }
+    }
+    m_idAllocator.setUsedIds(usedIds);
+}
+
 void SharedMemoryPosix::extendSegmentTable(void) {
     if ((m_head + c_segment_table_size) > m_size) {
         increaseSize();
@@ -347,7 +363,7 @@ void SharedMemoryPosix::extendSegmentTable(void) {
 
 void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position) {
     size_t partialTableIdx = id / c_contiguous_segment_count;
-    id_t partialTableStart = m_segmentTableOffsets[partialTableIdx];
+    id_t partialTableStart = m_segmentTableOffsets.at(partialTableIdx);
     id_t writeOffset =
         partialTableStart + (id % c_contiguous_segment_count) * 2 * sizeof(id_t) + sizeof(id_t);
     write(position, writeOffset);

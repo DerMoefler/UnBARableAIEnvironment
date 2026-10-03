@@ -1,5 +1,6 @@
 #include "id_allocator.hpp"
 
+#include <iostream>
 #include <optional>
 #include <stdexcept>
 
@@ -28,6 +29,29 @@ bool IdAllocator::release(id_t id) {
     else {
         return false;
     }
+}
+
+void IdAllocator::setUsedIds(const std::set<id_t>& usedIds) {
+    std::cout << "IdAllocator::setUsedIds: Begin\n";
+    if (!isEmpty()) {
+        throw std::logic_error("Set must be empty to use 'setUsedIds' method.");
+    }
+    m_usedIds = usedIds;
+    if (m_usedIds.empty()) {
+        return;
+    }
+
+    m_nextId = *usedIds.rbegin() + 1;
+
+    id_t expected{0};
+    for (id_t id : usedIds) {
+        while (expected < id) {
+            m_freedIds.insert(expected);
+            expected++;
+        }
+        expected++;
+    }
+    std::cout << "IdAllocator::setUsedIds: End\n";
 }
 
 id_t IdAllocator::idAt(id_t index) const {

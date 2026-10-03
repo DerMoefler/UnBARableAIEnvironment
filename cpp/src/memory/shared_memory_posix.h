@@ -126,6 +126,7 @@ public:
      */
     id_t createSegment(const size_t size);
 
+    // TODO refactor once deleting is implemented
     inline size_t getSegmentsCount(void) const { return m_segmentsInformation.size(); }
 
     /**
@@ -269,9 +270,17 @@ private:
     /**
      * \brief Read the segments information from an shm.
      * \returns Whether the information was read.
-     * \pre m_segmentsInformation.empty(), \ref isSegmentTableValid() == true
+     * \pre m_segmentsInformation.empty(), m_segmentTableOffsets.empty(), \ref isSegmentTableValid()
+     * == true
      */
     bool initializeSegmentsInformation(void);
+
+    /**
+     * \brief Initializes the id allocator according to the m_segmentsInformation.
+     *
+     * Overrides the current idAllocator completely.
+     */
+    void initializeIdAllocator(void);
 
     /// \brief Extend the segment table in memory by \ref c_contiguous_segment_count.
     void extendSegmentTable(void);
