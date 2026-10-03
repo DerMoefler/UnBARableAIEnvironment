@@ -18,19 +18,33 @@ TEST(BarSharedMemoryTest, Constructor) {
                        100.0f, 56.0f, 0.0f},
     };
 
+    std::vector<Action> actions{Action{0, 1, 2, ActionId::MoveLeft, 3},
+                                Action{0, 1, 2, ActionId::MoveDown, 3},
+                                Action{0, 1, 2, ActionId::Attack, 3}};
+
     auto createShm = BarSharedMemory::create("/shm-BAR-constructor");
 
     for (const auto& unit : units) {
         createShm.writeUnitData(unit);
     }
 
+    for (const auto& action : actions) {
+        createShm.writeAction(action);
+    }
+
     auto openShm = BarSharedMemory::open("/shm-BAR-constructor");
     auto readUnits = openShm.readAllUnits();
+    auto readActions = openShm.readAllActions();
 
     ASSERT_TRUE(units.size() == readUnits.size());
 
     for (std::size_t i = 0; i < units.size(); i++) {
         EXPECT_EQ(units[i], readUnits[i]);
+    }
+
+    ASSERT_TRUE(actions.size() == readActions.size());
+    for (std::size_t i = 0; i < actions.size(); i++) {
+        EXPECT_EQ(actions[i], readActions[i]);
     }
 
     BarSharedMemory::remove("/shm-BAR-constructor");

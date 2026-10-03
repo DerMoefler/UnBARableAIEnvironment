@@ -13,6 +13,8 @@ enum class ActionId : uint32_t {
 };
 
 struct Action {
+    bool operator==(const Action& other) const = default;
+
     uint32_t unit_id;
     uint32_t team_id;
     uint32_t ally_team_id;
