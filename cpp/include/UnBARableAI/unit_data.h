@@ -17,6 +17,9 @@ namespace UnBARableAINS {
 
 namespace unit {
 
+/**
+ * \todo At this point, this could just as well be a class with methods like isDead.
+ */
 struct UnitData {
     bool operator==(const UnitData& other) const = default;
 

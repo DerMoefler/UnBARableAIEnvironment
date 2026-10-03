@@ -8,6 +8,7 @@
 
 #include "serialization/debug/type_name.hpp"
 #include "serialization/serialize_information.h"
+#include "utility/debug/print_helpers.hpp"
 
 namespace UnBARableAINS {
 
@@ -15,30 +16,20 @@ namespace serialization {
 
 namespace debug {
 
-namespace detail {
-
-inline void makeIndentation(std::ostream& out, size_t depth) {
-    for (size_t i = 0; i < depth; i++) {
-        out << "\t";
-    }
-}
-
-}  // namespace detail
-
 template <serialization::detail::Fieldlike Tag>
 void dumpNode(std::ostream& out, const FieldNode<Tag>& node, size_t depth) {
     using Node = std::remove_cvref_t<decltype(node)>;
 
-    detail::makeIndentation(out, depth);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << displayName<Tag>() << '\n';
 
-    detail::makeIndentation(out, depth + 1);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << "Offset " << node.offset << "\n";
 
-    detail::makeIndentation(out, depth + 1);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << "InlineSize " << node.inlineSize << "\n";
 
-    detail::makeIndentation(out, depth + 1);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << "DeepSize " << node.deepSize << "\n";
 }
 
@@ -55,15 +46,15 @@ void dumpLayout(std::ostream& out, const Layout<S>& layout, size_t depth) {
         }
     };
 
-    detail::makeIndentation(out, depth);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << displayName<Layout>() << '\n';
-    detail::makeIndentation(out, depth + 1);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << "SegmentID: ";
     printOpt(layout.getSegmentId());
     out << "\n";
-    detail::makeIndentation(out, depth + 1);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << "Inline size: " << layout.getInlinedSize() << '\n';
-    detail::makeIndentation(out, depth + 1);
+    UnBARableAINS::debug::makeIndentation(out, depth);
     out << "Deep size: " << layout.getDeepSize() << '\n';
 
     layout.forEachNode([&](const auto& node) {

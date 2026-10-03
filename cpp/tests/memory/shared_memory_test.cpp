@@ -62,7 +62,7 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
             std::cout << "Cannot open shm?!?";
         }
         else {
-            debug::hexdump(std::cout, file);
+            memory::debug::hexdump(std::cout, file);
         }
     }
 
@@ -95,7 +95,7 @@ TEST_F(SharedMemoryTest, OpenComplexB) {
             std::cout << "Cannot open shm?!?";
         }
         else {
-            debug::hexdump(std::cout, file);
+            memory::debug::hexdump(std::cout, file);
         }
     }
 
@@ -121,7 +121,7 @@ TEST_F(SharedMemoryTest, ReadComplexB) {
             std::cout << "Cannot open shm?!?";
         }
         else {
-            debug::hexdump(std::cout, file);
+            memory::debug::hexdump(std::cout, file);
         }
     }
 

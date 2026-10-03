@@ -149,6 +149,7 @@ file(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/memory/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/id/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/serialization/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UnBARableAI/*.cpp"
 )
 
 add_library(unbarableai_core STATIC
