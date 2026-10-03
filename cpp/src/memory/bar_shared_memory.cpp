@@ -94,7 +94,7 @@ std::vector<BarSharedMemory::Action> BarSharedMemory::readAllActions() {
 
             if (containsAction) {
                 ValueVariant action = m_sharedMemory.read(serializableId);
-                assert(std::holds_alternative<UnitData>(unit) &&
+                assert(std::holds_alternative<Action>(action) &&
                        "Read Serializable must be of type Action at this point");
 
                 actions.push_back(std::get<Action>(std::move(action)));
