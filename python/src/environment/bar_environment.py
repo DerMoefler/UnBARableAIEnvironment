@@ -116,18 +116,13 @@ class BAR_Environment:
 
         return observation, info
 
-    def step(self, action):
-        # TODO: action -> Engine input senden
-        # Später sollte hier ungefähr stehen:
-        #
-        # actions = np.asarray(action).reshape(-1)
-        # for agent_idx, action_id in enumerate(actions):
-        #     unit_id = ...
-        #     self.send_action_to_engine(unit_id, int(action_id))
-
-        # TODO: hier action in shared memory schreiben
-
+    def step(self, action : bar_ai.Action):
         session = self._require_session()
+
+        shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
+
+        shared_memory.write_action(action)
+        
         # 1) das aktuelle offene Update freigeben
         self.grpc_server.ack_update(self.current_update_id)
 
@@ -159,7 +154,6 @@ class BAR_Environment:
         reward = 0.0
          
         if not terminated and not truncated:
-            shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
             observation = self.create_observation_dictionary(shared_memory)
             reward = self.reward_calculator.calculate(self._get_team_stats())
 
@@ -177,6 +171,8 @@ class BAR_Environment:
             "reward": reward,
             "reward_info": self.reward_calculator.last_info,
         }
+        
+        bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, reward, terminated, truncated, info
 

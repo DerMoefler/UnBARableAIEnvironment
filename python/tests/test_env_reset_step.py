@@ -4,6 +4,7 @@ from pprint import pprint
 
 from src.environment.bar_environment import BAR_Environment
 
+import bar_ai
 
 def run_reset_step_test():
     """
@@ -28,12 +29,22 @@ def run_reset_step_test():
         print("info:")
         pprint(info, sort_dicts=False)
 
+        print(obs)
+
         assert obs is not None
         assert isinstance(info, dict)
         terminated = False
         truncated = False
+        action = bar_ai.Action()
+
+        action.unit_id = 1
+        action.team_id = 0
+        action.ally_team_id = 0
+        action.action_id = bar_ai.ActionId.MoveUp
+        action.target_unit_id = 0
+
         while not terminated and not truncated:
-            obs, reward, terminated, truncated, info = env.step(10) # not a real action
+            obs, reward, terminated, truncated, info = env.step(action)
             print("=== STEP TEST PASSED ===")
             print("obs type:", type(obs).__name__)
             print("reward:", reward)
