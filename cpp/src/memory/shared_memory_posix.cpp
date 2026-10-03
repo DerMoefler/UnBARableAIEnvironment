@@ -104,7 +104,7 @@ void SharedMemoryPosix::remove(std::string_view name) {
 }
 
 id_t SharedMemoryPosix::createSegment(const size_t size) {
-    std::cout << "SharedMemoryPosix::createSegment: Requested size = " << size << std::endl;
+    // std::cout << "SharedMemoryPosix::createSegment: Requested size = " << size << std::endl;
     if (!size) {
         throw std::length_error("Don't dare create an empty segment.");
     }
@@ -112,7 +112,7 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
     if (newSegmentId >= m_segmentsInformation.capacity() - 1) {
         extendSegmentTable();
     }
-    std::cout << "Trying to create segment with id " << newSegmentId << std::endl;
+    // std::cout << "Trying to create segment with id " << newSegmentId << std::endl;
     // Initialize segment information
     SegmentInformation& sInformation = m_segmentsInformation[newSegmentId];
     sInformation.initialize(m_head, size);
@@ -140,7 +140,7 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
 }
 
 void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
-    std::cout << "SharedMemoryPosix::apendToSegment" << std::endl;
+    // std::cout << "SharedMemoryPosix::apendToSegment" << std::endl;
     SegmentInformation& segmentInformation = findSegmentInformation(id);
     for (size_t i = 0; i < data.size(); i++) {
         write(static_cast<uint8_t>(data[i]), segmentInformation.getHead());

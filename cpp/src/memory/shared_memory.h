@@ -10,8 +10,6 @@
 #include <vector>
 
 #include "id/id_types.hpp"
-#include "serialization/debug/type_name.hpp"  // TODO remove
-#include "serialization/debug/layout_dump.hpp"
 #include "id/id_allocator.hpp"
 #include "memory/shared_memory_types.h"
 #include "memory/shm_layout_update_context.hpp"
@@ -67,7 +65,7 @@ public:
         auto layout = serialization::Layout<S>(value);
 
         createSegments(&layout);
-        serialization::debug::dumpLayout(std::cout, layout, 0);
+        // serialization::debug::dumpLayout(std::cout, layout, 0);
         writeOnCreation(value, &layout);
 
         id::id_t serializableId = m_idAllocator.allocate();
@@ -93,12 +91,12 @@ public:
         using Context = ShmReadContext<ValueType, T>;
 
         if constexpr (Context::c_is_fully_deserializable) {
-            std::cout << "SharedMemory::readImpl: Fully deserializable\n";
+            // std::cout << "SharedMemory::readImpl: Fully deserializable\n";
             Context context{layout, m_sharedMemoryImpl};
             return context.deserialize();
         }
         else {
-            std::cout << "SharedMemory::readImpl: Not fully deserializable (recursing)\n";
+            // std::cout << "SharedMemory::readImpl: Not fully deserializable (recursing)\n";
             using ConstructibleFields = typename Context::ConstructibleFields;
             using ConstructibleValueTypes = typename Context::ConstructibleValueTypes;
             using ConstructiblesTuple = typename Context::ConstructiblesTuple;
@@ -171,8 +169,8 @@ private:
                                            SerializeInformation::serialize(mainSegmentId));
         m_sharedMemoryImpl.appendToSegment(c_layout_table_segment_id,
                                            SerializeInformation::serialize(index));
-        std::cout << "SharedMemory::createLayoutTableEntry: created with SerializableID: "
-                  << serializableId << ", mainSegmentId: " << mainSegmentId << "\n";
+        // std::cout << "SharedMemory::createLayoutTableEntry: created with SerializableID: "
+        //          << serializableId << ", mainSegmentId: " << mainSegmentId << "\n";
     }
 
     void initializeLayouts(void) {
@@ -195,8 +193,8 @@ private:
                 entryView.template subspan<sizeof(id::id_t), sizeof(id::id_t)>());
             id::id_t typeIndex = SerializeInformation::deserialize(
                 entryView.template subspan<2 * sizeof(id::id_t), sizeof(id::id_t)>());
-            std::cout << "SharedMemory<...>::initializeLayouts: " << serializableId << ":"
-                      << mainSegmentId << ":" << typeIndex << "\n";
+            // std::cout << "SharedMemory<...>::initializeLayouts: " << serializableId << ":"
+            //          << mainSegmentId << ":" << typeIndex << "\n";
             LayoutVariant layout = buildLayout(serializableId, mainSegmentId, typeIndex);
             m_layouts.push_back(std::move(layout));
         }
@@ -236,7 +234,7 @@ private:
 
     template <serialization::Serializable S>
     void writeOnCreation(const S& value, serialization::Layout<S>* layout) {
-        std::cout << "SharedMemory<...>::writeOnCreation\n";
+        // std::cout << "SharedMemory<...>::writeOnCreation\n";
         size_t segmentId = layout->getSegmentId().value();
 
         auto linkChildSegment = [&](memory::id_t childSegmentId) {
@@ -247,8 +245,8 @@ private:
 
         auto funcBase = [&](const auto& node) {
             using Node = std::remove_cvref_t<decltype(node)>;
-            std::cout << "Base (Inlining) for field \""
-                      << serialization::debug::displayName<typename Node::Tag>() << "\"\n";
+            // std::cout << "Base (Inlining) for field \""
+            //           << serialization::debug::displayName<typename Node::Tag>() << "\"\n";
             auto func = [&](const auto& value) {
                 using ValueType = std::remove_cvref_t<decltype(value)>;
                 if constexpr (!serialization::detail::SerializeMethodAvailable<ValueType>) {
@@ -259,8 +257,8 @@ private:
                 else {
                     auto serialized =
                         serialization::SerializeInformation<ValueType>::serialize(value);
-                    std::cout << "Writing " << serialized.size() << " bytes into segment "
-                              << segmentId << "\n";
+                    // std::cout << "Writing " << serialized.size() << " bytes into segment "
+                    //           << segmentId << "\n";
                     m_sharedMemoryImpl.appendToSegment(segmentId, serialized);
                 }
             };
@@ -269,8 +267,8 @@ private:
 
         auto funcRecursive = [&](const auto& node) {
             using Node = std::remove_cvref_t<decltype(node)>;
-            std::cout << "Recursing (Inlining) for field \""
-                      << serialization::debug::displayName<typename Node::Tag>() << "\"\n";
+            // std::cout << "Recursing (Inlining) for field \""
+            << serialization::debug::displayName<typename Node::Tag>() << "\"\n";
             using SerializeInformation = serialization::SerializeInformation<S>;
             using Node = std::remove_cvref_t<decltype(node)>;
             using FieldTag = typename Node::Tag;
