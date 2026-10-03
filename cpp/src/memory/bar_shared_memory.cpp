@@ -29,10 +29,11 @@ BarSharedMemory::SerializableId BarSharedMemory::writeUnitData(const UnitData& u
      * Die erste über diesen Wrapper geschriebene UnitData bestimmt
      * die eigene Team-ID.
      */
+    std::cout << "Writing UnitData for team ID: " << unitData.team_id << std::endl;
     if (!m_ownTeamId.has_value()) {
         m_ownTeamId = unitData.team_id;
     }
-
+    std::cout << "Own team ID cached" << std::endl;
     return m_sharedMemory.write(unitData);
 }
 

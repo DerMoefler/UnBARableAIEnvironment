@@ -6,7 +6,7 @@ from src.train.reward import RewardCalculator
 import numpy as np
 import bar_ai
 
-
+import logging
 class BAR_Environment:
     def __init__(
         self,
@@ -46,6 +46,8 @@ class BAR_Environment:
         self.grpc_server = UnBARableAIGRPCServer()
         self.grpc_server.start()
 
+        self.shared_memory_name = f"/unbarable_ai_read"
+
     def _require_session(self) -> EngineSession:
         """
         If there is no EngineSession object assigned to the BAR_Environemnt and running, an error ist thrown, otherwise the running session is being returned.
@@ -69,10 +71,16 @@ class BAR_Environment:
         if self.session is not None:
             self.session.stop()
 
+        
+        
+        shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
+        
 
         # Neue Session erstellen + starten
         self.session = EngineSession(self.session_cfg, self.end_of_session)
         self.session.start()
+        
+        logging.info("Engine session started. Waiting for first handleEventUpdate...")
 
         status, update_id = self.grpc_server.wait_for_next_update(
             previous_count=0,
@@ -93,9 +101,6 @@ class BAR_Environment:
         # Falls der Frame noch nicht gelesen werden kann, bleibt er -1.
         self.episode_start_frame = self._safe_get_world_frame(self.session)
 
-        shared_memory_name = f"/unabarable_ai_read_{self.current_update_id}"
-        shared_memory = bar_ai.SharedMemory.create(shared_memory_name)
-        observation = self.create_observation_dictionary(shared_memory)
 
         self.reward_calculator.reset(self._get_team_stats())
         info = {}
@@ -106,6 +111,8 @@ class BAR_Environment:
         info["max_episode_frames"] = self.max_episode_frames
         info["reward_state_initialized"] = self.reward_calculator.initialized
 
+        observation = self.create_observation_dictionary(shared_memory)
+        bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, info
 
@@ -150,11 +157,9 @@ class BAR_Environment:
 
         observation = None
         reward = 0.0
-        shared_memory_name = (
-            f"/unabarable_ai_read_{self.current_update_id}"
-        )
+         
         if not terminated and not truncated:
-            shared_memory = bar_ai.SharedMemory.create(shared_memory_name)
+            shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
             observation = self.create_observation_dictionary(shared_memory)
             reward = self.reward_calculator.calculate(self._get_team_stats())
 
@@ -186,6 +191,10 @@ class BAR_Environment:
         Returns
         -------
         """
+        if self.grpc_server is not None:
+            self.grpc_server.stop()
+            self.grpc_server = None
+        bar_ai.SharedMemory.remove(self.shared_memory_name)
         if self.session is not None:
             self.session.stop()
             self.session = None
