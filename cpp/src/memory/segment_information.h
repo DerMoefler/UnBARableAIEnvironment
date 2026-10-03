@@ -74,6 +74,12 @@ public:
     position_t getMemoryStart(void) const;
 
     /**
+     * \brief Get the memory end of the list.
+     * \see PartiallyLinkedListInformation::getMemoryEnd.
+     */
+    inline position_t getMemoryEnd(void) const { return m_information.getMemoryEnd(); }
+
+    /**
      * \brief Get the position (relate to the shm start) from offset within the segment.
      * \see PartiallyLinkedListInformation::getDataPosition.
      */
@@ -154,7 +160,7 @@ public:
      * \return Bool whether list is full.
      * \see PartiallyLinkedListInformation::isListFull
      */
-    inline bool isListFull(void) const { return m_information.isListFull(); }
+    inline bool isFull(void) const { return m_information.isListFull(); }
 
 private:
     /**

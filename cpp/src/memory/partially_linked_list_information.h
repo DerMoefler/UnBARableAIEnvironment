@@ -167,6 +167,11 @@ public:
     inline position_t getMemoryStart(void) const { return m_memoryStart; };
 
     /**
+     * \brief Get the last byte the list reserved in memory.
+     */
+    position_t getMemoryEnd(void) const;
+
+    /**
      * \brief Get the data capacity of the list.
      * \return Data capacity.
      */

@@ -127,6 +127,14 @@ size_t PartiallyLinkedListInformation::getDataSize(size_t partialSegmentIndex) c
     return m_dataSizes[partialSegmentIndex];
 }
 
+position_t PartiallyLinkedListInformation::getMemoryEnd(void) const {
+    position_t result{};
+    for (std::size_t i = 0; i < m_sizes.size(); i++) {
+        result = std::max(result, static_cast<position_t>(m_offsets[i] + m_sizes[i]));
+    }
+    return result;
+}
+
 size_t PartiallyLinkedListInformation::getCapacity(void) const {
     size_t capacity = 0;
     for (const auto& size : m_dataSizes) capacity += size;

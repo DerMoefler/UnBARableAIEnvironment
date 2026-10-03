@@ -73,6 +73,8 @@ public:
         id::id_t serializableId = m_idAllocator.allocate();
         createLayoutTableEntry<S>(serializableId, layout.getSegmentId().value());
         m_layouts.push_back(std::move(layout));
+        std::cout << "SharedMemory<Impl, SupportedTypes...>::write: Finished successfully"
+                  << std::endl;
         return serializableId;
     }
 

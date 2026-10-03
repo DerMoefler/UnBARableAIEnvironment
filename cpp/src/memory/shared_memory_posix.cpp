@@ -60,6 +60,7 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
         throw std::runtime_error("Initializing segments information failed");
     }
     vThis.initializeIdAllocator();
+    vThis.updateHead();
 
     return vThis;
 }
@@ -269,11 +270,16 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
     size_t partialSegmentTableStart = c_segment_table_start;
     constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
 
-    m_segmentTableOffsets.push_back(partialSegmentTableStart);
-
     // Returns whether another partial segment table follows
     auto initializePartialSegmentsInformation = [&]() -> bool {
+        // Add this to offsets
+        m_segmentTableOffsets.push_back(partialSegmentTableStart);
+
         m_segmentsInformation.reserve(c_segment_table_start);
+        // Update head
+        m_head = std::max(m_head,
+                          static_cast<position_t>(partialSegmentTableStart + c_segment_table_size));
+
         std::vector<std::byte> partialSegmentTable =
             read(partialSegmentTableStart, c_segment_table_size);
         for (int i = 0; i < c_contiguous_segment_count; i++) {
@@ -310,7 +316,8 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
         }
         position_t continuation = dataViewToUnsigned<position_t>(
             std::span{partialSegmentTable}.subspan(c_segment_table_size - sizeof(link_t)));
-        return continuation ? true : false;
+        partialSegmentTableStart = continuation;
+        return continuation != 0;
     };
 
     auto run = true;
@@ -319,6 +326,18 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
     }
 
     return true;
+}
+
+void SharedMemoryPosix::updateHead(void) {
+    // Minimum head position
+    m_head = c_segment_table_start;
+
+    for (const auto tableOffset : m_segmentTableOffsets) {
+        m_head = std::max(m_head, static_cast<position_t>(tableOffset + c_segment_table_size));
+    }
+    for (const auto& si : m_segmentsInformation) {
+        m_head = std::max(m_head, si.getMemoryEnd());
+    }
 }
 
 void SharedMemoryPosix::initializeIdAllocator(void) {

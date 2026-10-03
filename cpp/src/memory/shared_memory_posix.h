@@ -276,6 +276,14 @@ private:
     bool initializeSegmentsInformation(void);
 
     /**
+     * \brief Updates the head position.
+     *
+     * \pre m_segmentsInformation must have been initialized (see \ref
+     * initializeSegmentsInformation).
+     */
+    void updateHead(void);
+
+    /**
      * \brief Initializes the id allocator according to the m_segmentsInformation.
      *
      * Overrides the current idAllocator completely.
