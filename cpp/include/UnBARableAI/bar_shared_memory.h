@@ -14,6 +14,7 @@
 #include <serialization/floating_point.tpp>
 #include <serialization/unit_data.tpp>
 #include <serialization/action.tpp>
+#include <serialization/enum.tpp>
 
 namespace UnBARableAINS::memory {
 

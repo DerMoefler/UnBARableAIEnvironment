@@ -30,11 +30,15 @@ struct SerializeInformation<Action> {
         using Type = uint32_t;
     };
 
+    struct F_ActionId : detail::Field_t {
+        using Type = ActionId;
+    };
+
     struct F_TargetUnitId : detail::Field_t {
         using Type = uint32_t;
     };
 
-    using Fields = detail::Fields<F_UnitId, F_TeamId, F_AllyTeamId, F_TargetUnitId>;
+    using Fields = detail::Fields<F_UnitId, F_TeamId, F_AllyTeamId, F_ActionId, F_TargetUnitId>;
 
     inline static constexpr uint32_t get(std::type_identity<F_UnitId>,
                                          const Type& action) noexcept {
@@ -51,18 +55,24 @@ struct SerializeInformation<Action> {
         return action.ally_team_id;
     }
 
+    inline static constexpr ActionId get(std::type_identity<F_ActionId>,
+                                         const Type& action) noexcept {
+        return action.action_id;
+    }
+
     inline static constexpr uint32_t get(std::type_identity<F_TargetUnitId>,
                                          const Type& action) noexcept {
         return action.target_unit_id;
     }
 
     inline static constexpr Type constructFromFields(uint32_t unit_id, uint32_t team_id,
-                                                     uint32_t ally_team_id,
+                                                     uint32_t ally_team_id, ActionId actionId,
                                                      uint32_t target_unit_id) noexcept {
-        // TODO Fix action id
-        return Action{unit_id, team_id, ally_team_id, ActionId::Attack, target_unit_id};
+        return Action{unit_id, team_id, ally_team_id, actionId, target_unit_id};
     }
 };
+
+static_assert(Serializable<Action>, "Action is not serializable!");
 
 }  // namespace serialization
 
