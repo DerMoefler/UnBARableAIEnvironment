@@ -111,7 +111,7 @@ class BAR_Environment:
         info["max_episode_frames"] = self.max_episode_frames
         info["reward_state_initialized"] = self.reward_calculator.initialized
 
-        observation = self.create_observation_dictionary(shared_memory)
+        observation = self.create_observation_dictionary()
         bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, info
@@ -154,7 +154,7 @@ class BAR_Environment:
         reward = 0.0
          
         if not terminated and not truncated:
-            observation = self.create_observation_dictionary(shared_memory)
+            observation = self.create_observation_dictionary()
             reward = self.reward_calculator.calculate(self._get_team_stats())
 
         # Aktuelle Unit-Zahlen für Debugging
@@ -190,7 +190,10 @@ class BAR_Environment:
         if self.grpc_server is not None:
             self.grpc_server.stop()
             self.grpc_server = None
-        bar_ai.SharedMemory.remove(self.shared_memory_name)
+        try:
+            bar_ai.SharedMemory.remove(self.shared_memory_name)
+        except Exception:
+            pass
         if self.session is not None:
             self.session.stop()
             self.session = None
@@ -322,7 +325,7 @@ class BAR_Environment:
 
         self.grpc_server.stop()
 
-    def create_observation_dictionary(self, shared_memory: bar_ai.SharedMemory):
+    def create_observation_dictionary(self):
         """
         A dictionary with numpy arraays with all info is being created. The np arrays 
 
@@ -336,7 +339,9 @@ class BAR_Environment:
         dictionary : dict
             a dict where every agent is a key and the data is a numpy array with the infos from the UniData
         """
+        shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
         unit_list = shared_memory.read_all_units()
+        logging.info(unit_list)
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 

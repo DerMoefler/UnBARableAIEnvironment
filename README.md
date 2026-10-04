@@ -65,6 +65,7 @@ CONTAINER_IMAGE=recoil-build-amd64-linux:latest docker-build-v2/build.sh linux
 
 - if you dont have the image yet check the last part in the [ImageReadme](RecoilEngine/docker-build-v2/README.md)
 - make sure your wsl has more than 10 GB ram and 8 GB swap
+- make sure you have a cpp compiler
 - Engine has no git tag, run:
 
 ```console
