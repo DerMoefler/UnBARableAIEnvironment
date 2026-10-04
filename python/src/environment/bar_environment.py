@@ -249,23 +249,25 @@ class BAR_Environment:
             Alive units of all other teams.
         """
         try:
-            session = self._require_session()
+            shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
+            units = shared_memory.read_all_units()
             alive_units = session.get_alive_units()
         except Exception:
-            # If shared memory is not ready yet, do not crash the environment.
-            # In that case termination should not trigger.
+            logging.exception("Could not read units from shared memory")
             return [], []
 
+        training_team_id = self.reward_calculator.config.training_team_id
+
         own_alive = [
-            unit for unit in alive_units
-            if int(unit.team_id) == self.reward_calculator.config.training_team_id
+            unit for unit in units
+            if int(unit.team_id) == training_team_id
             and not unit.is_dead
             and float(unit.health) > 0.0
         ]
 
         enemy_alive = [
             unit for unit in alive_units
-            if int(unit.team_id) != self.reward_calculator.config.training_team_id
+            if int(unit.team_id) != training_team_id
             and not unit.is_dead
             and float(unit.health) > 0.0
         ]
