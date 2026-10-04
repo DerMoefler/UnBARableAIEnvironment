@@ -35,20 +35,20 @@ import torch
 # If this import does not match your project, replace it with the import
 # from your old tests/test_bar_3v3_training.py file.
 # ---------------------------------------------------------------------------
-try:
-    from src.environment.simulated_bar_3v3_pawn_env import SimulatedBAR3v3PawnEnv
-except ImportError:
-    try:
-        from src.environment.bar_3v3_pawn_env import SimulatedBAR3v3PawnEnv
-    except ImportError:
-        try:
-            from src.environment.bar_environment import SimulatedBAR3v3PawnEnv
-        except ImportError as import_err:
-            raise ImportError(
-                "Could not import SimulatedBAR3v3PawnEnv.\n"
-                "Open your old tests/test_bar_3v3_training.py and copy the correct "
-                "SimulatedBAR3v3PawnEnv import into this file."
-            ) from import_err
+# try:
+#     from src.environment.simulated_bar_3v3_pawn_env import SimulatedBAR3v3PawnEnv
+# except ImportError:
+#     try:
+#         from src.environment.bar_3v3_pawn_env import SimulatedBAR3v3PawnEnv
+#     except ImportError:
+#         try:
+#             from src.environment.bar_environment import SimulatedBAR3v3PawnEnv
+#         except ImportError as import_err:
+#             raise ImportError(
+#                 "Could not import SimulatedBAR3v3PawnEnv.\n"
+#                 "Open your old tests/test_bar_3v3_training.py and copy the correct "
+#                 "SimulatedBAR3v3PawnEnv import into this file."
+#             ) from import_err
 
 
 from src.train.policy import R_MAPPO_Policy
