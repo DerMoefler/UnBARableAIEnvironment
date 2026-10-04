@@ -22,8 +22,13 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import os
+import sys
+import time
+from contextlib import contextmanager
 import random
 import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -1036,6 +1041,79 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+@contextmanager
+def _redirect_native_output(log_path: Path):
+    """Redirect process-level stdout/stderr during native extension calls.
+
+    contextlib.redirect_stdout is insufficient for C++ std::cout. This uses
+    dup2, so output written by pybind/C++ code to file descriptors 1 and 2 is
+    captured as well. Keep the context narrow because it is process-global.
+    """
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved_stdout = os.dup(1)
+    saved_stderr = os.dup(2)
+    try:
+        with log_path.open("a", buffering=1) as log_file:
+            os.dup2(log_file.fileno(), 1)
+            os.dup2(log_file.fileno(), 2)
+            yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(saved_stdout, 1)
+        os.dup2(saved_stderr, 2)
+        os.close(saved_stdout)
+        os.close(saved_stderr)
+
+
+def _format_duration(seconds: float) -> str:
+    minutes, seconds = divmod(max(0.0, seconds), 60.0)
+    hours, minutes = divmod(int(minutes), 60)
+    if hours:
+        return f"{hours:d}h {minutes:02d}m {seconds:06.3f}s"
+    if minutes:
+        return f"{minutes:d}m {seconds:06.3f}s"
+    return f"{seconds:.3f}s"
+
+
+def _warm_up_policy(
+    policy: Any,
+    device: torch.device,
+    num_agents: int,
+    obs_dim: int,
+    action_dim: int,
+) -> None:
+    """Initialize lazy CPU/CUDA work before starting the real-time engine.
+
+    The fast BAR match can finish while the first CUDA operation is still
+    initializing its context and kernels. Running one synthetic inference
+    before env.reset() removes that one-time delay from the live episode.
+    """
+    dummy_obs = np.zeros((num_agents, obs_dim), dtype=np.float32)
+    dummy_share_obs = np.zeros((obs_dim,), dtype=np.float32)
+    dummy_available_actions = np.ones(
+        (num_agents, action_dim), dtype=np.float32
+    )
+
+    policy.actor.eval()
+    policy.critic.eval()
+    with torch.no_grad():
+        _policy_sample_actions(
+            policy=policy,
+            obs=dummy_obs,
+            share_obs=dummy_share_obs,
+            available_actions=dummy_available_actions,
+            device=device,
+            num_agents=num_agents,
+        )
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    policy.actor.train()
+    policy.critic.train()
+
+
 def _save_checkpoint(policy: Any, args: argparse.Namespace, episode: int, model_dir: Path) -> Path:
     """Save actor, critic, and reconstruction metadata atomically."""
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -1048,6 +1126,14 @@ def _save_checkpoint(policy: Any, args: argparse.Namespace, episode: int, model_
         "training_team_id": int(args.training_team_id),
         "actor_state_dict": policy.actor.state_dict(),
         "critic_state_dict": policy.critic.state_dict(),
+        "actor_optimizer_state_dict": (
+            policy.actor_optimizer.state_dict()
+            if hasattr(policy, "actor_optimizer") else None
+        ),
+        "critic_optimizer_state_dict": (
+            policy.critic_optimizer.state_dict()
+            if hasattr(policy, "critic_optimizer") else None
+        ),
     }
     episode_path = model_dir / f"r_mappo_episode_{episode:04d}.pt"
     temporary_path = episode_path.with_suffix(".tmp")
@@ -1087,7 +1173,7 @@ def main() -> None:
     parser.add_argument("--num-agents", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--device", type=str, default="auto", choices=("auto", "cpu", "cuda", "cuda:0"))
     parser.add_argument("--obs-dim", type=int, default=OBS_DIM)
     parser.add_argument("--action-dim", type=int, default=5)
     parser.add_argument("--max-steps", type=int, default=128)
@@ -1096,10 +1182,27 @@ def main() -> None:
     parser.add_argument("--debug-env", action="store_true")
     parser.add_argument("--debug-shapes", action="store_true")
     parser.add_argument(
-        "--model-dir",
+        "--model-root",
         type=Path,
         default=Path("models/r_mappo"),
-        help="Directory for model checkpoints.",
+        help="Parent directory containing named experiment runs.",
+    )
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Experiment name. Defaults to run_YYYY-MM-DD_HH-MM-SS.",
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Checkpoint to load before continuing training.",
+    )
+    parser.add_argument(
+        "--native-log",
+        type=Path,
+        default=None,
+        help="Capture C/C++ stdout and stderr. Defaults to RUN_DIR/native.log.",
     )
     parser.add_argument(
         "--save-every",
@@ -1114,8 +1217,44 @@ def main() -> None:
 
     _set_seed(args.seed)
 
-    device = torch.device(args.device)
-    print(f"DEBUG: device = {device}", flush=True)
+    if args.device == "auto":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA was requested, but this PyTorch installation cannot access it. "
+            "Run the CUDA diagnostic shown in the documentation."
+        )
+    device_description = (
+        torch.cuda.get_device_name(device)
+        if device.type == "cuda" else "CPU"
+    )
+    print(f"DEBUG: using device {device} ({device_description})", flush=True)
+
+    if args.resume is not None and args.run_name is None:
+        run_dir = args.resume.resolve().parent
+        args.run_name = run_dir.name
+    else:
+        args.run_name = args.run_name or datetime.now().strftime("run_%Y-%m-%d_%H-%M-%S")
+        run_dir = args.model_root / args.run_name
+
+    if run_dir.exists() and args.resume is None:
+        raise FileExistsError(
+            f"Run directory already exists: {run_dir}. Choose another --run-name "
+            "or pass --resume with a checkpoint from that run."
+        )
+    run_dir.mkdir(parents=True, exist_ok=True)
+    print(f"DEBUG: run name = {args.run_name}", flush=True)
+    print(f"DEBUG: run directory = {run_dir}", flush=True)
+    native_log = args.native_log or (run_dir / "native.log")
+    print(f"DEBUG: native output log = {native_log}", flush=True)
+    run_started_at = time.perf_counter()
+    total_engine_start_seconds = 0.0
+    total_engine_step_seconds = 0.0
+    total_inference_seconds = 0.0
+    total_training_seconds = 0.0
+    total_checkpoint_seconds = 0.0
 
     env = None
     success = False
@@ -1135,6 +1274,24 @@ def main() -> None:
             lr=args.lr,
         )
         print("DEBUG: policy created", flush=True)
+
+        start_episode = 0
+        if args.resume is not None:
+            checkpoint = torch.load(args.resume, map_location=device, weights_only=True)
+            if int(checkpoint["obs_dim"]) != obs_dim or int(checkpoint["action_dim"]) != action_dim:
+                raise ValueError(
+                    "Checkpoint dimensions do not match this run: "
+                    f"checkpoint=({checkpoint['obs_dim']}, {checkpoint['action_dim']}), "
+                    f"requested=({obs_dim}, {action_dim})."
+                )
+            policy.actor.load_state_dict(checkpoint["actor_state_dict"])
+            policy.critic.load_state_dict(checkpoint["critic_state_dict"])
+            if checkpoint.get("actor_optimizer_state_dict") is not None and hasattr(policy, "actor_optimizer"):
+                policy.actor_optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
+            if checkpoint.get("critic_optimizer_state_dict") is not None and hasattr(policy, "critic_optimizer"):
+                policy.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+            start_episode = int(checkpoint.get("episode", 0))
+            print(f"DEBUG: resumed from {args.resume} at episode {start_episode}", flush=True)
 
         print("Initializing replay buffer...", flush=True)
         buffer = SharedReplayBuffer(
@@ -1177,13 +1334,28 @@ def main() -> None:
 
         print("DEBUG: trainer ActionId adapter installed", flush=True)
         print("DEBUG: trainer created", flush=True)
+
+        print(f"Warming up policy on {device} before starting BAR...", flush=True)
+        _warm_up_policy(
+            policy=policy,
+            device=device,
+            num_agents=args.num_agents,
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+        )
+        print("DEBUG: policy warm-up complete", flush=True)
+
         print("\nStarting 3v3 pawn training loop...", flush=True)
 
         recurrent_n = 1
         hidden_size = 1
 
-        for episode in range(args.num_episodes):
+        for episode in range(start_episode, start_episode + args.num_episodes):
             print(f"DEBUG: starting episode {episode + 1}", flush=True)
+            episode_started_at = time.perf_counter()
+            inference_seconds = 0.0
+            engine_start_seconds = 0.0
+            engine_step_seconds = 0.0
 
             # Do not reuse an environment whose engine session or gRPC server
             # was stopped by the preceding episode.
@@ -1200,10 +1372,13 @@ def main() -> None:
                     env = None
 
             print("Initializing fresh BAR Environment...", flush=True)
-            env = BAR_Environment()
-            print("DEBUG: fresh BAR Environment initialized.", flush=True)
-
-            reset_result = env.reset()
+            environment_started_at = time.perf_counter()
+            with _redirect_native_output(native_log):
+                env = BAR_Environment()
+                reset_result = env.reset()
+            engine_start_seconds += time.perf_counter() - environment_started_at
+            total_engine_start_seconds += engine_start_seconds
+            print("DEBUG: fresh BAR Environment initialized and reset.", flush=True)
 
             print("DEBUG: env.reset() returned", flush=True)
 
@@ -1269,6 +1444,7 @@ def main() -> None:
                 if args.debug_shapes:
                     print(f"DEBUG: rollout step {step_count}", flush=True)
 
+                inference_started_at = time.perf_counter()
                 value_preds, actions, action_log_probs = _policy_sample_actions(
                     policy=policy,
                     obs=obs,
@@ -1277,6 +1453,11 @@ def main() -> None:
                     device=device,
                     num_agents=args.num_agents,
                 )
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
+                inference_elapsed = time.perf_counter() - inference_started_at
+                inference_seconds += inference_elapsed
+                total_inference_seconds += inference_elapsed
 
                 env_actions = actions
 
@@ -1299,7 +1480,12 @@ def main() -> None:
                 if args.debug_shapes:
                     print(f"DEBUG: env_actions = {env_actions.tolist()}", flush=True)
 
-                step_result = _step_all_agents(env, env_actions)
+                environment_started_at = time.perf_counter()
+                with _redirect_native_output(native_log):
+                    step_result = _step_all_agents(env, env_actions)
+                engine_step_elapsed = time.perf_counter() - environment_started_at
+                engine_step_seconds += engine_step_elapsed
+                total_engine_step_seconds += engine_step_elapsed
 
                 (
                     next_obs_raw,
@@ -1518,17 +1704,22 @@ def main() -> None:
             trainer.prep_training()
             print("DEBUG: trainer.prep_training() done", flush=True)
 
+            training_started_at = time.perf_counter()
             train_info = trainer.train(
                 buffer,
                 update_actor=True,
             )
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            training_seconds = time.perf_counter() - training_started_at
+            total_training_seconds += training_seconds
 
             print("DEBUG: trainer.train() done", flush=True)
 
             buffer.reset()
             print("DEBUG: buffer.reset() done", flush=True)
 
-            print(f"Episode {episode + 1}/{args.num_episodes}", flush=True)
+            print(f"Episode {episode + 1}/{start_episode + args.num_episodes}", flush=True)
             print(f"  Episode Reward: {episode_reward:.4f}", flush=True)
             print(f"  Steps: {step_count}", flush=True)
 
@@ -1554,20 +1745,84 @@ def main() -> None:
             print(f"  Policy Loss: {train_info.get('policy_loss', 0):.6f}", flush=True)
             print(f"  Entropy: {train_info.get('dist_entropy', 0):.6f}", flush=True)
 
+            episode_seconds = time.perf_counter() - episode_started_at
+            elapsed_seconds = time.perf_counter() - run_started_at
+            completed_this_run = episode - start_episode + 1
+            average_episode_seconds = elapsed_seconds / completed_this_run
+            remaining_episodes = start_episode + args.num_episodes - episode - 1
+            eta_seconds = average_episode_seconds * remaining_episodes
+            print(f"  Timing: episode={_format_duration(episode_seconds)}", flush=True)
+            print(f"          inference={_format_duration(inference_seconds)}", flush=True)
+            print(f"          engine start/reset={_format_duration(engine_start_seconds)}", flush=True)
+            print(f"          engine steps/waiting={_format_duration(engine_step_seconds)}", flush=True)
+            print(f"          PPO update={_format_duration(training_seconds)}", flush=True)
+            print(f"          elapsed={_format_duration(elapsed_seconds)}", flush=True)
+            print(f"          ETA={_format_duration(eta_seconds)}", flush=True)
+
             if args.save_every > 0 and (episode + 1) % args.save_every == 0:
+                checkpoint_started_at = time.perf_counter()
                 checkpoint_path = _save_checkpoint(
-                    policy, args, episode + 1, args.model_dir
+                    policy, args, episode + 1, run_dir
                 )
+                total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
                 print(f"  Saved checkpoint: {checkpoint_path}", flush=True)
             print("", flush=True)
 
         # Always save the final state, even when save_every is disabled or the
         # final episode is not an exact multiple of it.
+        checkpoint_started_at = time.perf_counter()
         final_checkpoint = _save_checkpoint(
-            policy, args, args.num_episodes, args.model_dir
+            policy, args, start_episode + args.num_episodes, run_dir
         )
+        total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
         print(f"Final model saved to: {final_checkpoint}", flush=True)
-        print(f"Latest model saved to: {args.model_dir / 'r_mappo_latest.pt'}", flush=True)
+        print(f"Latest model saved to: {run_dir / 'r_mappo_latest.pt'}", flush=True)
+
+        total_runtime = time.perf_counter() - run_started_at
+        measured_runtime = (
+            total_engine_start_seconds
+            + total_engine_step_seconds
+            + total_inference_seconds
+            + total_training_seconds
+            + total_checkpoint_seconds
+        )
+        other_seconds = max(0.0, total_runtime - measured_runtime)
+
+        def percentage(seconds: float) -> float:
+            return 100.0 * seconds / total_runtime if total_runtime > 0.0 else 0.0
+
+        print("\nOverall timing summary", flush=True)
+        print(f"  Total runtime:          {_format_duration(total_runtime)} (100.00%)", flush=True)
+        print(
+            f"  Engine start/reset:     {_format_duration(total_engine_start_seconds)} "
+            f"({percentage(total_engine_start_seconds):6.2f}%)",
+            flush=True,
+        )
+        print(
+            f"  Engine steps/waiting:   {_format_duration(total_engine_step_seconds)} "
+            f"({percentage(total_engine_step_seconds):6.2f}%)",
+            flush=True,
+        )
+        print(
+            f"  Policy inference:       {_format_duration(total_inference_seconds)} "
+            f"({percentage(total_inference_seconds):6.2f}%)",
+            flush=True,
+        )
+        print(
+            f"  PPO updates:            {_format_duration(total_training_seconds)} "
+            f"({percentage(total_training_seconds):6.2f}%)",
+            flush=True,
+        )
+        print(
+            f"  Checkpoint writing:     {_format_duration(total_checkpoint_seconds)} "
+            f"({percentage(total_checkpoint_seconds):6.2f}%)",
+            flush=True,
+        )
+        print(
+            f"  Other Python/logging:   {_format_duration(other_seconds)} "
+            f"({percentage(other_seconds):6.2f}%)",
+            flush=True,
+        )
         success = True
 
     except Exception as e:
