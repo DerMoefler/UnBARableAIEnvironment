@@ -251,7 +251,6 @@ class BAR_Environment:
         try:
             shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
             units = shared_memory.read_all_units()
-            alive_units = session.get_alive_units()
         except Exception:
             logging.exception("Could not read units from shared memory")
             return [], []
@@ -266,7 +265,7 @@ class BAR_Environment:
         ]
 
         enemy_alive = [
-            unit for unit in alive_units
+            unit for unit in units
             if int(unit.team_id) != training_team_id
             and not unit.is_dead
             and float(unit.health) > 0.0
