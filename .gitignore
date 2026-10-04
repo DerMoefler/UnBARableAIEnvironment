@@ -21,3 +21,6 @@ wandb/
 
 # Emacs stuff
 .projectile
+
+# Models
+models/
