@@ -97,9 +97,6 @@ class BAR_Environment:
         # Episode-Zähler zurücksetzen
         self.episode_step = 0
 
-        # Start-Frame der Episode speichern.
-        # Falls der Frame noch nicht gelesen werden kann, bleibt er -1.
-        self.episode_start_frame = self._safe_get_world_frame(self.session)
 
 
         self.reward_calculator.reset(self._get_team_stats())
@@ -161,7 +158,6 @@ class BAR_Environment:
         own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
 
         info = {
-            "frame": self._safe_get_world_frame(session),
             "episode_step": self.episode_step,
             "episode_start_frame": self.episode_start_frame,
             "own_alive_count": len(own_alive),
@@ -213,26 +209,6 @@ class BAR_Environment:
             self.close()
         except Exception:
             pass
-
-    def _safe_get_world_frame(self, session: EngineSession) -> int:
-        """
-        Safely returns the current engine frame.
-
-        Parameters
-        ----------
-        session : EngineSession
-            The currently running engine session.
-
-        Returns
-        -------
-        frame : int
-            Current world frame.
-            Returns -1 if the frame cannot be read.
-        """
-        try:
-            return int(session.get_world_frame())
-        except Exception:
-            return -1
 
     def _get_own_and_enemy_alive_units(self):
         """
