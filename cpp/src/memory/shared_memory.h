@@ -92,7 +92,7 @@ public:
 
         if constexpr (Context::c_is_fully_deserializable) {
             // std::cout << "SharedMemory::readImpl: Fully deserializable\n";
-            Context context{layout, m_sharedMemoryImpl};
+            Context context{layout, m_sharedMemoryImpl, {}};
             return context.deserialize();
         }
         else {

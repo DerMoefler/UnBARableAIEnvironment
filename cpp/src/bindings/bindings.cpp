@@ -3,6 +3,7 @@
 
 #include "../../include/UnBARableAI/unit_data.h"
 #include "../../include/UnBARableAI/action.h"
+#include "../../include/UnBARableAI/engine_status.h"
 
 #include "../../include/UnBARableAI/bar_shared_memory.h"
 
@@ -11,6 +12,7 @@ namespace py = pybind11;
 using UnitData = UnBARableAINS::unit::UnitData;
 using Action = UnBARableAINS::Action;
 using ActionId = UnBARableAINS::ActionId;
+using EngineStatus = UnBARableAINS::EngineStatus;
 using BarSharedMemory = UnBARableAINS::memory::BarSharedMemory;
 
 PYBIND11_MODULE(bar_ai, m) {
@@ -19,6 +21,7 @@ PYBIND11_MODULE(bar_ai, m) {
     // -------------------------
     // ActionId
     // -------------------------
+
     py::enum_<ActionId>(m, "ActionId")
         .value("MoveRight", ActionId::MoveRight)
         .value("MoveLeft", ActionId::MoveLeft)
@@ -28,15 +31,30 @@ PYBIND11_MODULE(bar_ai, m) {
         .export_values();
 
     // -------------------------
+    // EngineStatus
+    // -------------------------
+
+    py::enum_<EngineStatus>(m, "EngineStatus")
+        .value("UNSPECIFIED_ERROR", EngineStatus::UNSPECIFIED_ERROR)
+        .value("GAME_ENDED", EngineStatus::GAME_ENDED)
+        .value("TEAM_DIED", EngineStatus::TEAM_DIED)
+        .value("AI_KILLED", EngineStatus::AI_KILLED)
+        .value("AI_CRASHED", EngineStatus::AI_CRASHED)
+        .value("AI_FAILED_TO_INIT", EngineStatus::AI_FAILED_TO_INIT)
+        .value("CONNECTION_LOST", EngineStatus::CONNECTION_LOST)
+        .value("OTHER_REASON_ERROR", EngineStatus::OTHER_REASON_ERROR)
+        .value("RUNNING", EngineStatus::RUNNING)
+        .export_values();
+
+    // -------------------------
     // UnitData
     // -------------------------
+
     py::class_<UnitData>(m, "UnitData")
         .def(py::init<>())
 
         .def_readwrite("unit_id", &UnitData::unit_id)
         .def_readwrite("unit_def_id", &UnitData::unit_def_id)
-        //.def_readwrite("unit_def_name", &UnitData::unit_def_name)
-        //.def_readwrite("human_name", &UnitData::human_name)
 
         .def_readwrite("team_id", &UnitData::team_id)
         .def_readwrite("ally_team_id", &UnitData::ally_team_id)
@@ -61,6 +79,7 @@ PYBIND11_MODULE(bar_ai, m) {
     // -------------------------
     // Action
     // -------------------------
+
     py::class_<Action>(m, "Action")
         .def(py::init<>())
         .def_readwrite("unit_id", &Action::unit_id)
@@ -72,6 +91,7 @@ PYBIND11_MODULE(bar_ai, m) {
     // -------------------------
     // SharedMemory
     // -------------------------
+
     py::class_<BarSharedMemory>(m, "SharedMemory")
         .def_static(
             "create",
@@ -97,9 +117,23 @@ PYBIND11_MODULE(bar_ai, m) {
             "write_unit_data",
             &BarSharedMemory::writeUnitData,
             py::arg("unit_data"))
-        
-        .def("read_all_units",
-            &BarSharedMemory::readAllUnits)
+
+        .def(
+            "write_engine_status",
+            &BarSharedMemory::writeEngineStatus,
+            py::arg("status"))
+
+        .def(
+            "read_all_units",
+            [](BarSharedMemory& sharedMemory) {
+                return sharedMemory.readAll<UnitData>();
+            })
+
+        .def(
+            "read_all_engine_statuses",
+            [](BarSharedMemory& sharedMemory) {
+                return sharedMemory.readAll<EngineStatus>();
+            })
 
         .def(
             "get_own_team_id",

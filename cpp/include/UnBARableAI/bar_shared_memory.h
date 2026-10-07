@@ -1,20 +1,32 @@
 #pragma once
 
+#include "action.h"
+#include "engine_status.h"
+#include "unit_data.h"
+
 #include <optional>
 #include <string_view>
 #include <vector>
+#include <concepts>
+#include <stdexcept>
+#include <utility>
+#include <variant>
 
 #include "action.h"
 #include "unit_data.h"
+#include "engine_status.h"
+
+#include <serialization/enum.tpp>
+#include <serialization/floating_point.tpp>
+#include <serialization/unit_data.tpp>
+#include <serialization/action.tpp>
+#include <serialization/engine_status.tpp>
 
 #include <memory/shared_memory.h>
 #include <memory/shared_memory_types.h>
 #include <memory/shared_memory_posix.h>
 
-#include <serialization/floating_point.tpp>
-#include <serialization/unit_data.tpp>
-#include <serialization/action.tpp>
-#include <serialization/enum.tpp>
+
 
 namespace UnBARableAINS::memory {
 
@@ -41,13 +53,15 @@ public:
      */
     using Action = UnBARableAINS::Action;
 
+    using EngineStatus = UnBARableAINS::EngineStatus;
+
     /**
      * \brief Concrete shared-memory implementation used internally.
      *
      * The implementation uses POSIX shared memory and supports serialization
      * of UnitData and Action objects.
      */
-    using Impl = SharedMemory<SharedMemoryPosix, UnitData, Action>;
+    using Impl = SharedMemory<SharedMemoryPosix, UnitData, Action, EngineStatus>;
 
     /// \brief Type alias for the ValueVariant of the implementation, i.e.
     /// std::variant<SupportedTypes...>
@@ -158,30 +172,71 @@ public:
     SerializableId writeUnitData(const UnitData& unitData);
 
     /**
-     * \brief Reads all Action objects in serializable-ID order.
-     * \return vector containing all Action objects stored in shared memory
-     *
-     * UnitData entries are skipped. The method currently assumes that
-     * serializable IDs start at zero, are contiguous and are not deleted.
-     *
-     * \todo Implement SharedMemory::read<Action>(SerializableId).
+     * \brief Writes an engine status to shared memory.
+     * \param status current status of the game engine
+     * \return serializable ID assigned to the stored engine status
      */
-    std::vector<Action> readAllActions();
+    SerializableId writeEngineStatus(EngineStatus status);
 
     /**
-     * \brief Reads all UnitData objects in serializable-ID order.
-     * \return vector containing all UnitData objects stored in shared memory
+     * \brief Reads all stored values of the requested type.
+     * \tparam T supported serializable value type
+     * \return values of type T in serializable-ID order
      *
-     * Action entries are skipped. The returned vector preserves the order in
-     * which the UnitData objects appear in the shared-memory layout table.
+     * Entries containing other supported types are skipped.
      *
-     * The method currently assumes that serializable IDs start at zero, are
-     * contiguous and are not deleted.
-     *
-     * \todo Implement SharedMemory::read<UnitData>(SerializableId).
+     * The current implementation assumes that serializable IDs begin
+     * at zero, are contiguous and cannot be deleted.
      */
-    std::vector<UnitData> readAllUnits();
+    template <typename T>
+    std::vector<T> readAll() {
+        /*
+         * Verhindert, dass readAll() mit einem Typ aufgerufen wird,
+         * den dieses Shared Memory nicht unterstützt.
+         */
+        static_assert(
+            std::same_as<T, UnitData> || std::same_as<T, Action> || std::same_as<T, EngineStatus>,
+            "T is not supported by BarSharedMemory");
 
+        std::vector<T> values;
+
+        SerializableId serializableId = 0;
+
+        while (true) {
+            try {
+                auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
+
+                const bool containsRequestedType =
+                    std::holds_alternative<serialization::Layout<T> >(layoutVariant);
+
+                if (containsRequestedType) {
+                    auto valueVariant = m_sharedMemory.read(serializableId);
+
+                    /*
+                     * Das Layout und der deserialisierte Wert müssen
+                     * denselben Typ besitzen.
+                     */
+                    if (!std::holds_alternative<T>(valueVariant)) {
+                        throw std::runtime_error(
+                            "Layout type and deserialized value "
+                            "type do not match.");
+                    }
+
+                    values.push_back(std::get<T>(std::move(valueVariant)));
+                }
+            } catch (const std::out_of_range&) {
+                /*
+                 * getLayout() wirft std::out_of_range, sobald die
+                 * Serializable-ID außerhalb von m_layouts liegt.
+                 */
+                break;
+            }
+
+            ++serializableId;
+        }
+
+        return values;
+    }
     /**
      * \brief Returns the team ID of the first stored UnitData object.
      * \return team_id of the first UnitData object

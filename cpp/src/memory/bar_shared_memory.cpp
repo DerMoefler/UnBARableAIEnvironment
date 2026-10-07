@@ -37,81 +37,11 @@ BarSharedMemory::SerializableId BarSharedMemory::writeUnitData(const UnitData& u
     return m_sharedMemory.write(unitData);
 }
 
+BarSharedMemory::SerializableId BarSharedMemory::writeEngineStatus(EngineStatus status) {
+    return m_sharedMemory.write(status);
+}
+
 int BarSharedMemory::getOwnTeamId() { return resolveOwnTeamId(); }
-
-std::vector<BarSharedMemory::UnitData> BarSharedMemory::readAllUnits() {
-    std::vector<UnitData> units;
-
-    SerializableId serializableId = 0;
-
-    while (true) {
-        try {
-            auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
-
-            /*
-             * Das Shared Memory kann sowohl UnitData als auch Action
-             * enthalten. Nur UnitData-Einträge werden gelesen.
-             */
-            const bool containsUnitData =
-                std::holds_alternative<serialization::Layout<UnitData> >(layoutVariant);
-
-            if (containsUnitData) {
-                ValueVariant unit = m_sharedMemory.read(serializableId);
-                assert(std::holds_alternative<UnitData>(unit) &&
-                       "Read Serializable must be of type Unit at this point");
-
-                units.push_back(std::get<UnitData>(std::move(unit)));
-            }
-        } catch (const std::out_of_range&) {
-            /*
-             * getLayout() wirft std::out_of_range, wenn serializableId
-             * nicht mehr in m_layouts vorhanden ist.
-             */
-            break;
-        }
-
-        ++serializableId;
-    }
-
-    return units;
-}
-
-std::vector<BarSharedMemory::Action> BarSharedMemory::readAllActions() {
-    std::vector<Action> actions;
-
-    SerializableId serializableId = 0;
-
-    while (true) {
-        try {
-            auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
-
-            /*
-             * Das Shared Memory kann sowohl UnitData als auch Action
-             * enthalten. Nur Action-Einträge werden gelesen.
-             */
-            const bool containsAction =
-                std::holds_alternative<serialization::Layout<Action> >(layoutVariant);
-
-            if (containsAction) {
-                ValueVariant action = m_sharedMemory.read(serializableId);
-                assert(std::holds_alternative<Action>(action) &&
-                       "Read Serializable must be of type Action at this point");
-
-                actions.push_back(std::get<Action>(std::move(action)));
-            }
-        } catch (const std::out_of_range&) {
-            /*
-             * getLayout() wirft std::out_of_range, wenn serializableId
-             * nicht mehr in m_layouts vorhanden ist.
-             */
-            break;
-        }
-
-        ++serializableId;
-    }
-
-    return actions;
-}
 
 int BarSharedMemory::resolveOwnTeamId() {
     if (m_ownTeamId.has_value()) {
@@ -123,7 +53,8 @@ int BarSharedMemory::resolveOwnTeamId() {
      * keine UnitData geschrieben. Daher wird die erste gespeicherte
      * UnitData gelesen.
      */
-    const std::vector<UnitData> units = readAllUnits();
+    std::vector<BarSharedMemory::UnitData> units =
+        readAll<BarSharedMemory::UnitData>();
 
     if (units.empty()) {
         throw std::runtime_error(
