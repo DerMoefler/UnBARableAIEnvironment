@@ -1,0 +1,191 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Sequenzdiagramm" id="seq1">
+    <mxGraphModel dx="1111" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="960" pageHeight="1250" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c2" parent="1" style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;fillColor=#e1d5e7;fillOpacity=35;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;fontColor=#6c4a85;" value="Python" vertex="1">
+          <mxGeometry height="1175" width="560" x="30" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" parent="1" style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;fillColor=#d5e8d4;fillOpacity=35;strokeColor=#82b366;dashed=1;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;fontColor=#4d7a3a;" value="C++" vertex="1">
+          <mxGeometry height="1175" width="260" x="640" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_T" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};fontStyle=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Training" vertex="1">
+          <mxGeometry height="1155" width="100" x="50" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-10" parent="ll_T" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="95" width="10" x="45" y="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_E" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};fontStyle=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Environment" vertex="1">
+          <mxGeometry height="1150" width="100" x="250" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_S" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};fontStyle=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Server" vertex="1">
+          <mxGeometry height="1150" width="100" x="470" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_G" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Engine" vertex="1">
+          <mxGeometry height="1150" width="100" x="660" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-4" parent="ll_G" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="26" width="10" x="45" y="134" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" parent="1" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="50" width="10" x="95" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" parent="1" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="80" width="10" x="95" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" parent="1" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="350" width="10" x="295" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" parent="1" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="540" width="10" x="295" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="c9" parent="1" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="490" width="10" x="515" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" parent="1" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="420" width="10" x="515" y="740" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="reset()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="105" y="130" as="sourcePoint" />
+            <mxPoint x="295" y="130" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c13" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" target="2QtOjbt-EOd6i-KOvS5P-4" value="create_process()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="305" y="175" as="sourcePoint" />
+            <mxPoint x="700" y="175" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c14" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="wait_for_next_update(0)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="305" y="220" as="sourcePoint" />
+            <mxPoint x="515" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c17" edge="1" parent="1" source="c11" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="&lt;span style=&quot;background-color: light-dark(rgb(255, 255, 255), rgb(237, 237, 237));&quot;&gt;handleEventUpdate&lt;/span&gt;&lt;span style=&quot;background-color: light-dark(rgb(116, 167, 254), rgb(237, 237, 237));&quot;&gt;()&lt;/span&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="795" y="280" as="sourcePoint" />
+            <mxPoint x="525" y="280" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c18" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" value="Engine wartet" vertex="1">
+          <mxGeometry height="26" width="120" x="650" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;endSize=8;dashed=1;curved=0;rounded=0;fontSize=12;" value="update_id">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="515" y="385" as="sourcePoint" />
+            <mxPoint x="305" y="385" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c20" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" value="Observation aus Shared Memory auslesen" vertex="1">
+          <mxGeometry height="40" width="170" x="215" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="c21" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;endSize=8;dashed=1;curved=0;rounded=0;fontSize=12;" value="ret: observation">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="295" y="480" as="sourcePoint" />
+            <mxPoint x="105" y="480" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c22" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="step(actions)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="105" y="560" as="sourcePoint" />
+            <mxPoint x="295" y="560" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c23" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" value="Action in Shared Memory schreiben" vertex="1">
+          <mxGeometry height="40" width="170" x="215" y="585" as="geometry" />
+        </mxCell>
+        <mxCell id="c24" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="ack_update(id)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="305" y="665" as="sourcePoint" />
+            <mxPoint x="515" y="665" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c25" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" target="c11" value="weiter (ack)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="525" y="690" as="sourcePoint" />
+            <mxPoint x="795" y="690" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c26" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="wait_for_next_update(id)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="305" y="745" as="sourcePoint" />
+            <mxPoint x="515" y="745" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c30" edge="1" parent="1" source="2QtOjbt-EOd6i-KOvS5P-9" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="handleEventUpdate()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="795" y="930" as="sourcePoint" />
+            <mxPoint x="525" y="930" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c31" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" value="Engine wartet" vertex="1">
+          <mxGeometry height="26" width="120" x="660" y="1010" as="geometry" />
+        </mxCell>
+        <mxCell id="c32" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;endSize=8;dashed=1;curved=0;rounded=0;fontSize=12;" value="update_id">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="515" y="1000" as="sourcePoint" />
+            <mxPoint x="305" y="1000" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c33" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" value="Observation aus Shared Memory auslesen" vertex="1">
+          <mxGeometry height="40" width="170" x="215" y="1020" as="geometry" />
+        </mxCell>
+        <mxCell id="c34" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;endSize=8;dashed=1;curved=0;rounded=0;fontSize=12;" value="ret: observation">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="295" y="1100" as="sourcePoint" />
+            <mxPoint x="105" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-3" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="UnBARableAI" vertex="1">
+          <mxGeometry height="1380" width="100" x="780" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" parent="2QtOjbt-EOd6i-KOvS5P-3" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="580" width="10" x="45" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-9" parent="2QtOjbt-EOd6i-KOvS5P-3" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="340" width="10" x="45" y="780" as="geometry" />
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-5" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" target="c11" value="HandleEvent()">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="750" y="200" />
+            </Array>
+            <mxPoint x="715" y="200" as="sourcePoint" />
+            <mxPoint x="820" y="200" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c27" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" value="Action aus Shared Memory auslesen" vertex="1">
+          <mxGeometry height="40" width="170" x="745" y="720" as="geometry" />
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-6" parent="1" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="" vertex="1">
+          <mxGeometry height="40" width="10" x="705" y="780" as="geometry" />
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-7" edge="1" parent="1" source="c11" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="action">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="830" y="780" as="sourcePoint" />
+            <mxPoint x="715" y="780" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="2QtOjbt-EOd6i-KOvS5P-8" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;endSize=8;curved=0;rounded=0;fontSize=12;" value="HandleEvent()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="715" y="820" as="sourcePoint" />
+            <mxPoint x="825" y="820" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c16" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" value="Observation in Shared Memory schreiben" vertex="1">
+          <mxGeometry height="40" width="170" x="745" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="c29" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=8;fontSize=11;fillColor=#fff2cc;strokeColor=#d6b656;" value="Observation in Shared Memory schreiben" vertex="1">
+          <mxGeometry height="40" width="170" x="740" y="850" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" parent="1" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;width=130;height=25;fillColor=none;" value="loop [pro Schritt]" vertex="1">
+          <mxGeometry height="625" width="880" x="30" y="510" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
