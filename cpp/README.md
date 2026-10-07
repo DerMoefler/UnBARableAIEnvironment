@@ -61,3 +61,9 @@ cmake -S . -B build/Release \
   -DCMAKE_C_COMPILER=/opt/gcc-16/bin/gcc \
   -DCMAKE_CXX_COMPILER=/opt/gcc-16/bin/g++
 ```
+
+## Clang
+to format a file with clang run:
+```console
+clang-format -i file
+```

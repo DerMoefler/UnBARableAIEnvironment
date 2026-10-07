@@ -93,49 +93,23 @@ PYBIND11_MODULE(bar_ai, m) {
     // -------------------------
 
     py::class_<BarSharedMemory>(m, "SharedMemory")
-        .def_static(
-            "create",
-            &BarSharedMemory::create,
-            py::arg("name"))
+        .def_static("create", &BarSharedMemory::create, py::arg("name"))
 
-        .def_static(
-            "open",
-            &BarSharedMemory::open,
-            py::arg("name"))
+        .def_static("open", &BarSharedMemory::open, py::arg("name"))
 
-        .def_static(
-            "remove",
-            &BarSharedMemory::remove,
-            py::arg("name"))
+        .def_static("remove", &BarSharedMemory::remove, py::arg("name"))
 
-        .def(
-            "write_action",
-            &BarSharedMemory::writeAction,
-            py::arg("action"))
+        .def("write_action", &BarSharedMemory::writeAction, py::arg("action"))
 
-        .def(
-            "write_unit_data",
-            &BarSharedMemory::writeUnitData,
-            py::arg("unit_data"))
+        .def("write_unit_data", &BarSharedMemory::writeUnitData, py::arg("unit_data"))
 
-        .def(
-            "write_engine_status",
-            &BarSharedMemory::writeEngineStatus,
-            py::arg("status"))
+        .def("write_engine_status", &BarSharedMemory::writeEngineStatus, py::arg("status"))
 
-        .def(
-            "read_all_units",
-            [](BarSharedMemory& sharedMemory) {
-                return sharedMemory.readAll<UnitData>();
-            })
+        .def("read_all_units",
+             [](BarSharedMemory& sharedMemory) { return sharedMemory.readAll<UnitData>(); })
 
-        .def(
-            "read_all_engine_statuses",
-            [](BarSharedMemory& sharedMemory) {
-                return sharedMemory.readAll<EngineStatus>();
-            })
+        .def("read_all_engine_statuses",
+             [](BarSharedMemory& sharedMemory) { return sharedMemory.readAll<EngineStatus>(); })
 
-        .def(
-            "get_own_team_id",
-            &BarSharedMemory::getOwnTeamId);
+        .def("get_own_team_id", &BarSharedMemory::getOwnTeamId);
 }
