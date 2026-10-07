@@ -1,27 +1,61 @@
+# test_bar_ai.py
+
 import os
-import sys
 import time
 
+import pytest
 
-print(
-    "🚀 Starte bar_ai UnitData-, Action-, EngineStatus- "
-    "und Shared-Memory-Test..."
+import bar_ai
+
+
+# ---------------------------------------------------------------------------
+# Konstanten
+# ---------------------------------------------------------------------------
+
+REQUIRED_EXPORTS = (
+    "UnitData",
+    "Action",
+    "ActionId",
+    "EngineStatus",
+    "SharedMemory",
+)
+
+REQUIRED_SHARED_MEMORY_METHODS = (
+    "create",
+    "open",
+    "remove",
+    "write_unit_data",
+    "write_action",
+    "write_engine_status",
+    "read_all_units",
+    "read_all_engine_statuses",
+    "get_own_team_id",
+)
+
+ACTION_ID_NAMES = (
+    "MoveRight",
+    "MoveLeft",
+    "MoveUp",
+    "MoveDown",
+    "Attack",
+)
+
+ENGINE_STATUS_NAMES = (
+    "UNSPECIFIED_ERROR",
+    "GAME_ENDED",
+    "TEAM_DIED",
+    "AI_KILLED",
+    "AI_CRASHED",
+    "AI_FAILED_TO_INIT",
+    "CONNECTION_LOST",
+    "OTHER_REASON_ERROR",
+    "RUNNING",
 )
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------------------------------
 # Hilfsfunktionen
-# ----------------------------------------------------
-
-def fail(message, exception=None):
-    """Beendet den Test mit einer verständlichen Fehlermeldung."""
-    print(f"❌ {message}")
-
-    if exception is not None:
-        print(f"{type(exception).__name__}: {exception}")
-
-    sys.exit(1)
-
+# ---------------------------------------------------------------------------
 
 def create_unit(
     unit_id,
@@ -63,7 +97,7 @@ def create_unit(
     return unit
 
 
-def validate_fields(instance, expected_values, object_name):
+def assert_fields(instance, expected_values, object_name):
     """Vergleicht Attribute eines gebundenen C++-Objekts."""
     for field_name, expected_value in expected_values.items():
         actual_value = getattr(instance, field_name)
@@ -74,162 +108,19 @@ def validate_fields(instance, expected_values, object_name):
             f"erhalten {actual_value!r}"
         )
 
-        print(
-            f"✅ {object_name}.{field_name}: "
-            f"{actual_value!r}"
-        )
-
 
 def unit_ids(units):
     """Extrahiert Unit-IDs aus einer UnitData-Liste."""
     return [unit.unit_id for unit in units]
 
 
-# ----------------------------------------------------
-# Modul importieren
-# ----------------------------------------------------
+# ---------------------------------------------------------------------------
+# Fixtures für Testobjekte
+# ---------------------------------------------------------------------------
 
-try:
-    import bar_ai
-    print("✅ import bar_ai erfolgreich")
-except Exception as e:
-    fail("import bar_ai fehlgeschlagen", e)
-
-print("📦 Modul:", bar_ai)
-
-
-# ----------------------------------------------------
-# Exportierte Klassen und Enums prüfen
-# ----------------------------------------------------
-
-required_classes = (
-    "UnitData",
-    "Action",
-    "ActionId",
-    "EngineStatus",
-    "SharedMemory",
-)
-
-for class_name in required_classes:
-    if not hasattr(bar_ai, class_name):
-        fail(f"Fehlende Klasse oder Enum: {class_name}")
-
-    print(f"✅ Export vorhanden: {class_name}")
-
-
-# ----------------------------------------------------
-# Exportierte Shared-Memory-Methoden prüfen
-# ----------------------------------------------------
-
-required_shared_memory_methods = (
-    "create",
-    "open",
-    "remove",
-    "write_unit_data",
-    "write_action",
-    "write_engine_status",
-    "read_all_units",
-    "read_all_engine_statuses",
-    "get_own_team_id",
-)
-
-for method_name in required_shared_memory_methods:
-    if not hasattr(bar_ai.SharedMemory, method_name):
-        fail(
-            "Fehlende SharedMemory-Methode: "
-            f"{method_name}"
-        )
-
-    print(
-        "✅ SharedMemory-Methode vorhanden: "
-        f"{method_name}"
-    )
-
-
-# ----------------------------------------------------
-# ActionId testen
-# ----------------------------------------------------
-
-try:
-    action_id_names = (
-        "MoveRight",
-        "MoveLeft",
-        "MoveUp",
-        "MoveDown",
-        "Attack",
-    )
-
-    print("\n🎮 Prüfe ActionId:")
-
-    for action_name in action_id_names:
-        action_id = getattr(
-            bar_ai.ActionId,
-            action_name,
-        )
-
-        print(
-            f"✅ ActionId.{action_name}: "
-            f"{action_id}"
-        )
-
-except Exception as e:
-    fail("ActionId-Test fehlgeschlagen", e)
-
-
-# ----------------------------------------------------
-# EngineStatus testen
-# ----------------------------------------------------
-
-try:
-    engine_status_names = (
-        "UNSPECIFIED_ERROR",
-        "GAME_ENDED",
-        "TEAM_DIED",
-        "AI_KILLED",
-        "AI_CRASHED",
-        "AI_FAILED_TO_INIT",
-        "CONNECTION_LOST",
-        "OTHER_REASON_ERROR",
-        "RUNNING",
-    )
-
-    print("\n⚙️ Prüfe EngineStatus:")
-
-    for status_name in engine_status_names:
-        status = getattr(
-            bar_ai.EngineStatus,
-            status_name,
-        )
-
-        print(
-            f"✅ EngineStatus.{status_name}: "
-            f"{status}"
-        )
-
-    running_status = bar_ai.EngineStatus.RUNNING
-    game_ended_status = bar_ai.EngineStatus.GAME_ENDED
-
-except Exception as e:
-    fail("EngineStatus-Test fehlgeschlagen", e)
-
-
-# ----------------------------------------------------
-# Test-Units erzeugen
-#
-# Reihenfolge im Shared Memory:
-#
-# 1. Friendly Agent, Team 1
-# 2. Friendly Unit, Team 1
-# 3. Sichtbarer Enemy, Team 2
-# 4. Sichtbarer Enemy, Team 3
-# 5. Action
-# 6. EngineStatus::RUNNING
-#
-# Die erste Unit bestimmt die eigene Team-ID.
-# ----------------------------------------------------
-
-try:
-    friendly_agent = create_unit(
+@pytest.fixture
+def friendly_agent():
+    return create_unit(
         unit_id=42,
         team_id=1,
         ally_team_id=0,
@@ -241,7 +132,10 @@ try:
         max_health=3000.0,
     )
 
-    friendly_unit = create_unit(
+
+@pytest.fixture
+def friendly_unit():
+    return create_unit(
         unit_id=43,
         team_id=1,
         ally_team_id=0,
@@ -253,7 +147,10 @@ try:
         max_health=250.0,
     )
 
-    visible_enemy_one = create_unit(
+
+@pytest.fixture
+def visible_enemy_one():
+    return create_unit(
         unit_id=99,
         team_id=2,
         ally_team_id=1,
@@ -265,7 +162,10 @@ try:
         max_health=3000.0,
     )
 
-    visible_enemy_two = create_unit(
+
+@pytest.fixture
+def visible_enemy_two():
+    return create_unit(
         unit_id=100,
         team_id=3,
         ally_team_id=1,
@@ -277,62 +177,229 @@ try:
         max_health=100.0,
     )
 
-    print("\n✅ Vier Test-Units erfolgreich erstellt")
 
-except Exception as e:
-    fail("Fehler beim Erstellen der Test-Units", e)
+@pytest.fixture
+def action():
+    result = bar_ai.Action()
+
+    result.unit_id = 42
+    result.team_id = 1
+    result.ally_team_id = 0
+    result.action_id = bar_ai.ActionId.Attack
+    result.target_unit_id = 99
+
+    return result
 
 
-# ----------------------------------------------------
-# Friendly Agent direkt validieren
-# ----------------------------------------------------
-
-friendly_agent_expected_values = {
-    "unit_id": 42,
-    "unit_def_id": 101,
-    "team_id": 1,
-    "ally_team_id": 0,
-    "health": 3000.0,
-    "max_health": 3000.0,
-    "pos_x": 100.0,
-    "pos_y": 20.0,
-    "pos_z": 100.0,
-    "los_radius": 500.0,
-    "air_los_radius": 350.0,
-    "is_dead": False,
-    "being_built": False,
-    "build_progress": 1.0,
-    "capture_progress": 0.0,
-    "paralyze_damage": 0.0,
-}
-
-try:
-    print("\n📊 Validiere Friendly Agent:")
-
-    validate_fields(
+@pytest.fixture
+def test_units(
+    friendly_agent,
+    friendly_unit,
+    visible_enemy_one,
+    visible_enemy_two,
+):
+    return [
         friendly_agent,
-        friendly_agent_expected_values,
+        friendly_unit,
+        visible_enemy_one,
+        visible_enemy_two,
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Shared-Memory-Fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def populated_shared_memory(test_units, action):
+    """
+    Erstellt ein Shared Memory und befüllt es in dieser Reihenfolge:
+
+    0. Friendly Agent
+    1. Friendly Unit
+    2. Enemy 1
+    3. Enemy 2
+    4. Action
+    5. EngineStatus.RUNNING
+
+    Die erste Unit bestimmt die eigene Team-ID.
+    """
+    shared_memory_name = (
+        f"/bar_ai_test_{os.getpid()}_{time.time_ns()}"
+    )
+
+    shared_memory = None
+
+    # Eventuelle Altlast entfernen. Bei einem eindeutigen Namen sollte
+    # normalerweise nichts vorhanden sein.
+    try:
+        bar_ai.SharedMemory.remove(shared_memory_name)
+    except Exception:
+        pass
+
+    try:
+        shared_memory = bar_ai.SharedMemory.create(
+            shared_memory_name
+        )
+
+        serializable_ids = [
+            shared_memory.write_unit_data(unit)
+            for unit in test_units
+        ]
+
+        serializable_ids.append(
+            shared_memory.write_action(action)
+        )
+
+        serializable_ids.append(
+            shared_memory.write_engine_status(
+                bar_ai.EngineStatus.RUNNING
+            )
+        )
+
+        yield {
+            "name": shared_memory_name,
+            "memory": shared_memory,
+            "serializable_ids": serializable_ids,
+        }
+
+    finally:
+        # Referenz auf das gebundene C++-/mmap-Objekt freigeben,
+        # bevor das Shared Memory entfernt wird.
+        shared_memory = None
+
+        try:
+            bar_ai.SharedMemory.remove(shared_memory_name)
+        except Exception as cleanup_error:
+            pytest.fail(
+                "Shared Memory konnte nicht entfernt werden: "
+                f"{type(cleanup_error).__name__}: "
+                f"{cleanup_error}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Modul- und API-Tests
+# ---------------------------------------------------------------------------
+
+def test_bar_ai_module_can_be_imported():
+    assert bar_ai is not None
+
+
+@pytest.mark.parametrize("export_name", REQUIRED_EXPORTS)
+def test_required_export_exists(export_name):
+    assert hasattr(bar_ai, export_name), (
+        f"Fehlende Klasse oder Enum: {export_name}"
+    )
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    REQUIRED_SHARED_MEMORY_METHODS,
+)
+def test_required_shared_memory_method_exists(method_name):
+    assert hasattr(bar_ai.SharedMemory, method_name), (
+        "Fehlende SharedMemory-Methode: "
+        f"{method_name}"
+    )
+
+    method = getattr(bar_ai.SharedMemory, method_name)
+
+    assert callable(method), (
+        f"SharedMemory.{method_name} ist nicht aufrufbar"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Enum-Tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("action_id_name", ACTION_ID_NAMES)
+def test_action_id_member_exists(action_id_name):
+    assert hasattr(bar_ai.ActionId, action_id_name), (
+        f"Fehlender ActionId-Wert: {action_id_name}"
+    )
+
+    value = getattr(bar_ai.ActionId, action_id_name)
+
+    assert isinstance(value, bar_ai.ActionId), (
+        f"ActionId.{action_id_name} ist kein ActionId, "
+        f"sondern {type(value).__name__}"
+    )
+
+
+@pytest.mark.parametrize(
+    "engine_status_name",
+    ENGINE_STATUS_NAMES,
+)
+def test_engine_status_member_exists(engine_status_name):
+    assert hasattr(bar_ai.EngineStatus, engine_status_name), (
+        f"Fehlender EngineStatus-Wert: {engine_status_name}"
+    )
+
+    value = getattr(
+        bar_ai.EngineStatus,
+        engine_status_name,
+    )
+
+    assert isinstance(value, bar_ai.EngineStatus), (
+        f"EngineStatus.{engine_status_name} ist kein "
+        f"EngineStatus, sondern {type(value).__name__}"
+    )
+
+
+def test_engine_status_values_are_distinct():
+    running = bar_ai.EngineStatus.RUNNING
+    game_ended = bar_ai.EngineStatus.GAME_ENDED
+
+    assert running != game_ended
+
+
+# ---------------------------------------------------------------------------
+# UnitData-Tests
+# ---------------------------------------------------------------------------
+
+def test_unit_data_can_be_created(friendly_agent):
+    assert isinstance(friendly_agent, bar_ai.UnitData)
+
+
+def test_friendly_agent_fields(friendly_agent):
+    expected_values = {
+        "unit_id": 42,
+        "unit_def_id": 101,
+        "team_id": 1,
+        "ally_team_id": 0,
+        "health": 3000.0,
+        "max_health": 3000.0,
+        "pos_x": 100.0,
+        "pos_y": 20.0,
+        "pos_z": 100.0,
+        "los_radius": 500.0,
+        "air_los_radius": 350.0,
+        "is_dead": False,
+        "being_built": False,
+        "build_progress": 1.0,
+        "capture_progress": 0.0,
+        "paralyze_damage": 0.0,
+    }
+
+    assert_fields(
+        friendly_agent,
+        expected_values,
         "friendly_agent",
     )
 
-except (AttributeError, AssertionError) as e:
-    fail("Friendly-Agent-Validierung fehlgeschlagen", e)
+
+# ---------------------------------------------------------------------------
+# Action-Tests
+# ---------------------------------------------------------------------------
+
+def test_action_can_be_created(action):
+    assert isinstance(action, bar_ai.Action)
 
 
-# ----------------------------------------------------
-# Action erstellen und validieren
-# ----------------------------------------------------
-
-try:
-    action = bar_ai.Action()
-
-    action.unit_id = 42
-    action.team_id = 1
-    action.ally_team_id = 0
-    action.action_id = bar_ai.ActionId.Attack
-    action.target_unit_id = 99
-
-    action_expected_values = {
+def test_action_fields(action):
+    expected_values = {
         "unit_id": 42,
         "team_id": 1,
         "ally_team_id": 0,
@@ -340,148 +407,23 @@ try:
         "target_unit_id": 99,
     }
 
-    print("\n🎯 Validiere Action:")
-
-    validate_fields(
+    assert_fields(
         action,
-        action_expected_values,
+        expected_values,
         "action",
     )
 
-except Exception as e:
-    fail("Action-Test fehlgeschlagen", e)
 
+# ---------------------------------------------------------------------------
+# Shared-Memory-Schreibtests
+# ---------------------------------------------------------------------------
 
-# ----------------------------------------------------
-# Shared Memory vorbereiten
-# ----------------------------------------------------
-
-shared_memory_name = (
-    f"/bar_ai_test_{os.getpid()}_{time.time_ns()}"
-)
-
-shared_memory = None
-opened_shared_memory = None
-shared_memory_created = False
-test_exit_code = 0
-
-print("\n🧠 Starte Shared-Memory-Test")
-print("Shared-Memory-Name:", shared_memory_name)
-
-
-try:
-    # ------------------------------------------------
-    # Eventuelle Altlast entfernen
-    # ------------------------------------------------
-
-    try:
-        bar_ai.SharedMemory.remove(
-            shared_memory_name
-        )
-    except Exception:
-        # Normal, wenn der Name noch nicht existiert.
-        pass
-
-    # ------------------------------------------------
-    # Shared Memory erstellen
-    # ------------------------------------------------
-
-    shared_memory = bar_ai.SharedMemory.create(
-        shared_memory_name
+def test_write_methods_return_integer_ids(
+    populated_shared_memory,
+):
+    serializable_ids = (
+        populated_shared_memory["serializable_ids"]
     )
-
-    shared_memory_created = True
-
-    print("✅ Shared Memory erfolgreich erstellt")
-
-    # ------------------------------------------------
-    # UnitData schreiben
-    # ------------------------------------------------
-
-    friendly_agent_serializable_id = (
-        shared_memory.write_unit_data(
-            friendly_agent
-        )
-    )
-
-    friendly_unit_serializable_id = (
-        shared_memory.write_unit_data(
-            friendly_unit
-        )
-    )
-
-    enemy_one_serializable_id = (
-        shared_memory.write_unit_data(
-            visible_enemy_one
-        )
-    )
-
-    enemy_two_serializable_id = (
-        shared_memory.write_unit_data(
-            visible_enemy_two
-        )
-    )
-
-    print(
-        "✅ Friendly Agent geschrieben, ID:",
-        friendly_agent_serializable_id,
-    )
-
-    print(
-        "✅ Friendly Unit geschrieben, ID:",
-        friendly_unit_serializable_id,
-    )
-
-    print(
-        "✅ Enemy 1 geschrieben, ID:",
-        enemy_one_serializable_id,
-    )
-
-    print(
-        "✅ Enemy 2 geschrieben, ID:",
-        enemy_two_serializable_id,
-    )
-
-    # ------------------------------------------------
-    # Action schreiben
-    # ------------------------------------------------
-
-    action_serializable_id = (
-        shared_memory.write_action(action)
-    )
-
-    print(
-        "✅ Action geschrieben, ID:",
-        action_serializable_id,
-    )
-
-    # ------------------------------------------------
-    # EngineStatus schreiben
-    # ------------------------------------------------
-
-    running_status_serializable_id = (
-        shared_memory.write_engine_status(
-            running_status
-        )
-    )
-
-    print(
-        "✅ EngineStatus.RUNNING geschrieben, ID:",
-        running_status_serializable_id,
-    )
-
-    # ------------------------------------------------
-    # Serializable-IDs validieren
-    # ------------------------------------------------
-
-    serializable_ids = [
-        friendly_agent_serializable_id,
-        friendly_unit_serializable_id,
-        enemy_one_serializable_id,
-        enemy_two_serializable_id,
-        action_serializable_id,
-        running_status_serializable_id,
-    ]
 
     assert all(
         isinstance(serializable_id, int)
@@ -489,6 +431,14 @@ try:
     ), (
         "Alle write-Funktionen müssen Integer-IDs "
         f"zurückgeben: {serializable_ids!r}"
+    )
+
+
+def test_serializable_ids_are_non_negative(
+    populated_shared_memory,
+):
+    serializable_ids = (
+        populated_shared_memory["serializable_ids"]
     )
 
     assert all(
@@ -499,43 +449,50 @@ try:
         f"{serializable_ids!r}"
     )
 
-    assert len(set(serializable_ids)) == 6, (
+
+def test_serializable_ids_are_unique(
+    populated_shared_memory,
+):
+    serializable_ids = (
+        populated_shared_memory["serializable_ids"]
+    )
+
+    assert len(set(serializable_ids)) == len(serializable_ids), (
         "Serializable-IDs sind nicht eindeutig: "
         f"{serializable_ids!r}"
     )
 
+
+def test_serializable_ids_follow_write_order(
+    populated_shared_memory,
+):
+    serializable_ids = (
+        populated_shared_memory["serializable_ids"]
+    )
+
     assert serializable_ids == [0, 1, 2, 3, 4, 5], (
         "Unerwartete Serializable-ID-Reihenfolge. "
-        f"Erwartet [0, 1, 2, 3, 4, 5], "
+        "Erwartet [0, 1, 2, 3, 4, 5], "
         f"erhalten {serializable_ids!r}"
     )
 
-    print(
-        "✅ Serializable-IDs sind eindeutig und "
-        "korrekt sortiert"
-    )
 
-    # ------------------------------------------------
-    # Eigene Team-ID prüfen
-    # ------------------------------------------------
+# ---------------------------------------------------------------------------
+# Shared-Memory-Lesetests
+# ---------------------------------------------------------------------------
 
-    own_team_id = (
-        shared_memory.get_own_team_id()
-    )
+def test_first_unit_determines_own_team_id(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
 
-    assert own_team_id == 1, (
-        "Die erste Unit sollte Team-ID 1 festlegen, "
-        f"erhalten: {own_team_id}"
-    )
+    assert shared_memory.get_own_team_id() == 1
 
-    print(
-        "✅ Eigene Team-ID:",
-        own_team_id,
-    )
 
-    # ------------------------------------------------
-    # Alle UnitData-Objekte lesen
-    # ------------------------------------------------
+def test_read_all_units_returns_list(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
 
     units = shared_memory.read_all_units()
 
@@ -544,50 +501,53 @@ try:
         f"zurückgeben, erhalten: {type(units).__name__}"
     )
 
+
+def test_read_all_units_returns_only_units(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
+
+    units = shared_memory.read_all_units()
+
     assert len(units) == 4, (
         "read_all_units() sollte genau vier Units liefern. "
         "Action und EngineStatus müssen übersprungen werden. "
         f"Erhalten: {len(units)}"
     )
 
-    read_unit_ids = unit_ids(units)
-
-    assert read_unit_ids == [42, 43, 99, 100], (
-        "Falsche Unit-Reihenfolge. "
-        f"Erwartet [42, 43, 99, 100], "
-        f"erhalten {read_unit_ids!r}"
-    )
-
-    print(
-        "✅ read_all_units() liefert vier Units:",
-        read_unit_ids,
-    )
-
-    # ------------------------------------------------
-    # Typen und Inhalte der Units prüfen
-    # ------------------------------------------------
-
-    for index, unit in enumerate(units):
-        assert isinstance(unit, bar_ai.UnitData), (
-            f"Element {index} ist kein UnitData-Objekt: "
-            f"{type(unit).__name__}"
-        )
-
-    read_team_ids = [
-        unit.team_id
+    assert all(
+        isinstance(unit, bar_ai.UnitData)
         for unit in units
-    ]
-
-    assert read_team_ids == [1, 1, 2, 3], (
-        "Falsche Team-Reihenfolge. "
-        f"Erwartet [1, 1, 2, 3], "
-        f"erhalten {read_team_ids!r}"
     )
 
-    print(
-        "✅ Team-Reihenfolge korrekt:",
-        read_team_ids,
-    )
+
+def test_read_all_units_preserves_order(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
+
+    units = shared_memory.read_all_units()
+
+    assert unit_ids(units) == [42, 43, 99, 100]
+
+
+def test_read_all_units_preserves_team_ids(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
+
+    units = shared_memory.read_all_units()
+    team_ids = [unit.team_id for unit in units]
+
+    assert team_ids == [1, 1, 2, 3]
+
+
+def test_read_all_units_preserves_data(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
+
+    units = shared_memory.read_all_units()
 
     expected_units = (
         {
@@ -612,22 +572,23 @@ try:
         },
     )
 
-    for index, expected_values in enumerate(
-        expected_units
-    ):
-        validate_fields(
+    assert len(units) == len(expected_units)
+
+    for index, expected_values in enumerate(expected_units):
+        assert_fields(
             units[index],
             expected_values,
             f"units[{index}]",
         )
 
-    print(
-        "✅ Inhalte aller gelesenen Units sind korrekt"
-    )
 
-    # ------------------------------------------------
-    # Friendly/Enemy-Aufteilung prüfen
-    # ------------------------------------------------
+def test_units_can_be_divided_into_friendly_and_enemy(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
+
+    own_team_id = shared_memory.get_own_team_id()
+    units = shared_memory.read_all_units()
 
     friendly_units = [
         unit
@@ -641,198 +602,122 @@ try:
         if unit.team_id != own_team_id
     ]
 
-    assert unit_ids(friendly_units) == [42, 43], (
-        "Falsche Friendly Units: "
-        f"{unit_ids(friendly_units)!r}"
-    )
+    assert unit_ids(friendly_units) == [42, 43]
+    assert unit_ids(enemy_units) == [99, 100]
 
-    assert unit_ids(enemy_units) == [99, 100], (
-        "Falsche Enemy Units: "
-        f"{unit_ids(enemy_units)!r}"
-    )
 
-    print(
-        "✅ Friendly Units:",
-        unit_ids(friendly_units),
-    )
+# ---------------------------------------------------------------------------
+# EngineStatus-Lesetests
+# ---------------------------------------------------------------------------
 
-    print(
-        "✅ Sichtbare Enemy Units:",
-        unit_ids(enemy_units),
-    )
+def test_read_all_engine_statuses_returns_list(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
 
-    # ------------------------------------------------
-    # Alle EngineStatus-Werte lesen
-    # ------------------------------------------------
-
-    statuses = (
-        shared_memory.read_all_engine_statuses()
-    )
+    statuses = shared_memory.read_all_engine_statuses()
 
     assert isinstance(statuses, list), (
         "read_all_engine_statuses() sollte eine "
-        f"Python-Liste liefern, erhalten: "
+        "Python-Liste liefern, erhalten: "
         f"{type(statuses).__name__}"
     )
 
-    assert len(statuses) == 1, (
-        "Es wurde genau ein EngineStatus erwartet, "
-        f"erhalten: {len(statuses)}"
+
+def test_read_all_engine_statuses_returns_only_statuses(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
+
+    statuses = shared_memory.read_all_engine_statuses()
+
+    assert statuses == [bar_ai.EngineStatus.RUNNING]
+
+    assert all(
+        isinstance(status, bar_ai.EngineStatus)
+        for status in statuses
     )
 
-    assert statuses == [
-        bar_ai.EngineStatus.RUNNING
-    ], (
-        "Unerwartete EngineStatus-Werte. "
-        "Erwartet [EngineStatus.RUNNING], "
-        f"erhalten {statuses!r}"
-    )
 
-    assert isinstance(
-        statuses[0],
-        bar_ai.EngineStatus,
-    ), (
-        "Der gelesene Status ist kein EngineStatus: "
-        f"{type(statuses[0]).__name__}"
-    )
+def test_read_methods_filter_serialized_types(
+    populated_shared_memory,
+):
+    shared_memory = populated_shared_memory["memory"]
 
-    print(
-        "✅ EngineStatus korrekt gelesen:",
-        statuses[0],
-    )
-
-    # ------------------------------------------------
-    # Prüfen, dass Typfilter korrekt arbeiten
-    # ------------------------------------------------
+    units = shared_memory.read_all_units()
+    statuses = shared_memory.read_all_engine_statuses()
 
     assert len(units) == 4, (
         "Action oder EngineStatus wurde fälschlich "
-        "als UnitData gelesen."
+        "als UnitData gelesen"
     )
 
     assert len(statuses) == 1, (
         "UnitData oder Action wurde fälschlich "
-        "als EngineStatus gelesen."
+        "als EngineStatus gelesen"
     )
 
-    print(
-        "✅ readAll<T>() filtert die gespeicherten Typen korrekt"
+
+# ---------------------------------------------------------------------------
+# Shared Memory erneut öffnen
+# ---------------------------------------------------------------------------
+
+def test_existing_shared_memory_can_be_opened(
+    populated_shared_memory,
+):
+    shared_memory_name = populated_shared_memory["name"]
+
+    opened_shared_memory = bar_ai.SharedMemory.open(
+        shared_memory_name
     )
 
-    # ------------------------------------------------
-    # Shared Memory durch zweites Objekt öffnen
-    # ------------------------------------------------
+    assert opened_shared_memory is not None
 
-    opened_shared_memory = (
-        bar_ai.SharedMemory.open(
-            shared_memory_name
-        )
+
+def test_opened_shared_memory_has_correct_team_id(
+    populated_shared_memory,
+):
+    shared_memory_name = populated_shared_memory["name"]
+
+    opened_shared_memory = bar_ai.SharedMemory.open(
+        shared_memory_name
     )
 
-    print(
-        "✅ Vorhandenes Shared Memory erfolgreich geöffnet"
+    assert opened_shared_memory.get_own_team_id() == 1
+
+
+def test_opened_shared_memory_contains_units(
+    populated_shared_memory,
+):
+    shared_memory_name = populated_shared_memory["name"]
+
+    opened_shared_memory = bar_ai.SharedMemory.open(
+        shared_memory_name
     )
 
-    # ------------------------------------------------
-    # Daten nach open() erneut lesen
-    # ------------------------------------------------
-
-    opened_own_team_id = (
-        opened_shared_memory.get_own_team_id()
-    )
-
-    reopened_units = (
-        opened_shared_memory.read_all_units()
-    )
-
-    reopened_statuses = (
-        opened_shared_memory
-        .read_all_engine_statuses()
-    )
-
-    assert opened_own_team_id == 1, (
-        "Nach open() wurde eine falsche Team-ID "
-        f"ermittelt: {opened_own_team_id}"
-    )
+    reopened_units = opened_shared_memory.read_all_units()
 
     assert unit_ids(reopened_units) == [
         42,
         43,
         99,
         100,
-    ], (
-        "Nach open() wurden falsche Units gelesen: "
-        f"{unit_ids(reopened_units)!r}"
+    ]
+
+
+def test_opened_shared_memory_contains_engine_status(
+    populated_shared_memory,
+):
+    shared_memory_name = populated_shared_memory["name"]
+
+    opened_shared_memory = bar_ai.SharedMemory.open(
+        shared_memory_name
+    )
+
+    reopened_statuses = (
+        opened_shared_memory.read_all_engine_statuses()
     )
 
     assert reopened_statuses == [
         bar_ai.EngineStatus.RUNNING
-    ], (
-        "Nach open() wurde ein falscher EngineStatus "
-        f"gelesen: {reopened_statuses!r}"
-    )
-
-    print(
-        "✅ Eigene Team-ID nach open():",
-        opened_own_team_id,
-    )
-
-    print(
-        "✅ Units nach open():",
-        unit_ids(reopened_units),
-    )
-
-    print(
-        "✅ EngineStatus nach open():",
-        reopened_statuses,
-    )
-
-    # ------------------------------------------------
-    # Zweiten Status nicht über opened_shared_memory schreiben
-    # ------------------------------------------------
-
-    # Aktuell wird absichtlich nicht über opened_shared_memory
-    # geschrieben. Dafür muss der IdAllocator nach open()
-    # zuverlässig aus den vorhandenen IDs rekonstruiert werden.
-
-except Exception as e:
-    print("❌ Shared-Memory-Test fehlgeschlagen:")
-    print(f"{type(e).__name__}: {e}")
-    test_exit_code = 1
-
-finally:
-    # C++-Objekte und mmap-Verbindungen freigeben.
-    opened_shared_memory = None
-    shared_memory = None
-
-    if shared_memory_created:
-        try:
-            bar_ai.SharedMemory.remove(
-                shared_memory_name
-            )
-
-            print(
-                "✅ Shared Memory erfolgreich entfernt"
-            )
-
-        except Exception as cleanup_error:
-            print(
-                "⚠️ Shared Memory konnte nicht entfernt werden:"
-            )
-
-            print(
-                f"{type(cleanup_error).__name__}: "
-                f"{cleanup_error}"
-            )
-
-            test_exit_code = 1
-
-
-if test_exit_code != 0:
-    sys.exit(test_exit_code)
-
-
-print(
-    "\n🎉 bar_ai UnitData-, Action-, EngineStatus- "
-    "und Shared-Memory-Test erfolgreich abgeschlossen!"
-)
+    ]

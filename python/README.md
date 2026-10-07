@@ -41,7 +41,7 @@ uv run train.py --num-episodes INT --num-mini-batch INT --buffer-size INT --num-
 ## Pytest
 to run pytest like [environment test](./tests/test_env.py), run:
 ```console
-uv run pytest tests/test_env.py
+uv run pytest -v tests/test_env.py
 ```
 usefull flags:
 - `-v` makes the test output more detailed and shows each test individually
