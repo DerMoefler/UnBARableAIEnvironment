@@ -10,8 +10,8 @@ import torch
 
 from src.environment.bar_environment import BAR_Environment
 from src.train.policy import R_MAPPO_Policy
-from src.train.obs_r_mappo import OBS_DIM
-from src.train.train_fixed_v4 import (
+from src.train.mappo.obs_r_mappo import OBS_DIM
+from src.train.train_fixed_v7 import (
     _make_bar_action,
     _parse_reset_result,
     _parse_step_result,

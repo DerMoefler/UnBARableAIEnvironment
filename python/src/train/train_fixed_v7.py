@@ -22,10 +22,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
-import os
-import sys
 import time
-from contextlib import contextmanager
 import random
 import traceback
 from datetime import datetime
@@ -228,8 +225,15 @@ def _step_all_agents(env: Any, actions: np.ndarray) -> Any:
     final_result = None
     accumulated_reward = 0.0
 
-    for action_index, unit_id in action_rows:
-        result = env.step(_make_bar_action(action_index, unit_id))
+    for action_number, (action_index, unit_id) in enumerate(action_rows, start=1):
+        action = _make_bar_action(action_index, unit_id)
+        print(
+            f"[FLOW] Action handoff {action_number}/{len(action_rows)}: "
+            f"bar_ai.Action(action_id={action.action_id}, "
+            f"unit_id={action.unit_id})",
+            flush=True,
+        )
+        result = env.step(action)
         if not isinstance(result, tuple) or len(result) != 5:
             raise RuntimeError(
                 "BAR_Environment.step must return "
@@ -1041,33 +1045,6 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-@contextmanager
-def _redirect_native_output(log_path: Path):
-    """Redirect process-level stdout/stderr during native extension calls.
-
-    contextlib.redirect_stdout is insufficient for C++ std::cout. This uses
-    dup2, so output written by pybind/C++ code to file descriptors 1 and 2 is
-    captured as well. Keep the context narrow because it is process-global.
-    """
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    sys.stdout.flush()
-    sys.stderr.flush()
-    saved_stdout = os.dup(1)
-    saved_stderr = os.dup(2)
-    try:
-        with log_path.open("a", buffering=1) as log_file:
-            os.dup2(log_file.fileno(), 1)
-            os.dup2(log_file.fileno(), 2)
-            yield
-    finally:
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os.dup2(saved_stdout, 1)
-        os.dup2(saved_stderr, 2)
-        os.close(saved_stdout)
-        os.close(saved_stderr)
-
-
 def _format_duration(seconds: float) -> str:
     minutes, seconds = divmod(max(0.0, seconds), 60.0)
     hours, minutes = divmod(int(minutes), 60)
@@ -1199,12 +1176,6 @@ def main() -> None:
         help="Checkpoint to load before continuing training.",
     )
     parser.add_argument(
-        "--native-log",
-        type=Path,
-        default=None,
-        help="Capture C/C++ stdout and stderr. Defaults to RUN_DIR/native.log.",
-    )
-    parser.add_argument(
         "--save-every",
         type=int,
         default=1,
@@ -1247,8 +1218,6 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"DEBUG: run name = {args.run_name}", flush=True)
     print(f"DEBUG: run directory = {run_dir}", flush=True)
-    native_log = args.native_log or (run_dir / "native.log")
-    print(f"DEBUG: native output log = {native_log}", flush=True)
     run_started_at = time.perf_counter()
     total_engine_start_seconds = 0.0
     total_engine_step_seconds = 0.0
@@ -1300,6 +1269,7 @@ def main() -> None:
             action_shape=(2,),
             buffer_size=args.buffer_size,
             device=device,
+            action_dim=action_dim,
         )
         print("DEBUG: replay buffer created", flush=True)
 
@@ -1316,23 +1286,6 @@ def main() -> None:
             policy,
             device=device,
         )
-
-        # r_mappo._map_policy_action_to_engine_action currently returns the
-        # numeric enum value. The pybind Action.action_id property requires an
-        # actual bar_ai.ActionId instance, not an int.
-        original_action_mapper = trainer._map_policy_action_to_engine_action
-
-        def map_policy_action_to_bar_action_id(policy_action_id):
-            mapped_action_id = original_action_mapper(policy_action_id)
-            if isinstance(mapped_action_id, bar_ai.ActionId):
-                return mapped_action_id
-            return bar_ai.ActionId(int(mapped_action_id))
-
-        trainer._map_policy_action_to_engine_action = (
-            map_policy_action_to_bar_action_id
-        )
-
-        print("DEBUG: trainer ActionId adapter installed", flush=True)
         print("DEBUG: trainer created", flush=True)
 
         print(f"Warming up policy on {device} before starting BAR...", flush=True)
@@ -1373,9 +1326,8 @@ def main() -> None:
 
             print("Initializing fresh BAR Environment...", flush=True)
             environment_started_at = time.perf_counter()
-            with _redirect_native_output(native_log):
-                env = BAR_Environment()
-                reset_result = env.reset()
+            env = BAR_Environment()
+            reset_result = env.reset()
             engine_start_seconds += time.perf_counter() - environment_started_at
             total_engine_start_seconds += engine_start_seconds
             print("DEBUG: fresh BAR Environment initialized and reset.", flush=True)
@@ -1386,6 +1338,18 @@ def main() -> None:
                 reset_result
             )
 
+            if isinstance(obs_raw, dict):
+                print(
+                    f"[FLOW] Python observation dict received: "
+                    f"{len(obs_raw)} records; keys={list(obs_raw)}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[FLOW] Observation input received: {type(obs_raw).__name__}",
+                    flush=True,
+                )
+
             print(f"DEBUG: initial env info = {reset_info}", flush=True)
 
             obs = _prepare_obs(
@@ -1393,6 +1357,11 @@ def main() -> None:
                 args.num_agents,
                 obs_dim,
                 training_team_id=args.training_team_id,
+            )
+            print(
+                f"[FLOW] MAPPO observations created: shape={obs.shape}\n"
+                f"{np.array2string(obs, precision=3, suppress_small=True, max_line_width=100)}",
+                flush=True,
             )
 
             share_obs = _prepare_share_obs(
@@ -1444,6 +1413,11 @@ def main() -> None:
                 if args.debug_shapes:
                     print(f"DEBUG: rollout step {step_count}", flush=True)
 
+                print(
+                    f"[FLOW] MAPPO policy inference started for rollout step "
+                    f"{step_count + 1}",
+                    flush=True,
+                )
                 inference_started_at = time.perf_counter()
                 value_preds, actions, action_log_probs = _policy_sample_actions(
                     policy=policy,
@@ -1460,6 +1434,11 @@ def main() -> None:
                 total_inference_seconds += inference_elapsed
 
                 env_actions = actions
+                print(
+                    f"[FLOW] MAPPO actions produced (index, unit_id): "
+                    f"{env_actions.astype(np.int64).tolist()}",
+                    flush=True,
+                )
 
                 # -------------------------------------------------------------
                 # Log which actions were taken.
@@ -1481,8 +1460,7 @@ def main() -> None:
                     print(f"DEBUG: env_actions = {env_actions.tolist()}", flush=True)
 
                 environment_started_at = time.perf_counter()
-                with _redirect_native_output(native_log):
-                    step_result = _step_all_agents(env, env_actions)
+                step_result = _step_all_agents(env, env_actions)
                 engine_step_elapsed = time.perf_counter() - environment_started_at
                 engine_step_seconds += engine_step_elapsed
                 total_engine_step_seconds += engine_step_elapsed
@@ -1702,7 +1680,7 @@ def main() -> None:
             print("DEBUG: buffer.compute_returns() done", flush=True)
 
             trainer.prep_training()
-            print("DEBUG: trainer.prep_training() done", flush=True)
+            print("[FLOW] MAPPO training update started", flush=True)
 
             training_started_at = time.perf_counter()
             train_info = trainer.train(
@@ -1714,7 +1692,13 @@ def main() -> None:
             training_seconds = time.perf_counter() - training_started_at
             total_training_seconds += training_seconds
 
-            print("DEBUG: trainer.train() done", flush=True)
+            print(
+                "[FLOW] MAPPO training update complete: "
+                f"value_loss={train_info.get('value_loss', 0):.6f}, "
+                f"policy_loss={train_info.get('policy_loss', 0):.6f}, "
+                f"entropy={train_info.get('dist_entropy', 0):.6f}",
+                flush=True,
+            )
 
             buffer.reset()
             print("DEBUG: buffer.reset() done", flush=True)
