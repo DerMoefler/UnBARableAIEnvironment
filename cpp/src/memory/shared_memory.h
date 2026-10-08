@@ -28,11 +28,16 @@ namespace memory {
 template <SharedMemoryImpl T, serialization::Serializable... SupportedTypes>
 class SharedMemory {
 public:
+    /// \brief Typelist holding \ref SupportedTypes.
+    using SupportedTypelist = Typelist::Typelist<SupportedTypes...>;
+
     /// \brief Variant able to hold a Layout for any of the \ref SupportedTypes.
     using LayoutVariant = std::variant<serialization::Layout<SupportedTypes>...>;
 
+    /// \brief Variant able to hold one of the \ref SupportedTypes.
     using ValueVariant = std::variant<SupportedTypes...>;
 
+    /// \brief Templated type alias for the UpdateContext.
     template <serialization::Serializable S>
     using ShmContext = ShmLayoutUpdateContext<S, T>;
 

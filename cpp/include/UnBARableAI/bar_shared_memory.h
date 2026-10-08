@@ -26,7 +26,7 @@
 #include <memory/shared_memory_types.h>
 #include <memory/shared_memory_posix.h>
 
-
+#include <utility/typelist.h>
 
 namespace UnBARableAINS::memory {
 
@@ -189,15 +189,8 @@ public:
      * at zero, are contiguous and cannot be deleted.
      */
     template <typename T>
+        requires(Typelist::Contains_MF<typename Impl::SupportedTypelist, T>::value)
     std::vector<T> readAll() {
-        /*
-         * Verhindert, dass readAll() mit einem Typ aufgerufen wird,
-         * den dieses Shared Memory nicht unterstützt.
-         */
-        static_assert(
-            std::same_as<T, UnitData> || std::same_as<T, Action> || std::same_as<T, EngineStatus>,
-            "T is not supported by BarSharedMemory");
-
         std::vector<T> values;
 
         SerializableId serializableId = 0;
