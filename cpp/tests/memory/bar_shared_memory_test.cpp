@@ -33,8 +33,8 @@ TEST(BarSharedMemoryTest, Constructor) {
     }
 
     auto openShm = BarSharedMemory::open("/shm-BAR-constructor");
-    auto readUnits = openShm.readAllUnits();
-    auto readActions = openShm.readAllActions();
+    auto readUnits = openShm.readAll<unit::UnitData>();
+    auto readActions = openShm.readAll<Action>();
 
     ASSERT_TRUE(units.size() == readUnits.size());
 
