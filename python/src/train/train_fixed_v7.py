@@ -60,8 +60,8 @@ import bar_ai
 from src.environment.bar_environment import BAR_Environment
 from src.train.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
-from src.train.r_mappo import R_MAPPO
-from src.train.obs_r_mappo import OBS_DIM, build_r_mappo_observations
+from src.train.mappo.r_mappo import R_MAPPO
+from src.train.mappo.obs_r_mappo import OBS_DIM, build_r_mappo_observations
 
 
 # ---------------------------------------------------------------------------
