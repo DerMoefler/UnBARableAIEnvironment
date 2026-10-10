@@ -305,8 +305,6 @@ private:
                         DeserializableType multiField;
                         multiField.reserve(node.count);
                         for (std::size_t i = 0; i < node.count; i++) {
-                            const auto& child = node.children[i];
-                            assert(child && "Child cannot be nullptr here");
                             multiField.push_back(
                                 ValueTypeSI::deserialize(getView(segmentView, node, i)));
                         }
