@@ -242,6 +242,13 @@ private:
         // std::cout << "SharedMemory<...>::writeOnCreation\n";
         size_t segmentId = layout->getSegmentId().value();
 
+        // Simply write fundamental type and return
+        if constexpr (serialization::detail::FundamentalSerializable<S>) {
+            auto serialized = serialization::SerializeInformation<S>::serialize(value);
+            m_sharedMemoryImpl.appendToSegment(segmentId, serialized);
+            return;
+        }
+
         auto linkChildSegment = [&](memory::id_t childSegmentId) {
             auto serialized =
                 serialization::SerializeInformation<memory::id_t>::serialize(childSegmentId);

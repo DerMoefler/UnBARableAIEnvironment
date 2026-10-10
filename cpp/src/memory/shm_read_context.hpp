@@ -1,6 +1,7 @@
 #ifndef SHM_READ_CONTEXT_H_
 #define SHM_READ_CONTEXT_H_
 
+#include <cassert>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -231,6 +232,11 @@ public:
             // TODO validate/document
             using DataView = typename serialization::detail::GetDeserializeDataViewType_MF<S>::Type;
             const std::vector<std::byte> serializedSegment = m_shmImpl.readSegment(segmentId);
+            if constexpr (serialization::detail::ConstSize<S>) {
+                assert(serializedSegment.size() == SI::c_serialized_size &&
+                       "Read segment's size does not match the type's size (type has a constant "
+                       "size here).");
+            }
             return SI::deserialize(DataView{serializedSegment});
         }
         else {

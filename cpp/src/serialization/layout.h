@@ -82,6 +82,13 @@ public:
         update(value);
     }
 
+    Layout(const S& value)
+        requires detail::FundamentalSerializable<S>
+    {
+        m_inlinedSize = SI::c_serialized_size;
+        m_deepSize = m_inlinedSize;
+    }
+
     /**
      * \brief Equality operator.
      * \param other Layout to compare.

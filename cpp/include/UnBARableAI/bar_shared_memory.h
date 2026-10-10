@@ -20,7 +20,6 @@
 #include <serialization/floating_point.tpp>
 #include <serialization/unit_data.tpp>
 #include <serialization/action.tpp>
-#include <serialization/engine_status.tpp>
 
 #include <memory/shared_memory.h>
 #include <memory/shared_memory_types.h>

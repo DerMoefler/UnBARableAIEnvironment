@@ -428,6 +428,17 @@ concept ConstructibleFromFields =
     Serializable<S> &&
     ConstructibleFromFieldsImpl_MF<S, typename SerializeInformation<S>::Fields>::value;
 
+/**
+ * \brief Concept for a fundamental Serializable, i.e. one without fields.
+ * \tparam S Serializable to check.
+ *
+ * Checks that SerializeInformation<S>::Fields is empty, the type has const size and is inlined.
+ */
+template <typename S>
+concept FundamentalSerializable =
+    Serializable<S> && Typelist::IsEmpty_MF<typename SerializeInformation<S>::Fields>::value &&
+    ConstSize<S> && isTypeInlined<S>();
+
 }  // namespace detail
 
 // Forward declaration for the shared_ptr in FieldNode.
@@ -629,6 +640,9 @@ struct SerializeInformation<std::vector<T, Alloc>> {
     }
 };
 
+static_assert(detail::FundamentalSerializable<int>, "int is a fundamental type.");
+static_assert(!detail::FundamentalSerializable<std::vector<int>>,
+              "std::vector<int> is not a fundamental type.");
 static_assert(detail::SerializeMethodAvailable<int>, "Serialize method not available for integer.");
 static_assert(detail::DeserializeMethodAvailable<int>,
               "Deserialize method not available for integer.");

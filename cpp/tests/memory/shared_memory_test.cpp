@@ -13,6 +13,7 @@
 #include "memory/debug/hexdump.hpp"
 #include "serialization/debug/layout_dump.hpp"
 #include "serialization/serialize_information.h"
+#include "serialization/enum.tpp"
 
 namespace UnBARableAINS {
 
@@ -37,6 +38,9 @@ protected:
                                              {300},
                                              {400},
                                          }}}};
+
+    using TestAction = serialization::test::TestAction;
+    enum class TestEnum : std::uint8_t { ValueA = 0, ValueB = 255 };
 };
 
 TEST_F(SharedMemoryTest, WriteComplexB) {
@@ -126,6 +130,41 @@ TEST_F(SharedMemoryTest, ReadComplexB) {
     }
 
     SharedMemoryType::remove(std::string(name));
+}
+
+TEST_F(SharedMemoryTest, Integrals) {
+    using Shm = SharedMemory<SharedMemoryPosix, std::size_t, TestAction, TestEnum>;
+
+    constexpr std::string_view name = "/shm-test-integrals";
+
+    Shm shm = Shm::create(name);
+    id::id_t testActionId = shm.write(TestAction::ValueC);
+    id::id_t testEnumId = shm.write(TestEnum::ValueB);
+
+    std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);
+    if (!file) {
+        std::cout << "Cannot open shm?!?";
+    }
+    else {
+        memory::debug::hexdump(std::cout, file);
+    }
+
+    auto testAction = shm.read(testActionId);
+    auto testEnum = shm.read(testEnumId);
+
+    EXPECT_EQ(std::get<TestAction>(testAction), TestAction::ValueC);
+    EXPECT_EQ(std::get<TestEnum>(testEnum), TestEnum::ValueB);
+
+    if (::testing::Test::HasFailure()) {
+        std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);
+        if (!file) {
+            std::cout << "Cannot open shm?!?";
+        }
+        else {
+            memory::debug::hexdump(std::cout, file);
+        }
+    }
+    Shm::remove(std::string(name));
 }
 
 }  // namespace UnBARableAINS
