@@ -25,9 +25,13 @@ def create_move_up_action() -> bar_ai.Action:
     return action
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def env():
-    """Erstellt die BAR-Umgebung und schließt sie nach dem Test."""
+    """
+    Erstellt genau eine BAR-Umgebung für alle Tests in diesem Modul.
+
+    Das Environment wird nach dem letzten Test geschlossen.
+    """
     environment = BAR_Environment()
 
     yield environment
@@ -35,35 +39,44 @@ def env():
     environment.close()
 
 
-@pytest.mark.parametrize("episode", range(EPISODES))
+@pytest.mark.parametrize(
+    "episode",
+    range(EPISODES),
+    ids=lambda episode: f"episode-{episode + 1}",
+)
 def test_reset_and_step_for_multiple_episodes(env, episode):
     """
-    Prüft den Reset- und Step-Vertrag über mehrere Episoden.
+    Prüft eine Episode mit einer gemeinsam verwendeten Environment-Instanz.
 
-    Der Test schlägt fehl, wenn:
-    - reset() keine Observation oder kein Info-Dictionary zurückgibt,
-    - step() ungültige Rückgabewerte liefert,
-    - eine Episode das festgelegte Schrittlimit überschreitet.
+    Jede Episode erscheint als eigener Pytest-Testfall.
+    Das Environment wird zwischen den Episoden mit reset() zurückgesetzt.
     """
     obs, info = env.reset()
 
     assert obs is not None, (
-        f"Episode {episode}: reset() hat keine Observation zurückgegeben."
+        f"Episode {episode + 1}: "
+        "reset() hat keine Observation zurückgegeben."
     )
     assert isinstance(info, dict), (
-        f"Episode {episode}: reset() muss ein Dictionary als info zurückgeben, "
+        f"Episode {episode + 1}: "
+        "reset() muss ein Dictionary als info zurückgeben, "
         f"erhalten wurde {type(info).__name__}."
     )
 
     print(f"\n=== EPISODE {episode + 1}/{EPISODES}: RESET ===")
+    print("environment id:", id(env))
     print("obs type:", type(obs).__name__)
-    print("n_obs:", len(obs) if hasattr(obs, "__len__") else "unknown")
+    print(
+        "n_obs:",
+        len(obs) if hasattr(obs, "__len__") else "unknown",
+    )
     print("info:")
     pprint(info, sort_dicts=False)
 
     terminated = False
     truncated = False
     step_count = 0
+    reward: Real = 0
 
     while not (terminated or truncated):
         assert step_count < MAX_STEPS_PER_EPISODE, (
@@ -73,7 +86,6 @@ def test_reset_and_step_for_multiple_episodes(env, episode):
         )
 
         action = create_move_up_action()
-
         result = env.step(action)
 
         assert isinstance(result, tuple), (
@@ -82,19 +94,24 @@ def test_reset_and_step_for_multiple_episodes(env, episode):
         )
         assert len(result) == 5, (
             f"Episode {episode + 1}, Schritt {step_count}: "
-            f"env.step() muss 5 Werte zurückgeben, erhalten wurden {len(result)}."
+            "env.step() muss 5 Werte zurückgeben, "
+            f"erhalten wurden {len(result)}."
         )
 
         obs, reward, terminated, truncated, info = result
         step_count += 1
 
-        assert obs is not None, (
-            f"Episode {episode + 1}, Schritt {step_count}: "
-            "Observation ist None."
-        )
+        # Nach dem Game-End darf obs None sein. Während die Episode
+        # noch läuft, muss eine Observation vorhanden sein.
+        if not (terminated or truncated):
+            assert obs is not None, (
+                f"Episode {episode + 1}, Schritt {step_count}: "
+                "Observation ist während der laufenden Episode None."
+            )
+
         assert isinstance(reward, Real), (
             f"Episode {episode + 1}, Schritt {step_count}: "
-            f"Reward muss numerisch sein, erhalten wurde "
+            "Reward muss numerisch sein, erhalten wurde "
             f"{type(reward).__name__}."
         )
         assert isinstance(terminated, bool), (
@@ -111,9 +128,11 @@ def test_reset_and_step_for_multiple_episodes(env, episode):
         )
 
     print(f"\n=== EPISODE {episode + 1}/{EPISODES}: BEENDET ===")
+    print("environment id:", id(env))
     print("Schritte:", step_count)
     print("terminated:", terminated)
     print("truncated:", truncated)
+    print("final obs:", obs)
     print("final reward:", reward)
     print("final info:")
     pprint(info, sort_dicts=False)
