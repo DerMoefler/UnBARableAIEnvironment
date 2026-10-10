@@ -58,7 +58,7 @@ class BAR_Environment:
         self.truncated = False
         
 
-        self.shared_memory_name = f"/unbarable_ai_read"
+        self.shared_memory_name = ""
 
     def _require_session(self) -> EngineSession:
         """
@@ -83,6 +83,7 @@ class BAR_Environment:
         if self.session == None:
             self.session = EngineSession(self.session_cfg, self.end_of_session)
             self.session.start()
+            self.shared_memory_name = "/sm_proc_" + str(self.session.proc.pid)
         
         shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
         
