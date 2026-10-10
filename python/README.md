@@ -48,6 +48,7 @@ usefull flags:
 - `-x` stops the entire test run after the first failed test.
 - `-s` Disables output capturing and displays `print()`, `stdout`, and `stderr` directly in the terminal.
 - `--durations=0` shows how long each test ran
+- `--log-cli-level=INFO`all logging.info gets displayed in terminal
 
 for more flag options run:
 ```console

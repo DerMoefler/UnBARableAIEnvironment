@@ -1,6 +1,5 @@
 from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
-from src.environment.grpc_server import UnBARableAIGRPCServer
 from src.train.reward import RewardCalculator
 
 import numpy as np
@@ -54,12 +53,10 @@ class BAR_Environment:
             reward_calculator if reward_calculator is not None else RewardCalculator()
         )
 
-        # grpc_server für handleEventUpdate() starten.
         self.current_update_id = 0
         self.terminated = False
         self.truncated = False
-        self.grpc_server = UnBARableAIGRPCServer()
-        self.grpc_server.start()
+        
 
         self.shared_memory_name = f"/unbarable_ai_read"
 
@@ -95,7 +92,7 @@ class BAR_Environment:
         
         logging.info("Engine session started. Waiting for first handleEventUpdate...")
 
-        status, update_id = self.grpc_server.wait_for_next_update(
+        status, update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=0,
             timeout=60.0,
         )
@@ -136,10 +133,10 @@ class BAR_Environment:
         shared_memory.write_action(action)
         
         # 1) das aktuelle offene Update freigeben
-        self.grpc_server.ack_update(self.current_update_id)
+        self.session.grpc_server.ack_update(self.current_update_id)
 
         # 2) auf das nächste Update warten
-        status, next_update_id = self.grpc_server.wait_for_next_update(
+        status, next_update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
             timeout=60.0,
         )
@@ -199,9 +196,6 @@ class BAR_Environment:
         Returns
         -------
         """
-        if self.grpc_server is not None:
-            self.grpc_server.stop()
-            self.grpc_server = None
         try:
             bar_ai.SharedMemory.remove(self.shared_memory_name)
         except Exception:
@@ -315,8 +309,6 @@ class BAR_Environment:
             self.terminated = True
         else:
             self.truncated = True
-
-        self.grpc_server.stop()
 
     def create_observation_dictionary(self, shared_memory: bar_ai.SharedMemory):
         """

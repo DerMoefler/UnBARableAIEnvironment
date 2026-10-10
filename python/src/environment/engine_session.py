@@ -7,6 +7,7 @@ import threading
 import logging
 from pprint import pformat
 from typing import Optional, Dict, Any, List, Union, Callable
+from src.environment.grpc_server import UnBARableAIGRPCServer
 
 @dataclass
 class EngineSessionConfig:
@@ -43,6 +44,8 @@ class EngineSession:
         self._stderr_handle: Optional[Any] = None
 
         self._monitor_thread: Optional[threading.Thread] = None
+        self.grpc_server = UnBARableAIGRPCServer()
+        self.grpc_server.start()
 
 
 
@@ -180,6 +183,7 @@ class EngineSession:
         finally:
             self.proc = None
             self._close_streams()
+            self.grpc_server.stop()
             logging.info("Engine Session stop called, process terminated and streams closed.")
 
     def _monitor_process(self, proc: subprocess.Popen) -> None:
