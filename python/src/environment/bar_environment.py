@@ -7,6 +7,21 @@ import numpy as np
 import bar_ai
 
 import logging
+
+TERMINATED_STATUSES = {
+    bar_ai.EngineStatus.GAME_ENDED,
+    bar_ai.EngineStatus.TEAM_DIED,
+    bar_ai.EngineStatus.AI_KILLED,
+}
+
+TRUNCATED_STATUSES = {
+    bar_ai.EngineStatus.UNSPECIFIED_ERROR,
+    bar_ai.EngineStatus.AI_CRASHED,
+    bar_ai.EngineStatus.AI_FAILED_TO_INIT,
+    bar_ai.EngineStatus.CONNECTION_LOST,
+    bar_ai.EngineStatus.OTHER_REASON_ERROR,
+}
+
 class BAR_Environment:
     def __init__(
         self,
@@ -68,17 +83,15 @@ class BAR_Environment:
 
     def reset(self) -> Tuple[Any, Dict[str, Any]]:
         # Alte Session beenden
-        if self.session is not None:
-            self.session.stop()
-
-        
+        if self.session == None:
+            self.session = EngineSession(self.session_cfg, self.end_of_session)
+            self.session.start()
         
         shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
         
 
         # Neue Session erstellen + starten
-        self.session = EngineSession(self.session_cfg, self.end_of_session)
-        self.session.start()
+        
         
         logging.info("Engine session started. Waiting for first handleEventUpdate...")
 
@@ -97,6 +110,8 @@ class BAR_Environment:
         # Episode-Zähler zurücksetzen
         self.episode_step = 0
 
+        shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
+        self.evaluate_engine_statuses(shared_memory)
 
 
         self.reward_calculator.reset(self._get_team_stats())
@@ -108,7 +123,7 @@ class BAR_Environment:
         info["max_episode_frames"] = self.max_episode_frames
         info["reward_state_initialized"] = self.reward_calculator.initialized
 
-        observation = self.create_observation_dictionary()
+        observation = self.create_observation_dictionary(shared_memory)
         bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, info
@@ -126,7 +141,7 @@ class BAR_Environment:
         # 2) auf das nächste Update warten
         status, next_update_id = self.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
-            timeout=30.0,
+            timeout=60.0,
         )
         if status == "timeout":
             raise TimeoutError("Kein neues handleEventUpdate nach step().")
@@ -137,7 +152,8 @@ class BAR_Environment:
         # Ein RL-Step wurde ausgeführt
         self.episode_step += 1
 
-
+        shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
+        self.evaluate_engine_statuses(shared_memory)
         # Natural episode end:
         # z. B. alle Gegner tot oder alle eigenen Units tot.
         terminated = self.terminated
@@ -151,7 +167,7 @@ class BAR_Environment:
         reward = 0.0
          
         if not terminated and not truncated:
-            observation = self.create_observation_dictionary()
+            observation = self.create_observation_dictionary(shared_memory)
             reward = self.reward_calculator.calculate(self._get_team_stats())
 
         # Aktuelle Unit-Zahlen für Debugging
@@ -302,7 +318,7 @@ class BAR_Environment:
 
         self.grpc_server.stop()
 
-    def create_observation_dictionary(self):
+    def create_observation_dictionary(self, shared_memory: bar_ai.SharedMemory):
         """
         A dictionary with numpy arraays with all info is being created. The np arrays 
 
@@ -316,10 +332,60 @@ class BAR_Environment:
         dictionary : dict
             a dict where every agent is a key and the data is a numpy array with the infos from the UniData
         """
-        shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
         unit_list = shared_memory.read_all_units()
         logging.info(unit_list)
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
-        
+    def evaluate_engine_statuses(self, shared_memory: bar_ai.SharedMemory):
+        statuses = shared_memory.read_all_engine_statuses()
+        status_set = set(statuses)
+
+        self.terminated = False
+        self.truncated = False
+
+        truncation_reasons = status_set & TRUNCATED_STATUSES
+        termination_reasons = status_set & TERMINATED_STATUSES
+
+        # Technische Fehler haben Vorrang.
+        if truncation_reasons:
+            self.truncated = True
+
+            logging.error(
+                "end_reason=%s engine_statuses=%s error_statuses=%s",
+                "ENGINE_ERROR",
+                [status.name for status in statuses],
+                [status.name for status in truncation_reasons],
+            )
+
+        # Reguläres Episodenende.
+        elif termination_reasons:
+            self.terminated = True
+
+            logging.info(
+                "end_reason=%s engine_statuses=%s termination_statuses=%s",
+                "GAME_TERMINATED",
+                [status.name for status in statuses],
+                [status.name for status in termination_reasons],
+            )
+
+        # Alle Engines laufen normal.
+        elif statuses and all(
+            status == bar_ai.EngineStatus.RUNNING
+            for status in statuses
+        ):
+            logging.debug(
+                "end_reason=%s engine_statuses=%s",
+                "RUNNING",
+                [status.name for status in statuses],
+            )
+
+        # Leere Liste oder nicht klassifizierter Status.
+        else:
+            self.truncated = True
+
+            logging.error(
+                "end_reason=%s engine_statuses=%s",
+                "UNKNOWN_ENGINE_STATUS",
+                [getattr(status, "name", str(status)) for status in statuses],
+            )

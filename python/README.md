@@ -47,6 +47,7 @@ usefull flags:
 - `-v` makes the test output more detailed and shows each test individually
 - `-x` stops the entire test run after the first failed test.
 - `-s` Disables output capturing and displays `print()`, `stdout`, and `stderr` directly in the terminal.
+- `--durations=0` shows how long each test ran
 
 for more flag options run:
 ```console
