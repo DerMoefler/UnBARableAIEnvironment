@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from numbers import Real
 from pprint import pprint
+from typing import List
 
 import pytest
 
@@ -13,16 +14,18 @@ EPISODES = 5
 MAX_STEPS_PER_EPISODE = 10_000
 
 
-def create_move_up_action() -> bar_ai.Action:
-    """Erstellt eine gültige MoveUp-Testaktion."""
-    action = bar_ai.Action()
-    action.unit_id = 1
-    action.team_id = 0
-    action.ally_team_id = 0
-    action.action_id = bar_ai.ActionId.MoveUp
-    action.target_unit_id = 0
-
-    return action
+def create_actions() -> List[bar_ai.Action]:
+    """Erstellt gültige Testaktionen."""
+    actions = []
+    for i in range(2):
+        action = bar_ai.Action()
+        action.unit_id = i + 1
+        action.team_id = 0
+        action.ally_team_id = 0
+        action.action_id = bar_ai.ActionId.MoveUp
+        action.target_unit_id = 0
+        actions.append(action)
+    return actions
 
 
 @pytest.fixture(scope="module")
@@ -85,8 +88,8 @@ def test_reset_and_step_for_multiple_episodes(env, episode):
             "noch abgeschnitten."
         )
 
-        action = create_move_up_action()
-        result = env.step(action)
+        actions = create_actions()
+        result = env.step(actions)
 
         assert isinstance(result, tuple), (
             f"Episode {episode + 1}, Schritt {step_count}: "

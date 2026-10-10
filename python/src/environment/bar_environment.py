@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.train.reward import RewardCalculator
+from typing import List
 
 import numpy as np
 import bar_ai
@@ -126,12 +127,13 @@ class BAR_Environment:
 
         return observation, info
 
-    def step(self, action : bar_ai.Action):
+    def step(self, actions: List[bar_ai.Action]):
         session = self._require_session()
 
         shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
 
-        shared_memory.write_action(action)
+        for action in actions:
+            shared_memory.write_action(action)
         
         # 1) das aktuelle offene Update freigeben
         self.session.grpc_server.ack_update(self.current_update_id)
