@@ -80,22 +80,16 @@ class BAR_Environment:
         return self.session
 
     def reset(self) -> Tuple[Any, Dict[str, Any]]:
-        # Alte Session beenden
         if self.session == None:
             self.session = EngineSession(self.session_cfg, self.end_of_session)
             self.session.start()
             self.shared_memory_name = "/sm_proc_" + str(self.session.proc.pid)
-        
-        shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
-        
-
-        # Neue Session erstellen + starten
-        
+            shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
         
         logging.info("Engine session started. Waiting for first handleEventUpdate...")
 
         status, update_id = self.session.grpc_server.wait_for_next_update(
-            previous_count=0,
+            previous_count=self.current_update_id,
             timeout=60.0,
         )
         if status == "timeout":
@@ -169,6 +163,10 @@ class BAR_Environment:
         if not terminated and not truncated:
             observation = self.create_observation_dictionary(shared_memory)
             reward = self.reward_calculator.calculate(self._get_team_stats())
+        else:
+            bar_ai.SharedMemory.remove(self.shared_memory_name)
+            shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
+            self.session.grpc_server.ack_update(self.current_update_id)
 
         # Aktuelle Unit-Zahlen für Debugging
         own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
@@ -184,7 +182,8 @@ class BAR_Environment:
             "reward_info": self.reward_calculator.last_info,
         }
         
-        bar_ai.SharedMemory.remove(self.shared_memory_name)
+        if not terminated and not truncated:
+            bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, reward, terminated, truncated, info
 

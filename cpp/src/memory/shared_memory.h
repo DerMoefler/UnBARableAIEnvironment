@@ -76,13 +76,12 @@ public:
         id::id_t serializableId = m_idAllocator.allocate();
         createLayoutTableEntry<S>(serializableId, layout.getSegmentId().value());
         m_layouts.push_back(std::move(layout));
-        std::cout << "SharedMemory<Impl, SupportedTypes...>::write: Finished successfully"
-                  << std::endl;
+        //std::cout << "SharedMemory<Impl, SupportedTypes...>::write: Finished successfully" << std::endl;
         return serializableId;
     }
 
     ValueVariant read(id::id_t serializableId) const {
-        std::cout << "SharedMemory::read\n";
+        //std::cout << "SharedMemory::read\n";
         const LayoutVariant& layout = getLayoutVariant(serializableId);
 
         return std::visit([&](auto&& layout) -> ValueVariant { return readImpl(&layout); }, layout);

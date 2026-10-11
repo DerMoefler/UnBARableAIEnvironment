@@ -135,7 +135,7 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
 
     // Move head to after the segment
     m_head += segmentSize;
-    std::cout << "SharedMemoryPosix::createSegment: Successfully created segment." << std::endl;
+    //std::cout << "SharedMemoryPosix::createSegment: Successfully created segment." << std::endl;
     return newSegmentId;
 }
 
