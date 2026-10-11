@@ -148,7 +148,7 @@ public:
 
 private:
     inline static constexpr memory::id_t c_layout_table_segment_id = 0;
-    inline static constexpr std::size_t c_layout_table_size_increase = 8;
+    inline static constexpr std::size_t c_layout_table_size_increase = 11;
     inline static constexpr std::size_t c_layout_table_entry_size = 3 * sizeof(id::id_t);
     inline static constexpr std::size_t c_partial_layout_table_size =
         c_layout_table_size_increase * c_layout_table_entry_size;

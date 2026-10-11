@@ -17,7 +17,7 @@ MAX_STEPS_PER_EPISODE = 10_000
 def create_actions() -> List[bar_ai.Action]:
     """Erstellt gültige Testaktionen."""
     actions = []
-    for i in range(2):
+    for i in range(3):
         action = bar_ai.Action()
         action.unit_id = i + 1
         action.team_id = 0
