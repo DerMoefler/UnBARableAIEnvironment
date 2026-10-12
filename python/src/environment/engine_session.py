@@ -1,43 +1,52 @@
-import os
-import signal
-import subprocess
 from dataclasses import dataclass
-from pathlib import Path
-import threading
 import logging
+import os
+from pathlib import Path
 from pprint import pformat
-from typing import Optional, Dict, Any, List, Union, Callable
+import signal
 from src.environment.grpc_server import UnBARableAIGRPCServer
+import subprocess
+import threading
+from typing import Optional, Dict, Any, List, Union, Callable
 
-@dataclass
+@dataclass(frozen=True)
 class EngineSessionConfig:
     """
-    all configuration parameters for an EngineSession,
+    All configuration parameters for an EngineSession,
     stdout is output stream for the engine's output, can be None (Terminal output), a file path, or subprocess.PIPE
     stderr is output stream for the engine's error output, can be None (Terminal output), a file path, or subprocess.PIPE
     """
-    engine_exe: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine/build-amd64-linux/install/spring-headless"
-    write_dir: Union[str, Path] = "~/bar-data"
-    config_file: Union[str, Path] = "config/test_fast.cfg"
-    startscript: Union[str, Path] = "startscripts/3PawnVs3Pawn.txt"
-    cwd: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine"
+    repo_root: Path = Path(__file__).resolve().parents[3]
+    engine_root: Path = repo_root / "RecoilEngine"
+    write_dir: Path = Path("~/bar-data/").expanduser()
 
-    stdout: Optional[Union[int, str, Path]] = "~/bar-data/engine_stdout.log"
-    stderr: Optional[Union[int, str, Path]] = "~/bar-data/engine_stderr.log"
+    engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring-headless"
+    config_file: Path = engine_root / "config" / "test_fast.cfg"
+    startscript: Path = engine_root / "startscripts" / "3PawnVs3Pawn.txt"
+
+    stdout: Optional[Union[int, str, Path]] = Path("~/bar-data/engine_stdout.log").expanduser()
+    stderr: Optional[Union[int, str, Path]] = Path("~/bar-data/engine_stderr.log").expanduser()
     merge_stderr_to_stdout: bool = False
 
+    def __pos_init__(self):
+        self.validate()
+
+    def validate(self) -> None:
+        if not self.repo_root.is_dir():
+            raise ValueError(f"Repository root does not exist: {self.repo_root}")
+        if not self.write_dir.is_dir():
+            raise ValueError(f"Write directory does not exist: {self.write_dir}")
+        if not self.engine_exe.is_file():
+            raise ValueError(f"Engine xecutable does not exist: {self.engine_exe}")
+        if not os.access(self.engine_exe, os.X_OK):
+            raise PermissionError(f"spring-headless is not executable: {self.engine_exe}")
 
 
 class EngineSession:
     def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[int], None]] = None):
-        self.cfg = cfg
-        self.on_exit = on_exit
+        self.cfg: EngineSessionConfig = cfg
 
-        self.engine_exe = Path(cfg.engine_exe).expanduser()
-        self.write_dir = Path(cfg.write_dir).expanduser()
-        self.config_file = Path(cfg.config_file).expanduser()
-        self.startscript = Path(cfg.startscript).expanduser()
-        self.cwd = Path(cfg.cwd).expanduser()
+        self.on_exit = on_exit
 
         self.proc: Optional[subprocess.Popen] = None
         self._stdout_handle: Optional[Any] = None
@@ -63,10 +72,10 @@ class EngineSession:
             the command line as a list of strings, suitable for passing to subprocess.Popen
         """
         return [
-            str(self.engine_exe),
-            "--write-dir", str(self.write_dir),
-            "--config", str(self.config_file),
-            str(self.startscript),
+            str(self.cfg.engine_exe),
+            "--write-dir", str(self.cfg.write_dir),
+            "--config", str(self.cfg.config_file),
+            str(self.cfg.startscript),
         ]
 
     def _resolve_stream(self, stream_spec: Optional[Union[int, str, Path]]):
@@ -109,14 +118,6 @@ class EngineSession:
         if self.is_running():
             return self.info()
 
-        if not self.engine_exe.is_file():
-            raise FileNotFoundError(f"spring-headless not found: {self.engine_exe}")
-        if not os.access(self.engine_exe, os.X_OK):
-            raise PermissionError(f"spring-headless is not executable: {self.engine_exe}")
-        if not self.cwd.exists():
-            raise FileNotFoundError(f"cwd does not exist: {self.cwd}")
-
-        self.write_dir.mkdir(parents=True, exist_ok=True)
         cmd = self._build_cmd()
 
         stdout = self._resolve_stream(self.cfg.stdout)
@@ -130,7 +131,7 @@ class EngineSession:
 
         self.proc = subprocess.Popen(
             cmd,
-            cwd=str(self.cwd),
+            cwd=str(self.cfg.engine_root),
             stdout=stdout,
             stderr=stderr,
             start_new_session=True,
@@ -148,6 +149,7 @@ class EngineSession:
         self._monitor_thread.start()
 
         logging.info("Engine process started: %s", pformat(self.info()))
+        return self.info()
 
     def stop(self) -> None:
         """
@@ -257,8 +259,8 @@ class EngineSession:
         return {
             "pid": None if self.proc is None else self.proc.pid,
             "cmd": self._build_cmd(),
-            "cwd": str(self.cwd),
-            "write_dir": str(self.write_dir),
+            "cwd": str(self.cfg.engine_root),
+            "write_dir": str(self.cfg.write_dir),
             "log_file": self.cfg.stdout,
             "running": self.is_running(),
             "exit_code": self.exit_code(),
