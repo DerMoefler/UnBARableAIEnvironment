@@ -59,53 +59,6 @@ class EngineSession:
         self.grpc_server: UnBARableAIGRPCServer = UnBARableAIGRPCServer()
         self.grpc_server.start()
 
-
-
-    def _build_cmd(self) -> List[str]:
-        """
-        builds the command line to start the engine process, based on the configuration parameters.
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        List[str]:
-            the command line as a list of strings, suitable for passing to subprocess.Popen
-        """
-        return [
-            str(self.cfg.engine_exe),
-            "--write-dir", str(self.cfg.write_dir),
-            "--config", str(self.cfg.config_file),
-            str(self.cfg.startscript),
-        ]
-
-    def _resolve_stream(self, stream_spec: int | str | Path):
-        """
-        Resolves a stream specification to an actual stream object or None.
-
-        Parameters
-        ----------
-        stream_spec : None | int | str | Path
-            The stream specification. Can be:
-            - None: Use the default stream (Terminal output).
-            - int: Use the specified file descriptor (e.g., subprocess.PIPE).
-            - str or Path: Use the specified file path. The file will be created if it does not exist.
-        
-        Returns
-        -------
-        None | int | BinaryIO
-        The resolved stream that can be passed to subprocess.Popen.
-        """
-        if stream_spec == subprocess.PIPE:
-            return subprocess.PIPE
-        if isinstance(stream_spec, (str, Path)):
-            p = Path(stream_spec).expanduser()
-            p.parent.mkdir(parents=True, exist_ok=True)
-            return open(p, "wb")
-        return stream_spec
-
     def start(self):
         """
         Starts the engine process if it is not already running.
@@ -119,7 +72,7 @@ class EngineSession:
         if self.is_running():
             return self.info()
 
-        cmd = self._build_cmd()
+        cmd = self._get_build_cmd()
 
         stdout = self._resolve_stream(self.stdout)
         stderr = self._resolve_stream(self.stderr)
@@ -189,40 +142,6 @@ class EngineSession:
             self.grpc_server.stop()
             logging.info("Engine Session stop called, process terminated and streams closed.")
 
-    def _monitor_process(self, proc: subprocess.Popen) -> None:
-        """
-        Wartet auf das Engine-Ende und ruft den Exit-Handler auf.
-
-        Parameters
-        ----------
-        proc : subprocess.Popen
-            The engine process to monitor.
-        """
-        return_code = proc.wait()
-
-        logging.info("Engine process exited with return code: %s" " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)", return_code)
-
-        if self.on_exit is not None:
-            self.on_exit(return_code)
-
-
-
-    def _close_streams(self):
-        """
-        closes the stdout and stderr streams if they were opened by this session.
-        """
-        try:
-            if self._stdout_handle:
-                self._stdout_handle.close()
-        finally:
-            self._stdout_handle = None
-
-        try:
-            if self._stderr_handle and self._stderr_handle is not self._stdout_handle:
-                self._stderr_handle.close()
-        finally:
-            self._stderr_handle = None
-
     def is_running(self) -> bool:
         """
         Checks if the engine process is currently running.
@@ -259,10 +178,88 @@ class EngineSession:
         """
         return {
             "pid": None if self.proc is None else self.proc.pid,
-            "cmd": self._build_cmd(),
+            "cmd": self._get_build_cmd(),
             "cwd": str(self.cfg.engine_root),
             "write_dir": str(self.cfg.write_dir),
             "log_file": self.stdout,
             "running": self.is_running(),
             "exit_code": self.exit_code(),
         }
+
+    def _monitor_process(self, proc: subprocess.Popen) -> None:
+        """
+        Wartet auf das Engine-Ende und ruft den Exit-Handler auf.
+
+        Parameters
+        ----------
+        proc : subprocess.Popen
+            The engine process to monitor.
+        """
+        return_code = proc.wait()
+
+        logging.info("Engine process exited with return code: %s" " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)", return_code)
+
+        if self.on_exit is not None:
+            self.on_exit(return_code)
+
+    def _get_build_cmd(self) -> List[str]:
+        """
+        builds the command line to start the engine process, based on the configuration parameters.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        List[str]:
+            the command line as a list of strings, suitable for passing to subprocess.Popen
+        """
+        return [
+            str(self.cfg.engine_exe),
+            "--write-dir", str(self.cfg.write_dir),
+            "--config", str(self.cfg.config_file),
+            str(self.cfg.startscript),
+        ]
+
+
+    def _resolve_stream(self, stream_spec: int | str | Path):
+        """
+        Resolves a stream specification to an actual stream object or None.
+
+        Parameters
+        ----------
+        stream_spec : None | int | str | Path
+            The stream specification. Can be:
+            - None: Use the default stream (Terminal output).
+            - int: Use the specified file descriptor (e.g., subprocess.PIPE).
+            - str or Path: Use the specified file path. The file will be created if it does not exist.
+
+        Returns
+        -------
+        None | int | BinaryIO
+        The resolved stream that can be passed to subprocess.Popen.
+        """
+        if stream_spec == subprocess.PIPE:
+            return subprocess.PIPE
+        if isinstance(stream_spec, (str, Path)):
+            p = Path(stream_spec).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return open(p, "wb")
+        return stream_spec
+
+    def _close_streams(self):
+        """
+        closes the stdout and stderr streams if they were opened by this session.
+        """
+        try:
+            if self._stdout_handle:
+                self._stdout_handle.close()
+        finally:
+            self._stdout_handle = None
+
+        try:
+            if self._stderr_handle and self._stderr_handle is not self._stdout_handle:
+                self._stderr_handle.close()
+        finally:
+            self._stderr_handle = None
