@@ -1,100 +1,63 @@
-import os
-import signal
-import subprocess
 from dataclasses import dataclass
-from pathlib import Path
-import threading
 import logging
+import os
+from pathlib import Path
 from pprint import pformat
-from typing import Optional, Dict, Any, List, Union, Callable
+import signal
 from src.environment.grpc_server import UnBARableAIGRPCServer
+import subprocess
+import threading
+from typing import Optional, Dict, Any, List, Union, Callable
 
-@dataclass
+@dataclass(frozen=True)
 class EngineSessionConfig:
     """
-    all configuration parameters for an EngineSession,
+    All configuration parameters for an EngineSession,
     stdout is output stream for the engine's output, can be None (Terminal output), a file path, or subprocess.PIPE
     stderr is output stream for the engine's error output, can be None (Terminal output), a file path, or subprocess.PIPE
     """
-    engine_exe: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine/build-amd64-linux/install/spring-headless"
-    write_dir: Union[str, Path] = "~/bar-data"
-    config_file: Union[str, Path] = "config/test_fast.cfg"
-    startscript: Union[str, Path] = "startscripts/3PawnVs3Pawn.txt"
-    cwd: Union[str, Path] = "~/repos/UnBARableAIEnvironment/RecoilEngine"
+    repo_root: Path = Path(__file__).resolve().parents[3]
+    engine_root: Path = repo_root / "RecoilEngine"
+    write_dir: Path = Path("~/bar-data/").expanduser()
 
-    stdout: Optional[Union[int, str, Path]] = "~/bar-data/engine_stdout.log"
-    stderr: Optional[Union[int, str, Path]] = "~/bar-data/engine_stderr.log"
+    engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring-headless"
+    config_file: Path = engine_root / "config" / "test_fast.cfg"
+    startscript: Path = engine_root / "startscripts" / "3PawnVs3Pawn.txt"
+
+    default_stdout: int | str | Path = Path("~/bar-data/engine_stdout.log").expanduser()
+    default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
     merge_stderr_to_stdout: bool = False
 
+    def __pos_init__(self):
+        self.validate()
+
+    def validate(self) -> None:
+        if not self.repo_root.is_dir():
+            raise ValueError(f"Repository root does not exist: {self.repo_root}")
+        if not self.write_dir.is_dir():
+            raise ValueError(f"Write directory does not exist: {self.write_dir}")
+        if not self.engine_exe.is_file():
+            raise ValueError(f"Engine xecutable does not exist: {self.engine_exe}")
+        if not os.access(self.engine_exe, os.X_OK):
+            raise PermissionError(f"spring-headless is not executable: {self.engine_exe}")
 
 
 class EngineSession:
     def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[int], None]] = None):
-        self.cfg = cfg
+        self.cfg: EngineSessionConfig = cfg
+
         self.on_exit = on_exit
 
-        self.engine_exe = Path(cfg.engine_exe).expanduser()
-        self.write_dir = Path(cfg.write_dir).expanduser()
-        self.config_file = Path(cfg.config_file).expanduser()
-        self.startscript = Path(cfg.startscript).expanduser()
-        self.cwd = Path(cfg.cwd).expanduser()
-
         self.proc: Optional[subprocess.Popen] = None
+
+        self.stdout = self.cfg.default_stdout
+        self.stderr = self.cfg.default_stderr
         self._stdout_handle: Optional[Any] = None
         self._stderr_handle: Optional[Any] = None
 
         self._monitor_thread: Optional[threading.Thread] = None
-        self.grpc_server = UnBARableAIGRPCServer()
+        self.grpc_server: UnBARableAIGRPCServer = UnBARableAIGRPCServer()
         self.grpc_server.start()
-
-
-
-    def _build_cmd(self) -> List[str]:
-        """
-        builds the command line to start the engine process, based on the configuration parameters.
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        List[str]:
-            the command line as a list of strings, suitable for passing to subprocess.Popen
-        """
-        return [
-            str(self.engine_exe),
-            "--write-dir", str(self.write_dir),
-            "--config", str(self.config_file),
-            str(self.startscript),
-        ]
-
-    def _resolve_stream(self, stream_spec: Optional[Union[int, str, Path]]):
-        """
-        Resolves a stream specification to an actual stream object or None.
-
-        Parameters
-        ----------
-        stream_spec : None | int | str | Path
-            The stream specification. Can be:
-            - None: Use the default stream (Terminal output).
-            - int: Use the specified file descriptor (e.g., subprocess.PIPE).
-            - str or Path: Use the specified file path. The file will be created if it does not exist.
-        
-        Returns
-        -------
-        None | int | BinaryIO
-        The resolved stream that can be passed to subprocess.Popen.
-        """
-        if stream_spec is None:
-            return None
-        if stream_spec == subprocess.PIPE:
-            return subprocess.PIPE
-        if isinstance(stream_spec, (str, Path)):
-            p = Path(stream_spec).expanduser()
-            p.parent.mkdir(parents=True, exist_ok=True)
-            return open(p, "wb")
-        return stream_spec
 
     def start(self):
         """
@@ -109,18 +72,10 @@ class EngineSession:
         if self.is_running():
             return self.info()
 
-        if not self.engine_exe.is_file():
-            raise FileNotFoundError(f"spring-headless not found: {self.engine_exe}")
-        if not os.access(self.engine_exe, os.X_OK):
-            raise PermissionError(f"spring-headless is not executable: {self.engine_exe}")
-        if not self.cwd.exists():
-            raise FileNotFoundError(f"cwd does not exist: {self.cwd}")
+        cmd = self._get_build_cmd()
 
-        self.write_dir.mkdir(parents=True, exist_ok=True)
-        cmd = self._build_cmd()
-
-        stdout = self._resolve_stream(self.cfg.stdout)
-        stderr = self._resolve_stream(self.cfg.stderr)
+        stdout = self._resolve_stream(self.stdout)
+        stderr = self._resolve_stream(self.stderr)
 
         self._stdout_handle = stdout if hasattr(stdout, "close") else None
         self._stderr_handle = stderr if hasattr(stderr, "close") else None
@@ -130,7 +85,7 @@ class EngineSession:
 
         self.proc = subprocess.Popen(
             cmd,
-            cwd=str(self.cwd),
+            cwd=str(self.cfg.engine_root),
             stdout=stdout,
             stderr=stderr,
             start_new_session=True,
@@ -148,6 +103,7 @@ class EngineSession:
         self._monitor_thread.start()
 
         logging.info("Engine process started: %s", pformat(self.info()))
+        return self.info()
 
     def stop(self) -> None:
         """
@@ -186,40 +142,6 @@ class EngineSession:
             self.grpc_server.stop()
             logging.info("Engine Session stop called, process terminated and streams closed.")
 
-    def _monitor_process(self, proc: subprocess.Popen) -> None:
-        """
-        Wartet auf das Engine-Ende und ruft den Exit-Handler auf.
-
-        Parameters
-        ----------
-        proc : subprocess.Popen
-            The engine process to monitor.
-        """
-        return_code = proc.wait()
-
-        logging.info("Engine process exited with return code: %s" " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)", return_code)
-
-        if self.on_exit is not None:
-            self.on_exit(return_code)
-
-
-
-    def _close_streams(self):
-        """
-        closes the stdout and stderr streams if they were opened by this session.
-        """
-        try:
-            if self._stdout_handle:
-                self._stdout_handle.close()
-        finally:
-            self._stdout_handle = None
-
-        try:
-            if self._stderr_handle and self._stderr_handle is not self._stdout_handle:
-                self._stderr_handle.close()
-        finally:
-            self._stderr_handle = None
-
     def is_running(self) -> bool:
         """
         Checks if the engine process is currently running.
@@ -256,10 +178,88 @@ class EngineSession:
         """
         return {
             "pid": None if self.proc is None else self.proc.pid,
-            "cmd": self._build_cmd(),
-            "cwd": str(self.cwd),
-            "write_dir": str(self.write_dir),
-            "log_file": self.cfg.stdout,
+            "cmd": self._get_build_cmd(),
+            "cwd": str(self.cfg.engine_root),
+            "write_dir": str(self.cfg.write_dir),
+            "log_file": self.stdout,
             "running": self.is_running(),
             "exit_code": self.exit_code(),
         }
+
+    def _monitor_process(self, proc: subprocess.Popen) -> None:
+        """
+        Wartet auf das Engine-Ende und ruft den Exit-Handler auf.
+
+        Parameters
+        ----------
+        proc : subprocess.Popen
+            The engine process to monitor.
+        """
+        return_code = proc.wait()
+
+        logging.info("Engine process exited with return code: %s" " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)", return_code)
+
+        if self.on_exit is not None:
+            self.on_exit(return_code)
+
+    def _get_build_cmd(self) -> List[str]:
+        """
+        builds the command line to start the engine process, based on the configuration parameters.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        List[str]:
+            the command line as a list of strings, suitable for passing to subprocess.Popen
+        """
+        return [
+            str(self.cfg.engine_exe),
+            "--write-dir", str(self.cfg.write_dir),
+            "--config", str(self.cfg.config_file),
+            str(self.cfg.startscript),
+        ]
+
+
+    def _resolve_stream(self, stream_spec: int | str | Path):
+        """
+        Resolves a stream specification to an actual stream object or None.
+
+        Parameters
+        ----------
+        stream_spec : None | int | str | Path
+            The stream specification. Can be:
+            - None: Use the default stream (Terminal output).
+            - int: Use the specified file descriptor (e.g., subprocess.PIPE).
+            - str or Path: Use the specified file path. The file will be created if it does not exist.
+
+        Returns
+        -------
+        None | int | BinaryIO
+        The resolved stream that can be passed to subprocess.Popen.
+        """
+        if stream_spec == subprocess.PIPE:
+            return subprocess.PIPE
+        if isinstance(stream_spec, (str, Path)):
+            p = Path(stream_spec).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return open(p, "wb")
+        return stream_spec
+
+    def _close_streams(self):
+        """
+        closes the stdout and stderr streams if they were opened by this session.
+        """
+        try:
+            if self._stdout_handle:
+                self._stdout_handle.close()
+        finally:
+            self._stdout_handle = None
+
+        try:
+            if self._stderr_handle and self._stderr_handle is not self._stdout_handle:
+                self._stderr_handle.close()
+        finally:
+            self._stderr_handle = None
