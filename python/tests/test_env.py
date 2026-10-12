@@ -14,12 +14,12 @@ EPISODES = 5
 MAX_STEPS_PER_EPISODE = 10_000
 
 
-def create_actions() -> List[bar_ai.Action]:
+def create_actions(unit_ids: List[int]) -> List[bar_ai.Action]:
     """Erstellt gültige Testaktionen."""
     actions = []
-    for i in range(3):
+    for unit_id in unit_ids:
         action = bar_ai.Action()
-        action.unit_id = i + 1
+        action.unit_id = unit_id
         action.team_id = 0
         action.ally_team_id = 0
         action.action_id = bar_ai.ActionId.MoveUp
@@ -88,7 +88,19 @@ def test_reset_and_step_for_multiple_episodes(env, episode):
             "noch abgeschnitten."
         )
 
-        actions = create_actions()
+        
+        units = [
+            agent_array.item()
+            for agent_array in obs.values()
+        ]
+
+        own_alive_unitIds = []
+
+        for unit in units:
+            if unit.team_id == 0:
+                own_alive_unitIds.append(unit.unit_id)
+
+        actions = create_actions(own_alive_unitIds)
         result = env.step(actions)
 
         assert isinstance(result, tuple), (
