@@ -24,8 +24,8 @@ class EngineSessionConfig:
     config_file: Path = engine_root / "config" / "test_fast.cfg"
     startscript: Path = engine_root / "startscripts" / "3PawnVs3Pawn.txt"
 
-    stdout: Optional[Union[int, str, Path]] = Path("~/bar-data/engine_stdout.log").expanduser()
-    stderr: Optional[Union[int, str, Path]] = Path("~/bar-data/engine_stderr.log").expanduser()
+    default_stdout: int | str | Path = Path("~/bar-data/engine_stdout.log").expanduser()
+    default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
     merge_stderr_to_stdout: bool = False
 
     def __pos_init__(self):
@@ -49,11 +49,14 @@ class EngineSession:
         self.on_exit = on_exit
 
         self.proc: Optional[subprocess.Popen] = None
+
+        self.stdout = self.cfg.default_stdout
+        self.stderr = self.cfg.default_stderr
         self._stdout_handle: Optional[Any] = None
         self._stderr_handle: Optional[Any] = None
 
         self._monitor_thread: Optional[threading.Thread] = None
-        self.grpc_server = UnBARableAIGRPCServer()
+        self.grpc_server: UnBARableAIGRPCServer = UnBARableAIGRPCServer()
         self.grpc_server.start()
 
 
@@ -78,7 +81,7 @@ class EngineSession:
             str(self.cfg.startscript),
         ]
 
-    def _resolve_stream(self, stream_spec: Optional[Union[int, str, Path]]):
+    def _resolve_stream(self, stream_spec: int | str | Path):
         """
         Resolves a stream specification to an actual stream object or None.
 
@@ -95,8 +98,6 @@ class EngineSession:
         None | int | BinaryIO
         The resolved stream that can be passed to subprocess.Popen.
         """
-        if stream_spec is None:
-            return None
         if stream_spec == subprocess.PIPE:
             return subprocess.PIPE
         if isinstance(stream_spec, (str, Path)):
@@ -120,8 +121,8 @@ class EngineSession:
 
         cmd = self._build_cmd()
 
-        stdout = self._resolve_stream(self.cfg.stdout)
-        stderr = self._resolve_stream(self.cfg.stderr)
+        stdout = self._resolve_stream(self.stdout)
+        stderr = self._resolve_stream(self.stderr)
 
         self._stdout_handle = stdout if hasattr(stdout, "close") else None
         self._stderr_handle = stderr if hasattr(stderr, "close") else None
@@ -261,7 +262,7 @@ class EngineSession:
             "cmd": self._build_cmd(),
             "cwd": str(self.cfg.engine_root),
             "write_dir": str(self.cfg.write_dir),
-            "log_file": self.cfg.stdout,
+            "log_file": self.stdout,
             "running": self.is_running(),
             "exit_code": self.exit_code(),
         }
