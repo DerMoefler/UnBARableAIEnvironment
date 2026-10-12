@@ -28,7 +28,7 @@ class EngineSessionConfig:
     default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
     merge_stderr_to_stdout: bool = False
 
-    def __pos_init__(self):
+    def __post_init__(self):
         self.validate()
 
     def validate(self) -> None:
