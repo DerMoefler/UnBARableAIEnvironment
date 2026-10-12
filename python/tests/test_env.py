@@ -14,17 +14,27 @@ EPISODES = 5
 MAX_STEPS_PER_EPISODE = 10_000
 
 
-def create_actions(unit_ids: List[int]) -> List[bar_ai.Action]:
+def create_actions(unit_ids: List[int], target_unit_id: int) -> List[bar_ai.Action]:
     """Erstellt gültige Testaktionen."""
     actions = []
-    for unit_id in unit_ids:
-        action = bar_ai.Action()
-        action.unit_id = unit_id
-        action.team_id = 0
-        action.ally_team_id = 0
-        action.action_id = bar_ai.ActionId.MoveUp
-        action.target_unit_id = 0
-        actions.append(action)
+    if target_unit_id is None:
+        for unit_id in unit_ids:
+            action = bar_ai.Action()
+            action.unit_id = unit_id
+            action.team_id = 0
+            action.ally_team_id = 0
+            action.action_id = bar_ai.ActionId.MoveRight
+            action.target_unit_id = 0
+            actions.append(action)
+    else:
+        for unit_id in unit_ids:
+            action = bar_ai.Action()
+            action.unit_id = unit_id
+            action.team_id = 0
+            action.ally_team_id = 0
+            action.action_id = bar_ai.ActionId.Attack
+            action.target_unit_id = target_unit_id
+            actions.append(action)
     return actions
 
 
@@ -95,12 +105,16 @@ def test_reset_and_step_for_multiple_episodes(env, episode):
         ]
 
         own_alive_unitIds = []
+        target_unitId = None
 
         for unit in units:
             if unit.team_id == 0:
                 own_alive_unitIds.append(unit.unit_id)
+            else:
+                if not unit.is_dead:
+                    target_unitId = unit.unit_id
 
-        actions = create_actions(own_alive_unitIds)
+        actions = create_actions(own_alive_unitIds, target_unitId)
         result = env.step(actions)
 
         assert isinstance(result, tuple), (
