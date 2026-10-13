@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 import os
 from pathlib import Path
@@ -16,9 +16,11 @@ class EngineSessionConfig:
     stdout is output stream for the engine's output, can be None (Terminal output), a file path, or subprocess.PIPE
     stderr is output stream for the engine's error output, can be None (Terminal output), a file path, or subprocess.PIPE
     """
+    engine_id: int
     repo_root: Path = Path(__file__).resolve().parents[3]
     engine_root: Path = repo_root / "RecoilEngine"
-    write_dir: Path = Path("~/bar-data/").expanduser()
+    isolation_dir: Path = Path("~/bar-data/").expanduser()
+    write_dir: Path = field(init=False)
 
     engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring-headless"
     config_file: Path = engine_root / "config" / "test_fast.cfg"
@@ -30,17 +32,31 @@ class EngineSessionConfig:
 
     def __post_init__(self):
         self.validate()
+        object.__setattr__(self, "write_dir", self.isolation_dir / "instances" / f"engine-{self.engine_id:03d}")
+        self.ensure_write_dir()
 
     def validate(self) -> None:
         if not self.repo_root.is_dir():
             raise ValueError(f"Repository root does not exist: {self.repo_root}")
-        if not self.write_dir.is_dir():
-            raise ValueError(f"Write directory does not exist: {self.write_dir}")
+        if not self.isolation_dir.is_dir():
+            raise ValueError(f"Isolation directory does not exist: {self.isolation_dir}")
         if not self.engine_exe.is_file():
             raise ValueError(f"Engine xecutable does not exist: {self.engine_exe}")
         if not os.access(self.engine_exe, os.X_OK):
             raise PermissionError(f"spring-headless is not executable: {self.engine_exe}")
 
+    def ensure_write_dir(self) -> None:
+        """
+        Checks that a directory isolation_dir / "instances" / "engine-{self.engine_id}" exists
+
+        Creates if it doesn't exist yet.
+        """
+        instances_dir = self.write_dir.resolve().parents[0]
+        if not instances_dir.is_dir():
+            Path.mkdir(instances_dir)
+
+        if not self.write_dir.is_dir():
+            Path.mkdir(self.write_dir)
 
 class EngineSession:
     def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[int], None]] = None):
@@ -152,6 +168,13 @@ class EngineSession:
             True if the engine process is running, False otherwise.
         """
         return self.proc is not None and self.proc.poll() is None
+
+    def get_engine_id(self) -> int:
+        return self.cfg.engine_id
+
+    @property
+    def process_id(self) -> int | None:
+        return None if self.proc is None else self.proc.pid
 
     def exit_code(self) -> Optional[int]:
         """
