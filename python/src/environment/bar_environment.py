@@ -30,7 +30,7 @@ class BAR_Environment:
         max_episode_frames: Optional[int] = None,
         reward_calculator: Optional[RewardCalculator] = None,
     ):
-        self.session_cfg = session_cfg or EngineSessionConfig()
+        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0)
         self.session: Optional[EngineSession] = None
 
         # Episode tracking
