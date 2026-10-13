@@ -96,6 +96,20 @@ class EngineSessionPool:
 
         self._maintenance_executor.shutdown(wait=True, cancel_futures=True)
 
+        # Copy the slots so we do not hold the pool lock while stopping potentially
+        # slow external processes.
+        with self._lock:
+            slots = tuple(self._engine_slots.items())
+
+        for slot_id, slot in slots:
+            try:
+                slot.session.stop()
+            except Exception:
+                logging.exception(f"Failed to close Engine at slot {slot_id}")
+            finally:
+                with self._lock:
+                    slot.state = SessionState.STOPPED
+
     def is_running(self) -> bool:
         with self._lock:
             return self._is_running
