@@ -82,6 +82,20 @@ class EngineSessionPool:
 
                 self._submit_maintenance(self._start_slot, slot_id)
 
+    def close(self) -> None:
+        """
+        Stop accepting maintenance operations and wait for exisitng operations to finish.
+
+        Calling close multiple times is allowed.
+        """
+        with self._lock:
+            if self._closing:
+                return
+            self._closing = True
+            self._is_running = False
+
+        self._maintenance_executor.shutdown(wait=True, cancel_futures=True)
+
     def is_running(self) -> bool:
         with self._lock:
             return self._is_running
@@ -139,7 +153,7 @@ class EngineSessionPool:
 
     def _submit_maintenance(self, function: Callable[[int], None], slot_id: int) -> None :
         """
-        Helper to execute functions that require thread safety, e.g. startup.
+        Helper to execute functions using the ThreadPoolExecutor, i.e. schedule asynchronous calls.
         """
         future = self._maintenance_executor.submit(function, slot_id)
         with self._lock:
