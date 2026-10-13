@@ -203,6 +203,7 @@ class EngineSession:
             "pid": None if self.proc is None else self.proc.pid,
             "cmd": self._get_build_cmd(),
             "cwd": str(self.cfg.engine_root),
+            "isolation_dir": str(self.cfg.isolation_dir),
             "write_dir": str(self.cfg.write_dir),
             "log_file": self.stdout,
             "running": self.is_running(),
@@ -238,8 +239,11 @@ class EngineSession:
         List[str]:
             the command line as a list of strings, suitable for passing to subprocess.Popen
         """
+        # TODO: The config seems to be opened as writeable but is shared across engine's when used within a pool.
+        # Maybe required to copy to instance_dir or something.
         return [
             str(self.cfg.engine_exe),
+            "--isolation-dir", str(self.cfg.isolation_dir),
             "--write-dir", str(self.cfg.write_dir),
             "--config", str(self.cfg.config_file),
             str(self.cfg.startscript),
