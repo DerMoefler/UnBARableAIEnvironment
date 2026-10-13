@@ -16,6 +16,9 @@ dependencies = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: tests that involve multiple components (i.e. their integration, hence the name) thus being slower"
+]
 
 [tool.scikit-build]
 wheel.packages = ["src"]

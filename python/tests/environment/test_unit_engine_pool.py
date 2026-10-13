@@ -110,4 +110,5 @@ def test_session_in_state_starting() -> None:
         assert engine_pool._available_engines.empty()
 
     finally:
+        start_finished.set()
         engine_pool.close()
