@@ -50,6 +50,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
         def __init__(self):
             self.observations = _bar_observation_dict()
             self.received_actions = []
+            self.step_calls = 0
             env_instances.append(self)
             print("[test] Simulated BAR environment created", flush=True)
 
@@ -60,12 +61,14 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             )
             return self.observations, {"simulated": True}
 
-        def step(self, action):
-            assert isinstance(action, bar_ai.Action)
-            self.received_actions.append(action)
+        def step(self, actions):
+            assert isinstance(actions, list)
+            assert all(isinstance(action, bar_ai.Action) for action in actions)
+            self.step_calls += 1
+            self.received_actions.extend(actions)
             print(
-                f"[test] BAR_Environment.step #{len(self.received_actions)}: "
-                f"action_id={action.action_id}, unit_id={action.unit_id}",
+                f"[test] BAR_Environment.step #{self.step_calls}: "
+                f"{len(actions)} actions",
                 flush=True,
             )
             return (
@@ -139,6 +142,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
 
         assert len(env_instances) == 1
         assert len(env_instances[0].received_actions) == 3
+        assert env_instances[0].step_calls == 1
         assert len(trainers) == 1
         assert trainers[0].train_calls == 1
         assert trainers[0].ppo_epoch == 1

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import json
 import time
 import random
 import traceback
@@ -208,10 +209,10 @@ def _make_bar_action(action_index: Any, unit_id: Any) -> bar_ai.Action:
 def _step_all_agents(env: Any, actions: np.ndarray) -> Any:
     """Submit a policy action for each controlled unit.
 
-    BAR_Environment.step accepts one bar_ai.Action, while R_MAPPO returns one
-    [action_index, unit_id] row per agent. Each row is therefore converted and
-    submitted separately. The final environment result is returned to the
-    rollout loop, with scalar rewards accumulated over the submitted actions.
+    R_MAPPO returns one [action_index, unit_id] row per agent, while
+    BAR_Environment.step accepts a list of bar_ai.Action objects. All agent
+    actions are therefore converted and submitted together in one environment
+    step.
     """
     action_rows = np.asarray(actions)
     if action_rows.ndim == 1:
@@ -222,37 +223,20 @@ def _step_all_agents(env: Any, actions: np.ndarray) -> Any:
             f"{action_rows.shape}."
         )
 
-    final_result = None
-    accumulated_reward = 0.0
-
-    for action_number, (action_index, unit_id) in enumerate(action_rows, start=1):
-        action = _make_bar_action(action_index, unit_id)
-        print(
-            f"[FLOW] Action handoff {action_number}/{len(action_rows)}: "
-            f"bar_ai.Action(action_id={action.action_id}, "
-            f"unit_id={action.unit_id})",
-            flush=True,
-        )
-        result = env.step(action)
-        if not isinstance(result, tuple) or len(result) != 5:
-            raise RuntimeError(
-                "BAR_Environment.step must return "
-                "(obs, reward, terminated, truncated, info)."
-            )
-
-        obs, reward, terminated, truncated, info = result
-        accumulated_reward += float(np.asarray(reward, dtype=np.float32).sum())
-        final_result = (obs, accumulated_reward, terminated, truncated, info)
-
-        # Do not submit further unit commands after the engine ended.
-        if bool(np.all(np.asarray(terminated, dtype=bool))) or bool(
-            np.all(np.asarray(truncated, dtype=bool))
-        ):
-            break
-
-    if final_result is None:
+    action_list = [
+        _make_bar_action(action_index, unit_id)
+        for action_index, unit_id in action_rows
+    ]
+    if not action_list:
         raise ValueError("At least one agent action is required.")
-    return final_result
+
+    result = env.step(action_list)
+    if not isinstance(result, tuple) or len(result) != 5:
+        raise RuntimeError(
+            "BAR_Environment.step must return "
+            "(obs, reward, terminated, truncated, info)."
+        )
+    return result
 
 
 def _prepare_obs(
@@ -1055,6 +1039,22 @@ def _format_duration(seconds: float) -> str:
     return f"{seconds:.3f}s"
 
 
+def _log_event(log_path: Path, log_level: int, event_level: int, event: str, **fields: Any) -> None:
+    if event_level > log_level:
+        return
+    record = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "level": event_level,
+        "event": event,
+        **fields,
+    }
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(record, default=str, sort_keys=True) + "\n")
+    details = " ".join(f"{key}={value}" for key, value in fields.items())
+    print(f"[MAPPO:L{event_level}] {event}{': ' + details if details else ''}", flush=True)
+
+
 def _warm_up_policy(
     policy: Any,
     device: torch.device,
@@ -1156,6 +1156,13 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=128)
     parser.add_argument("--training-team-id", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--log-level",
+        type=int,
+        choices=(1, 2, 3),
+        default=1,
+        help="Logging verbosity: 1=important, 2=training details, 3=per-step trace.",
+    )
     parser.add_argument("--debug-env", action="store_true")
     parser.add_argument("--debug-shapes", action="store_true")
     parser.add_argument(
@@ -1184,8 +1191,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    print(f"DEBUG: args = {args}", flush=True)
-
     _set_seed(args.seed)
 
     if args.device == "auto":
@@ -1201,7 +1206,6 @@ def main() -> None:
         torch.cuda.get_device_name(device)
         if device.type == "cuda" else "CPU"
     )
-    print(f"DEBUG: using device {device} ({device_description})", flush=True)
 
     if args.resume is not None and args.run_name is None:
         run_dir = args.resume.resolve().parent
@@ -1216,8 +1220,17 @@ def main() -> None:
             "or pass --resume with a checkpoint from that run."
         )
     run_dir.mkdir(parents=True, exist_ok=True)
-    print(f"DEBUG: run name = {args.run_name}", flush=True)
-    print(f"DEBUG: run directory = {run_dir}", flush=True)
+    log_root = Path(__file__).resolve().parents[2] / "logs"
+    experiment_log_dir = log_root / "experiments"
+    results_log_dir = log_root / "results"
+    experiment_log_dir.mkdir(parents=True, exist_ok=True)
+    results_log_dir.mkdir(parents=True, exist_ok=True)
+    log_stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    log_run_name = "".join(
+        character if character.isalnum() or character in "-_." else "_"
+        for character in args.run_name
+    ).strip("._") or "run"
+    results_log_path = results_log_dir / f"{log_run_name}_{log_stamp}.jsonl"
     run_started_at = time.perf_counter()
     total_engine_start_seconds = 0.0
     total_engine_step_seconds = 0.0
@@ -1235,14 +1248,16 @@ def main() -> None:
         obs_dim = args.obs_dim
         action_dim = args.action_dim
 
-        print("Initializing policy...", flush=True)
+        _log_event(
+            results_log_path, args.log_level, 1, "mappo_initialization_started",
+            run_name=args.run_name, device=str(device), device_name=device_description,
+        )
         policy = R_MAPPO_Policy(
             obs_dim,
             action_dim,
             device=device,
             lr=args.lr,
         )
-        print("DEBUG: policy created", flush=True)
 
         start_episode = 0
         if args.resume is not None:
@@ -1260,9 +1275,11 @@ def main() -> None:
             if checkpoint.get("critic_optimizer_state_dict") is not None and hasattr(policy, "critic_optimizer"):
                 policy.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
             start_episode = int(checkpoint.get("episode", 0))
-            print(f"DEBUG: resumed from {args.resume} at episode {start_episode}", flush=True)
+            _log_event(
+                results_log_path, args.log_level, 1, "checkpoint_loaded",
+                checkpoint=str(args.resume), start_episode=start_episode,
+            )
 
-        print("Initializing replay buffer...", flush=True)
         buffer = SharedReplayBuffer(
             num_agents=args.num_agents,
             obs_shape=(obs_dim,),
@@ -1271,24 +1288,77 @@ def main() -> None:
             device=device,
             action_dim=action_dim,
         )
-        print("DEBUG: replay buffer created", flush=True)
-
         insert_mode = _infer_buffer_insert_mode(buffer)
-        print(f"DEBUG: buffer insert mode = {insert_mode}", flush=True)
-
-        print("Initializing R_MAPPO trainer...", flush=True)
 
         trainer_args = TrainerArgs()
         trainer_args.num_mini_batch = args.num_mini_batch
+        trainer_args.log_level = args.log_level
 
         trainer = R_MAPPO(
             trainer_args,
             policy,
             device=device,
         )
-        print("DEBUG: trainer created", flush=True)
+        trainer.log_level = args.log_level
+        trainer.log_callback = lambda event_level, event, **fields: _log_event(
+            results_log_path, args.log_level, event_level, event, **fields
+        )
 
-        print(f"Warming up policy on {device} before starting BAR...", flush=True)
+        actor_parameter_count = sum(parameter.numel() for parameter in policy.actor.parameters())
+        critic_parameter_count = sum(parameter.numel() for parameter in policy.critic.parameters())
+        experiment_config = {
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "run_name": args.run_name,
+            "log_level": args.log_level,
+            "seed": args.seed,
+            "num_agents": args.num_agents,
+            "device": str(device),
+            "device_name": device_description,
+            "training_config": vars(args),
+            "mappo_hyperparameters": vars(trainer_args),
+            "buffer": {
+                "size": args.buffer_size,
+                "insert_mode": insert_mode,
+                "obs_shape": [args.num_agents, obs_dim],
+                "action_shape": [args.num_agents, 2],
+            },
+            "network": {
+                "actor": {
+                    "type": type(policy.actor).__name__,
+                    "hidden_dim": policy.actor.net[0].out_features,
+                    "parameter_count": actor_parameter_count,
+                },
+                "critic": {
+                    "type": type(policy.critic).__name__,
+                    "hidden_dim": policy.critic.net[0].out_features,
+                    "parameter_count": critic_parameter_count,
+                },
+            },
+        }
+        experiment_log_path = experiment_log_dir / f"{log_run_name}_{log_stamp}.json"
+        experiment_log_path.write_text(
+            json.dumps(experiment_config, default=str, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        _log_event(
+            results_log_path, args.log_level, 1, "configuration_loaded",
+            config_path=str(experiment_log_path), seed=args.seed,
+            num_agents=args.num_agents,
+        )
+        _log_event(
+            results_log_path, args.log_level, 1, "mappo_initialized",
+            run_name=args.run_name, experiment_config=str(experiment_log_path),
+            results_log=str(results_log_path), num_agents=args.num_agents,
+        )
+        if args.log_level >= 2:
+            _log_event(
+                results_log_path, args.log_level, 2, "training_configuration",
+                hyperparameters=experiment_config["mappo_hyperparameters"],
+                training_config=experiment_config["training_config"],
+                network=experiment_config["network"],
+                buffer=experiment_config["buffer"],
+            )
+
         _warm_up_policy(
             policy=policy,
             device=device,
@@ -1296,15 +1366,20 @@ def main() -> None:
             obs_dim=obs_dim,
             action_dim=action_dim,
         )
-        print("DEBUG: policy warm-up complete", flush=True)
-
-        print("\nStarting 3v3 pawn training loop...", flush=True)
+        _log_event(
+            results_log_path, args.log_level, 1, "training_started",
+            first_episode=start_episode + 1,
+            final_episode=start_episode + args.num_episodes,
+        )
 
         recurrent_n = 1
         hidden_size = 1
 
         for episode in range(start_episode, start_episode + args.num_episodes):
-            print(f"DEBUG: starting episode {episode + 1}", flush=True)
+            _log_event(
+                results_log_path, args.log_level, 1, "episode_started",
+                episode=episode + 1, total_episodes=start_episode + args.num_episodes,
+            )
             episode_started_at = time.perf_counter()
             inference_seconds = 0.0
             engine_start_seconds = 0.0
@@ -1315,42 +1390,39 @@ def main() -> None:
             if env is not None:
                 try:
                     env.close()
-                    print("DEBUG: previous environment closed", flush=True)
                 except Exception as close_err:
-                    print(
-                        f"WARNING: previous env.close() failed: {close_err}",
-                        flush=True,
+                    _log_event(
+                        results_log_path, args.log_level, 1, "warning",
+                        message="previous env.close() failed", error=str(close_err),
                     )
                 finally:
                     env = None
 
-            print("Initializing fresh BAR Environment...", flush=True)
             environment_started_at = time.perf_counter()
             env = BAR_Environment()
             reset_result = env.reset()
             engine_start_seconds += time.perf_counter() - environment_started_at
             total_engine_start_seconds += engine_start_seconds
-            print("DEBUG: fresh BAR Environment initialized and reset.", flush=True)
-
-            print("DEBUG: env.reset() returned", flush=True)
 
             obs_raw, share_obs_raw, available_actions_raw, reset_info = _parse_reset_result(
                 reset_result
             )
 
             if isinstance(obs_raw, dict):
-                print(
-                    f"[FLOW] Python observation dict received: "
-                    f"{len(obs_raw)} records; keys={list(obs_raw)}",
-                    flush=True,
+                _log_event(
+                    results_log_path, args.log_level, 3, "environment_reset",
+                    observation_records=len(obs_raw), observation_keys=list(obs_raw),
                 )
             else:
-                print(
-                    f"[FLOW] Observation input received: {type(obs_raw).__name__}",
-                    flush=True,
+                _log_event(
+                    results_log_path, args.log_level, 3, "environment_reset",
+                    observation_type=type(obs_raw).__name__,
                 )
 
-            print(f"DEBUG: initial env info = {reset_info}", flush=True)
+            _log_event(
+                results_log_path, args.log_level, 3, "environment_event",
+                episode=episode + 1, event="reset", info=reset_info,
+            )
 
             obs = _prepare_obs(
                 obs_raw,
@@ -1358,10 +1430,14 @@ def main() -> None:
                 obs_dim,
                 training_team_id=args.training_team_id,
             )
-            print(
-                f"[FLOW] MAPPO observations created: shape={obs.shape}\n"
-                f"{np.array2string(obs, precision=3, suppress_small=True, max_line_width=100)}",
-                flush=True,
+            _log_event(
+                results_log_path, args.log_level, 2, "observations_prepared",
+                episode=episode + 1, obs_shape=list(obs.shape),
+            )
+            _log_event(
+                results_log_path, args.log_level, 3, "observations_compact",
+                episode=episode + 1,
+                values=np.round(obs[:, :min(8, obs.shape[1])], 3).tolist(),
             )
 
             share_obs = _prepare_share_obs(
@@ -1378,19 +1454,17 @@ def main() -> None:
             )
 
             if args.debug_shapes:
-                print(f"DEBUG: reset obs shape = {obs.shape}", flush=True)
-                print(f"DEBUG: reset share_obs shape = {share_obs.shape}", flush=True)
-                print(f"DEBUG: reset available_actions shape = {available_actions.shape}", flush=True)
+                _log_event(
+                    results_log_path, args.log_level, 2, "reset_shapes",
+                    obs=list(obs.shape), share_obs=list(share_obs.shape),
+                    available_actions=list(available_actions.shape),
+                )
 
             episode_reward = 0.0
             done = False
             step_count = 0
 
-            # -------------------------------------------------------------
-            # Debug logging: actions, winner, alive counts
-            # -------------------------------------------------------------
             action_counts = np.zeros(args.action_dim, dtype=np.int64)
-            action_trace: list[list[int]] = []
 
             episode_won = False
             episode_lost = False
@@ -1399,8 +1473,6 @@ def main() -> None:
             enemy_damage_done = 0.0
             own_damage_taken = 0.0
             last_info_keys: list[str] = []
-            final_step_info: Any = None
-
             rnn_states, rnn_states_critic = _make_rnn_state_arrays(
                 args.num_agents,
                 recurrent_n=recurrent_n,
@@ -1410,14 +1482,6 @@ def main() -> None:
             trainer.prep_rollout()
 
             while not done and step_count < args.buffer_size:
-                if args.debug_shapes:
-                    print(f"DEBUG: rollout step {step_count}", flush=True)
-
-                print(
-                    f"[FLOW] MAPPO policy inference started for rollout step "
-                    f"{step_count + 1}",
-                    flush=True,
-                )
                 inference_started_at = time.perf_counter()
                 value_preds, actions, action_log_probs = _policy_sample_actions(
                     policy=policy,
@@ -1434,30 +1498,18 @@ def main() -> None:
                 total_inference_seconds += inference_elapsed
 
                 env_actions = actions
-                print(
-                    f"[FLOW] MAPPO actions produced (index, unit_id): "
-                    f"{env_actions.astype(np.int64).tolist()}",
-                    flush=True,
-                )
 
-                # -------------------------------------------------------------
-                # Log which actions were taken.
-                # -------------------------------------------------------------
                 env_action_types = [int(a) for a in env_actions[:, 0]]
-                action_trace.append(env_action_types)
 
                 for a in env_action_types:
                     if 0 <= a < args.action_dim:
                         action_counts[a] += 1
                     else:
-                        print(
-                            f"WARNING: sampled invalid action {a}, "
-                            f"expected range [0, {args.action_dim - 1}]",
-                            flush=True,
+                        _log_event(
+                            results_log_path, args.log_level, 1, "warning",
+                            message="sampled invalid action", action=a,
+                            expected_range=[0, args.action_dim - 1],
                         )
-
-                if args.debug_shapes:
-                    print(f"DEBUG: env_actions = {env_actions.tolist()}", flush=True)
 
                 environment_started_at = time.perf_counter()
                 step_result = _step_all_agents(env, env_actions)
@@ -1474,8 +1526,6 @@ def main() -> None:
                     step_info,
                     next_available_actions_raw,
                 ) = _parse_step_result(step_result)
-
-                final_step_info = step_info
 
                 # -------------------------------------------------------------
                 # Extract win/loss/alive/debug info from env info.
@@ -1561,18 +1611,14 @@ def main() -> None:
                     args.num_agents,
                 )
 
-                if args.debug_shapes:
-                    print(f"DEBUG: obs shape = {obs.shape}", flush=True)
-                    print(f"DEBUG: share_obs shape = {share_obs.shape}", flush=True)
-                    print(f"DEBUG: next_obs shape = {next_obs.shape}", flush=True)
-                    print(f"DEBUG: next_share_obs shape = {next_share_obs.shape}", flush=True)
-                    print(f"DEBUG: actions shape = {actions.shape}", flush=True)
-                    print(f"DEBUG: action_log_probs shape = {action_log_probs.shape}", flush=True)
-                    print(f"DEBUG: value_preds shape = {value_preds.shape}", flush=True)
-                    print(f"DEBUG: reward_arr shape = {reward_arr.shape}", flush=True)
-                    print(f"DEBUG: masks shape = {masks.shape}", flush=True)
-                    print(f"DEBUG: active_masks shape = {active_masks.shape}", flush=True)
-                    print(f"DEBUG: bad_masks shape = {bad_masks.shape}", flush=True)
+                _log_event(
+                    results_log_path, args.log_level, 2, "rollout_shapes",
+                    episode=episode + 1, step=step_count + 1,
+                    obs=list(obs.shape), share_obs=list(share_obs.shape),
+                    next_obs=list(next_obs.shape), actions=list(actions.shape),
+                    action_log_probs=list(action_log_probs.shape),
+                    value_preds=list(value_preds.shape), rewards=list(reward_arr.shape),
+                )
 
                 if insert_mode == "extended":
                     try:
@@ -1635,6 +1681,40 @@ def main() -> None:
                 episode_reward += float(reward_arr.mean())
                 step_count += 1
 
+                _log_event(
+                    results_log_path, args.log_level, 2, "buffer_updated",
+                    episode=episode + 1, step=step_count,
+                    buffer_step=buffer.step, capacity=buffer.buffer_size,
+                )
+                _log_event(
+                    results_log_path, args.log_level, 3, "environment_step",
+                    episode=episode + 1, step=step_count,
+                    actions=[
+                        {
+                            "action_index": int(action_row[0]),
+                            "bar_action_id": int(action_row[0]) + 1,
+                            "unit_id": int(action_row[1]),
+                        }
+                        for action_row in env_actions
+                    ],
+                    rewards=np.round(reward_arr.reshape(-1), 5).tolist(),
+                    mean_reward=float(reward_arr.mean()),
+                    terminated=np.asarray(terminated_arr).reshape(-1).tolist(),
+                    truncated=np.asarray(truncated_arr).reshape(-1).tolist(),
+                    done=done_env,
+                    state_transition={
+                        "before": np.round(
+                            obs[:, :min(8, obs.shape[1])], 3
+                        ).tolist(),
+                        "after": np.round(
+                            next_obs[:, :min(8, next_obs.shape[1])], 3
+                        ).tolist(),
+                    },
+                    inference_seconds=inference_elapsed,
+                    environment_seconds=engine_step_elapsed,
+                    environment_events=debug_metrics,
+                )
+
                 obs = next_obs
                 share_obs = next_share_obs
                 available_actions = next_available_actions
@@ -1677,10 +1757,7 @@ def main() -> None:
             except TypeError:
                 buffer.compute_returns(next_value)
 
-            print("DEBUG: buffer.compute_returns() done", flush=True)
-
             trainer.prep_training()
-            print("[FLOW] MAPPO training update started", flush=True)
 
             training_started_at = time.perf_counter()
             train_info = trainer.train(
@@ -1692,42 +1769,27 @@ def main() -> None:
             training_seconds = time.perf_counter() - training_started_at
             total_training_seconds += training_seconds
 
-            print(
-                "[FLOW] MAPPO training update complete: "
-                f"value_loss={train_info.get('value_loss', 0):.6f}, "
-                f"policy_loss={train_info.get('policy_loss', 0):.6f}, "
-                f"entropy={train_info.get('dist_entropy', 0):.6f}",
-                flush=True,
-            )
-
             buffer.reset()
-            print("DEBUG: buffer.reset() done", flush=True)
-
-            print(f"Episode {episode + 1}/{start_episode + args.num_episodes}", flush=True)
-            print(f"  Episode Reward: {episode_reward:.4f}", flush=True)
-            print(f"  Steps: {step_count}", flush=True)
-
-            print(f"  Won: {episode_won}", flush=True)
-            print(f"  Lost: {episode_lost}", flush=True)
-            print(f"  Final Ally Alive: {final_ally_alive}", flush=True)
-            print(f"  Final Enemy Alive: {final_enemy_alive}", flush=True)
-            print(f"  Enemy Damage Done: {enemy_damage_done:.4f}", flush=True)
-            print(f"  Own Damage Taken: {own_damage_taken:.4f}", flush=True)
-
-            print(f"  Action Counts: {action_counts.tolist()}", flush=True)
-            print(f"  Action Trace: {action_trace}", flush=True)
-
-            if last_info_keys:
-                print(f"  Last Info Keys: {last_info_keys}", flush=True)
-            else:
-                print("  Last Info Keys: []", flush=True)
-
-            if final_step_info is not None:
-                print(f"  Final Step Info: {final_step_info}", flush=True)
-
-            print(f"  Value Loss: {train_info.get('value_loss', 0):.6f}", flush=True)
-            print(f"  Policy Loss: {train_info.get('policy_loss', 0):.6f}", flush=True)
-            print(f"  Entropy: {train_info.get('dist_entropy', 0):.6f}", flush=True)
+            _log_event(
+                results_log_path, args.log_level, 1, "episode_completed",
+                episode=episode + 1, total_episodes=start_episode + args.num_episodes,
+                reward=episode_reward, steps=step_count, won=episode_won,
+                lost=episode_lost, final_ally_alive=final_ally_alive,
+                final_enemy_alive=final_enemy_alive,
+                enemy_damage_done=enemy_damage_done,
+                own_damage_taken=own_damage_taken,
+            )
+            _log_event(
+                results_log_path, args.log_level, 2, "episode_training_statistics",
+                episode=episode + 1, action_counts=action_counts.tolist(),
+                last_info_keys=last_info_keys,
+                value_loss=float(train_info.get("value_loss", 0)),
+                policy_loss=float(train_info.get("policy_loss", 0)),
+                entropy=float(train_info.get("dist_entropy", 0)),
+                actor_grad_norm=float(train_info.get("actor_grad_norm", 0)),
+                critic_grad_norm=float(train_info.get("critic_grad_norm", 0)),
+                importance_ratio=float(train_info.get("ratio", 0)),
+            )
 
             episode_seconds = time.perf_counter() - episode_started_at
             elapsed_seconds = time.perf_counter() - run_started_at
@@ -1735,13 +1797,15 @@ def main() -> None:
             average_episode_seconds = elapsed_seconds / completed_this_run
             remaining_episodes = start_episode + args.num_episodes - episode - 1
             eta_seconds = average_episode_seconds * remaining_episodes
-            print(f"  Timing: episode={_format_duration(episode_seconds)}", flush=True)
-            print(f"          inference={_format_duration(inference_seconds)}", flush=True)
-            print(f"          engine start/reset={_format_duration(engine_start_seconds)}", flush=True)
-            print(f"          engine steps/waiting={_format_duration(engine_step_seconds)}", flush=True)
-            print(f"          PPO update={_format_duration(training_seconds)}", flush=True)
-            print(f"          elapsed={_format_duration(elapsed_seconds)}", flush=True)
-            print(f"          ETA={_format_duration(eta_seconds)}", flush=True)
+            _log_event(
+                results_log_path, args.log_level, 3, "episode_timing",
+                episode=episode + 1, episode_seconds=episode_seconds,
+                inference_seconds=inference_seconds,
+                engine_start_seconds=engine_start_seconds,
+                engine_step_seconds=engine_step_seconds,
+                ppo_update_seconds=training_seconds,
+                elapsed_seconds=elapsed_seconds, eta_seconds=eta_seconds,
+            )
 
             if args.save_every > 0 and (episode + 1) % args.save_every == 0:
                 checkpoint_started_at = time.perf_counter()
@@ -1749,8 +1813,10 @@ def main() -> None:
                     policy, args, episode + 1, run_dir
                 )
                 total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
-                print(f"  Saved checkpoint: {checkpoint_path}", flush=True)
-            print("", flush=True)
+                _log_event(
+                    results_log_path, args.log_level, 1, "model_saved",
+                    episode=episode + 1, checkpoint=str(checkpoint_path),
+                )
 
         # Always save the final state, even when save_every is disabled or the
         # final episode is not an exact multiple of it.
@@ -1759,8 +1825,10 @@ def main() -> None:
             policy, args, start_episode + args.num_episodes, run_dir
         )
         total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
-        print(f"Final model saved to: {final_checkpoint}", flush=True)
-        print(f"Latest model saved to: {run_dir / 'r_mappo_latest.pt'}", flush=True)
+        _log_event(
+            results_log_path, args.log_level, 1, "model_saved",
+            checkpoint=str(final_checkpoint), latest=str(run_dir / "r_mappo_latest.pt"),
+        )
 
         total_runtime = time.perf_counter() - run_started_at
         measured_runtime = (
@@ -1772,48 +1840,24 @@ def main() -> None:
         )
         other_seconds = max(0.0, total_runtime - measured_runtime)
 
-        def percentage(seconds: float) -> float:
-            return 100.0 * seconds / total_runtime if total_runtime > 0.0 else 0.0
-
-        print("\nOverall timing summary", flush=True)
-        print(f"  Total runtime:          {_format_duration(total_runtime)} (100.00%)", flush=True)
-        print(
-            f"  Engine start/reset:     {_format_duration(total_engine_start_seconds)} "
-            f"({percentage(total_engine_start_seconds):6.2f}%)",
-            flush=True,
-        )
-        print(
-            f"  Engine steps/waiting:   {_format_duration(total_engine_step_seconds)} "
-            f"({percentage(total_engine_step_seconds):6.2f}%)",
-            flush=True,
-        )
-        print(
-            f"  Policy inference:       {_format_duration(total_inference_seconds)} "
-            f"({percentage(total_inference_seconds):6.2f}%)",
-            flush=True,
-        )
-        print(
-            f"  PPO updates:            {_format_duration(total_training_seconds)} "
-            f"({percentage(total_training_seconds):6.2f}%)",
-            flush=True,
-        )
-        print(
-            f"  Checkpoint writing:     {_format_duration(total_checkpoint_seconds)} "
-            f"({percentage(total_checkpoint_seconds):6.2f}%)",
-            flush=True,
-        )
-        print(
-            f"  Other Python/logging:   {_format_duration(other_seconds)} "
-            f"({percentage(other_seconds):6.2f}%)",
-            flush=True,
+        _log_event(
+            results_log_path, args.log_level, 2, "training_timing_summary",
+            total_runtime=total_runtime,
+            engine_start_seconds=total_engine_start_seconds,
+            engine_step_seconds=total_engine_step_seconds,
+            inference_seconds=total_inference_seconds,
+            ppo_update_seconds=total_training_seconds,
+            checkpoint_seconds=total_checkpoint_seconds,
+            other_seconds=other_seconds,
         )
         success = True
 
     except Exception as e:
-        print("\nERROR: Exception occurred during simulated 3v3 training!", flush=True)
-        print(f"ERROR TYPE: {type(e).__name__}", flush=True)
-        print(f"ERROR MSG : {e}", flush=True)
-        print("\nTRACEBACK:", flush=True)
+        if "results_log_path" in locals():
+            _log_event(
+                results_log_path, args.log_level, 1, "error",
+                error_type=type(e).__name__, message=str(e),
+            )
         traceback.print_exc()
         raise
 
@@ -1821,14 +1865,24 @@ def main() -> None:
         if env is not None:
             try:
                 env.close()
-                print("DEBUG: env.close() done", flush=True)
             except Exception as close_err:
-                print(f"WARNING: env.close() failed: {close_err}", flush=True)
+                if "results_log_path" in locals():
+                    _log_event(
+                        results_log_path, args.log_level, 1, "warning",
+                        message="env.close() failed", error=str(close_err),
+                    )
 
         if success:
-            print("Simulated 3v3 pawn training complete!", flush=True)
+            _log_event(
+                results_log_path, args.log_level, 1, "training_completed",
+                run_name=args.run_name,
+            )
         else:
-            print("Simulated 3v3 pawn training aborted due to an error.", flush=True)
+            if "results_log_path" in locals():
+                _log_event(
+                    results_log_path, args.log_level, 1, "training_aborted",
+                    run_name=args.run_name,
+                )
 
 
 if __name__ == "__main__":

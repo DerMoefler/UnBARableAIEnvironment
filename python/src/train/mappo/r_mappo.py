@@ -183,6 +183,18 @@ class R_MAPPO:
         return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
 
     def train(self, buffer, update_actor=True):
+        log_callback = getattr(self, "log_callback", None)
+        log_level = getattr(self, "log_level", 1)
+        if log_callback is not None and log_level >= 2:
+            log_callback(
+                2,
+                "ppo_update_started",
+                ppo_epochs=self.ppo_epoch,
+                mini_batches=self.num_mini_batch,
+                buffer_steps=buffer.step,
+                update_actor=update_actor,
+            )
+
         if self._use_popart or self._use_valuenorm:
             advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(
                 buffer.value_preds[:-1]
@@ -239,6 +251,16 @@ class R_MAPPO:
         num_updates = self.ppo_epoch * self.num_mini_batch
         for key in train_info:
             train_info[key] /= num_updates
+
+        if log_callback is not None and log_level >= 2:
+            log_callback(
+                2,
+                "ppo_update_completed",
+                **{
+                    key: float(value)
+                    for key, value in train_info.items()
+                },
+            )
 
         return train_info
 
