@@ -236,17 +236,19 @@ private:
         layout->visitChildLayoutsByInlining(funcBase, funcRecursive);
     }
 
+    template <serialization::detail::FundamentalSerializable S>
+    void writeOnCreation(const S& value, serialization::Layout<S>* layout) {
+        std::size_t segmentId = layout->getSegmentId().value();
+        auto serialized = serialization::SerializeInformation<S>::serialize(value);
+        m_sharedMemoryImpl.appendToSegment(segmentId, serialized);
+        return;
+    }
+
     template <serialization::Serializable S>
+        requires (not serialization::detail::FundamentalSerializable<S>)
     void writeOnCreation(const S& value, serialization::Layout<S>* layout) {
         // std::cout << "SharedMemory<...>::writeOnCreation\n";
         size_t segmentId = layout->getSegmentId().value();
-
-        // Simply write fundamental type and return
-        if constexpr (serialization::detail::FundamentalSerializable<S>) {
-            auto serialized = serialization::SerializeInformation<S>::serialize(value);
-            m_sharedMemoryImpl.appendToSegment(segmentId, serialized);
-            return;
-        }
 
         auto linkChildSegment = [&](memory::id_t childSegmentId) {
             auto serialized =

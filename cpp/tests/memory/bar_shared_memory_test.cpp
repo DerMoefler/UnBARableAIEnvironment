@@ -22,6 +22,8 @@ TEST(BarSharedMemoryTest, Constructor) {
                                 Action{0, 1, 2, ActionId::MoveDown, 3},
                                 Action{0, 1, 2, ActionId::Attack, 3}};
 
+    EngineStatus status = EngineStatus::RUNNING;
+
     auto createShm = BarSharedMemory::create("/shm-BAR-constructor");
 
     for (const auto& unit : units) {
@@ -31,6 +33,8 @@ TEST(BarSharedMemoryTest, Constructor) {
     for (const auto& action : actions) {
         createShm.writeAction(action);
     }
+
+    createShm.writeEngineStatus(status);
 
     auto openShm = BarSharedMemory::open("/shm-BAR-constructor");
     auto readUnits = openShm.readAll<unit::UnitData>();
@@ -46,6 +50,12 @@ TEST(BarSharedMemoryTest, Constructor) {
     for (std::size_t i = 0; i < actions.size(); i++) {
         EXPECT_EQ(actions[i], readActions[i]);
     }
+
+    auto readEngineStatus = openShm.readAll<EngineStatus>();
+
+    ASSERT_TRUE(readEngineStatus.size() == 1);
+
+    EXPECT_EQ(readEngineStatus[0], status);
 
     BarSharedMemory::remove("/shm-BAR-constructor");
 }
