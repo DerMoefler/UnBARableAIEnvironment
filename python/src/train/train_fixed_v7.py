@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import logging
 import time
 import random
 import traceback
@@ -1052,7 +1053,13 @@ def _log_event(log_path: Path, log_level: int, event_level: int, event: str, **f
     with log_path.open("a", encoding="utf-8") as log_file:
         log_file.write(json.dumps(record, default=str, sort_keys=True) + "\n")
     details = " ".join(f"{key}={value}" for key, value in fields.items())
-    print(f"[MAPPO:L{event_level}] {event}{': ' + details if details else ''}", flush=True)
+    message = f"{event}{': ' + details if details else ''}"
+    python_log_level = {
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+    }.get(event, logging.INFO)
+    logging.log(python_log_level, "%s", message)
+    print(f"[MAPPO:L{event_level}] {message}", flush=True)
 
 
 def _warm_up_policy(
@@ -1231,6 +1238,13 @@ def main() -> None:
         for character in args.run_name
     ).strip("._") or "run"
     results_log_path = results_log_dir / f"{log_run_name}_{log_stamp}.jsonl"
+    python_log_path = results_log_dir / f"{log_run_name}_{log_stamp}.log"
+    logging.basicConfig(
+        filename=python_log_path,
+        filemode="w",
+        format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s",
+        level=logging.INFO,
+    )
     run_started_at = time.perf_counter()
     total_engine_start_seconds = 0.0
     total_engine_step_seconds = 0.0
