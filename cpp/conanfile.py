@@ -10,6 +10,7 @@ class UnBARableAIRecipe(ConanFile):
         self.requires("protobuf/6.33.5", override=True)
         self.requires("gtest/1.17.0")
         self.requires("pybind11/2.13.6")
+        self.requires("spdlog/1.15.3")
 
     def build_requirements(self):
         self.tool_requires("protobuf/6.33.5")

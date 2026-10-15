@@ -16,6 +16,7 @@ include(GNUInstallDirs)
 # Dependencies
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 
 if(UNBARABLEAI_BUILD_TESTS)
     find_package(GTest CONFIG REQUIRED)
@@ -76,12 +77,19 @@ if(UNBARABLEAI_BUILD_TESTS)
         tests/memory/segment_information_test.cpp
         tests/serialization/layout_test.cpp
         tests/serialization/serialization_test.cpp
+        tests/main.cpp
     )
 
     target_link_libraries(tests
         PRIVATE
             unbarableai_core
-            GTest::gtest_main
+            GTest::gtest
+            spdlog::spdlog
+    )
+
+    target_compile_definitions(tests
+        PRIVATE
+            SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
     )
 
     gtest_discover_tests(tests)
@@ -193,6 +201,13 @@ target_link_libraries(unbarableai_core
     PUBLIC
         protobuf::libprotobuf
         gRPC::grpc++
+        spdlog::spdlog
+)
+
+target_compile_definitions(unbarableai_core
+    PRIVATE
+        $<$<CONFIG:Debug>:SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE>
+        $<$<CONFIG:Release>:SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO>
 )
 
 
