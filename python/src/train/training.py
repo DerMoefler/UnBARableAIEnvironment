@@ -1084,11 +1084,11 @@ def _save_checkpoint(policy: Any,
 
 def main() -> None:
     #import Json configfile
-    with open("python/src/train/experiments/3v3Test/3v3Test.json", "r") as configfile:
+    with open("src/train/experiments/3v3Test/3v3Test.json", "r") as configfile:
         data = json.load(configfile)
 
     #start logging and configure log 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%MS-%NS")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     logging.basicConfig(
         filename=f"src/train/experiments/{data.run_name}/{data.run_name}_{timestamp}.log",
@@ -1120,8 +1120,8 @@ def main() -> None:
     #Choosing to resume another run or start a new one
     #Resuming not inplemented as of now.
 
-    model_directory = Path(f"python/src/train/experiments/{data.run_name}/models")
-    run_directory = Path(f"python/src/train/experiments/{data.run_name}/run")
+    model_directory = Path(f"src/train/experiments/{data.run_name}/models")
+    run_directory = Path(f"src/train/experiments/{data.run_name}/run")
 
     #Starting new run
     logging.info("run_name: %s", data.run_name)
@@ -1140,7 +1140,7 @@ def main() -> None:
         # BAR_Environment cannot restart its gRPC server after an engine
         # session has ended. A fresh environment is therefore created for each
         # episode below instead of calling reset() on a closed environment.
-        obs_dim = data.observation_dimension
+        obs_dim = OBS_DIM
         action_dim = data.action_dimension
 
         policy = R_MAPPO_Policy(
