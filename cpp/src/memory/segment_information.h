@@ -50,6 +50,14 @@ public:
     void initialize(const position_t memoryStart, const size_t dataSize);
 
     /**
+     * \brief Invalidate the information.
+     * \note The id stays the same, and the information remains available. This is to support
+     * marking the information incorrect and still being able to access old information, useful for
+     * deleting the segment for example.
+     */
+    void invalidate(void);
+
+    /**
      * \brief Check if the instance is valid.
      * \return Bool whether the instance holds valid information.
      */
@@ -71,7 +79,7 @@ public:
      * \brief Get the memory start of the List.
      * \return Memory start.
      */
-    position_t getMemoryStart(void) const;
+    inline position_t getMemoryStart(void) const { return m_information.getMemoryStart(); }
 
     /**
      * \brief Get the memory end of the list.

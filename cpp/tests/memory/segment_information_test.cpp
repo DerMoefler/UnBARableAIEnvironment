@@ -46,7 +46,7 @@ TEST(SegmentInformationTest, ThrowInvalid) {
     ASSERT_FALSE(si.isValid());
 
     try {
-        si.getMemoryStart();
+        si.invalidate();
         FAIL();
     } catch (const std::logic_error& e) {
         EXPECT_STREQ(e.what(), errorMessage.data());

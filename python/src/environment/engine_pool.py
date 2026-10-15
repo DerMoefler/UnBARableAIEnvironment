@@ -1,5 +1,4 @@
 import logging
-from posixpath import ismount
 import queue
 import threading
 

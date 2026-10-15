@@ -21,6 +21,11 @@ void SegmentInformation::initialize(const position_t memoryStart, const size_t d
     m_valid = true;
 }
 
+void SegmentInformation::invalidate(void) {
+    validateState(true);
+    m_valid = false;
+}
+
 bool SegmentInformation::isSequentialReadSafe(position_t position, size_t numBytes) const {
     if (!numBytes) {
         return false;
@@ -42,11 +47,6 @@ bool SegmentInformation::isSequentialReadSafe(position_t position, size_t numByt
     else {
         return false;
     }
-}
-
-position_t SegmentInformation::getMemoryStart(void) const {
-    validateState(true);
-    return m_information.getMemoryStart();
 }
 
 void SegmentInformation::validateState(bool state) const {
