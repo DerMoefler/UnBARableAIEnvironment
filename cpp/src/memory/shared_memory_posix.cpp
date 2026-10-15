@@ -4,6 +4,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "serialization/serialize_information.h"
 
 #ifdef __APPLE__
 #define UNBAR_MMAP_FLAG MAP_SHARED
@@ -12,16 +13,38 @@
 #endif
 
 #include <algorithm>
-#include <iostream>  // TODO remove
+#include <cassert>
 #include <stdexcept>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <system_error>
 #include <utility>
 
 #include "memory/shared_memory_types.h"
+#include "utility/unsigned_of_size.hpp"
+
+static auto logger = spdlog::stdout_color_mt("SharedMemoryPosix");
 
 namespace UnBARableAINS {
 
 namespace memory {
+
+template <typename S>
+using SI = serialization::SerializeInformation<S>;
+
+namespace detail {
+
+template <std::size_t numBytes>
+auto deserializeUnsigned(const std::vector<std::byte>& serialized)
+    -> util::UnsignedOfSize_T<numBytes> {
+    using Unsigned = util::UnsignedOfSize_T<numBytes>;
+    assert(serialized.size() == numBytes &&
+           "Vector's size must match (compile-time) request number of bytes");
+    auto view = std::span<const std::byte, numBytes>{serialized.data(), numBytes};
+    return SI<Unsigned>::deserialize(view);
+}
+
+}  // namespace detail
 
 SharedMemoryPosix SharedMemoryPosix::create(std::string_view name) {
     SharedMemoryPosix vThis(name);
@@ -33,6 +56,7 @@ SharedMemoryPosix SharedMemoryPosix::create(std::string_view name) {
     vThis.write(c_UnBARableAI_magic);
     vThis.write(c_version);
     vThis.extendSegmentTable();
+    SPDLOG_LOGGER_INFO(logger, "Created shared memory \"{}\"", name);
     return vThis;
 }
 
@@ -42,26 +66,10 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
     if (vThis.m_id == -1) {
         throw std::system_error(errno, std::generic_category(), "shm_open failed");
     }
-    struct stat info{};
-    if (fstat(vThis.m_id, &info) == -1) {
-        throw std::system_error(errno, std::generic_category(), "fstat failed");
-    }
-    vThis.m_size = info.st_size;
-    vThis.map();
 
-    if (!vThis.isStartValid()) {
-        throw std::runtime_error("Shared memory's start is invalid.");
-    }
-    vThis.m_head += c_segment_table_start;
-    if (!vThis.isSegmentTableValid(vThis.m_head)) {
-        throw std::runtime_error("Shared memory's segment table is invalid.");
-    }
-    if (!vThis.initializeSegmentsInformation()) {
-        throw std::runtime_error("Initializing segments information failed");
-    }
-    vThis.initializeIdAllocator();
-    vThis.updateHead();
+    vThis.update();
 
+    SPDLOG_LOGGER_INFO(logger, "Opened shared memory \"{}\"", name);
     return vThis;
 }
 
@@ -99,8 +107,44 @@ SharedMemoryPosix::~SharedMemoryPosix(void) { release(); }
 void SharedMemoryPosix::remove(std::string_view name) {
     std::string nullTerminatedName(name);
     if (shm_unlink(nullTerminatedName.c_str()) == -1) {
+        SPDLOG_LOGGER_ERROR(logger, "shm_unlink failed");
         throw std::system_error(errno, std::generic_category(), "shm_unlink failed");
     }
+    SPDLOG_LOGGER_INFO(logger, "Removed shared memory \"{}\"", name);
+}
+
+bool SharedMemoryPosix::update(void) {
+    bool change = false;
+    struct stat info{};
+    if (fstat(m_id, &info) == -1) {
+        SPDLOG_LOGGER_ERROR(logger, "fstat failed");
+        throw std::system_error(errno, std::generic_category(), "fstat failed");
+    }
+    const auto oldSize = m_size;
+    m_size = info.st_size;
+
+    change |= oldSize != m_size;
+    if (change) {
+        map();
+    }
+
+    if (!isStartValid()) throw std::runtime_error("Shared memory's start is invalid.");
+    if (!isSegmentTableValid())
+        throw std::runtime_error("Shared memory's segment table is invalid.");
+
+    const auto oldSegmentsInformation = m_segmentsInformation;
+    if (!initializeSegmentsInformation())
+        throw std::runtime_error("Initializing segments information failed");
+
+    if (oldSegmentsInformation != m_segmentsInformation) {
+        change = true;
+        initializeIdAllocator();
+    }
+
+    updateHead();
+
+    SPDLOG_LOGGER_DEBUG(logger, "Updated shared memory \"\"", m_name);
+    return change;
 }
 
 id_t SharedMemoryPosix::createSegment(const size_t size) {
@@ -135,7 +179,9 @@ id_t SharedMemoryPosix::createSegment(const size_t size) {
 
     // Move head to after the segment
     m_head += segmentSize;
-    //std::cout << "SharedMemoryPosix::createSegment: Successfully created segment." << std::endl;
+    // std::cout << "SharedMemoryPosix::createSegment: Successfully created segment." << std::endl;
+
+    SPDLOG_LOGGER_DEBUG(logger, "New segment with id={} created.", newSegmentId);
     return newSegmentId;
 }
 
@@ -176,6 +222,13 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
     return segmentId;
 }
 
+void SharedMemoryPosix::deleteSegment(id_t segmentId) {
+    auto& si = findSegmentInformation(segmentId);
+    si.invalidate();
+    m_idAllocator.release(segmentId);
+    updateHead();
+}
+
 std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position_t offset) const {
     const SegmentInformation& segmentInformation = findSegmentInformation(segmentId);
     // Link cannot be valid if data hasnt even been written
@@ -187,7 +240,10 @@ std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position
     }
     // TODO readSegmentAt function or something
     position_t dataPosition = segmentInformation.getDataPosition(offset);
-    auto linkedSegmentId = dataViewToUnsigned<link_t>(read(dataPosition, sizeof(link_t)));
+    auto serialized = read(dataPosition, sizeof(link_t));
+    assert(serialized.size() == sizeof(link_t) && "Link's size must be sizeof(link_t) bytes");
+    auto linkedSegmentId = SI<link_t>::deserialize(
+        std::span<const std::byte, sizeof(link_t)>{serialized.data(), sizeof(link_t)});
     const SegmentInformation& linkedSegmentInformation = findSegmentInformation(linkedSegmentId);
     if (linkedSegmentInformation.isValid()) {
         return linkedSegmentId;
@@ -239,6 +295,7 @@ void SharedMemoryPosix::increaseSize(const size_t size) {
 }
 
 void SharedMemoryPosix::map(void) {
+    SPDLOG_LOGGER_TRACE(logger, "Mapping region into address space");
     m_memoryStart = static_cast<std::byte*>(
         mmap(NULL, m_size, PROT_READ | PROT_WRITE, UNBAR_MMAP_FLAG, m_id, 0));
 }
@@ -282,30 +339,38 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
 
         std::vector<std::byte> partialSegmentTable =
             read(partialSegmentTableStart, c_segment_table_size);
+        assert(partialSegmentTable.size() == c_segment_table_size &&
+               "Segment table size must satisfy compile time definition");
+        std::size_t offset;
         for (int i = 0; i < c_contiguous_segment_count; i++) {
-            DataView serializedId =
-                std::span{partialSegmentTable}.subspan(i * c_entry_size, sizeof(id_t));
-            DataView serializedLink = std::span{partialSegmentTable}.subspan(
-                i * c_entry_size + sizeof(id_t), sizeof(link_t));
-            auto id = dataViewToUnsigned<id_t>(serializedId);
-            auto link = dataViewToUnsigned<link_t>(serializedLink);
+            offset = i * c_entry_size;
+            auto serializedId = std::span<const std::byte, sizeof(id_t)>{
+                partialSegmentTable.data() + offset, sizeof(id_t)};
+            auto serializedLink = std::span<const std::byte, sizeof(id_t)>{
+                partialSegmentTable.data() + offset + sizeof(id_t), sizeof(id_t)};
+            auto id = SI<id_t>::deserialize(serializedId);
+            auto link = SI<id_t>::deserialize(serializedLink);
 
             if (!link) {
-                // std::cout << "SharedMemoryPosix::initializeSegmentsInformation: "
-                //           << "Empty segment " << id << "\n";
+                SPDLOG_LOGGER_TRACE(logger, "Segment with id {} is empty", id);
                 m_segmentsInformation.push_back(SegmentInformation(id));
                 continue;
             }
 
-            size_t validLength = dataViewToUnsigned<size_t>(read(link, sizeof(size_t)));
-            size_t partialSegmentLength =
-                dataViewToUnsigned<size_t>(read(link + sizeof(size_t), sizeof(size_t)));
+            size_t validLength =
+                detail::deserializeUnsigned<sizeof(size_t)>(read(link, sizeof(size_t)));
+            size_t partialSegmentLength = detail::deserializeUnsigned<sizeof(size_t)>(
+                read(link + sizeof(size_t), sizeof(size_t)));
+            SPDLOG_LOGGER_TRACE(
+                logger,
+                "Segment with id {} has {} paylaod bytes. First partial segment size is {} bytes",
+                id, validLength, partialSegmentLength);
             // std::cout << "SharedMemoryPosix::initializeSegmentsInformation (Id: " << id
             //           << ", Link:" << link << ", ValidLength: " << validLength << ")\n";
             SegmentInformation si(id, link,
                                   partialSegmentLength - 2 * sizeof(size_t) - sizeof(link_t));
             si.advanceHead(validLength);
-            link_t nextPartialSegment = dataViewToUnsigned<link_t>(
+            link_t nextPartialSegment = detail::deserializeUnsigned<sizeof(link_t)>(
                 read(link + partialSegmentLength - sizeof(link_t), sizeof(link_t)));
             if (nextPartialSegment > 0) {
                 throw std::runtime_error(
@@ -314,8 +379,9 @@ bool SharedMemoryPosix::initializeSegmentsInformation(void) {
             }
             m_segmentsInformation.push_back(std::move(si));
         }
-        position_t continuation = dataViewToUnsigned<position_t>(
-            std::span{partialSegmentTable}.subspan(c_segment_table_size - sizeof(link_t)));
+        position_t continuation = SI<position_t>::deserialize(
+            std::span{partialSegmentTable}
+                .subspan<c_segment_table_size - sizeof(link_t), sizeof(link_t)>());
         partialSegmentTableStart = continuation;
         return continuation != 0;
     };
@@ -336,6 +402,7 @@ void SharedMemoryPosix::updateHead(void) {
         m_head = std::max(m_head, static_cast<position_t>(tableOffset + c_segment_table_size));
     }
     for (const auto& si : m_segmentsInformation) {
+        if (!si.isValid()) continue;
         m_head = std::max(m_head, si.getMemoryEnd());
     }
 }
@@ -415,8 +482,8 @@ bool SharedMemoryPosix::isSegmentTableValid(position_t start, id_t firstId) cons
     for (id_t i = 0; i < c_contiguous_segment_count; i++) {
         if (!isContainedAt(partialSegmentTable, firstId + i, i * c_entry_size)) {
             // TODO remove
-            std::cout << dataViewToUnsigned<position_t>(
-                std::span{partialSegmentTable}.subspan(i * c_entry_size));
+            // std::cout << dataViewToUnsigned<position_t>(
+            //    std::span{partialSegmentTable}.subspan(i * c_entry_size));
             return false;
         }
     }
@@ -424,8 +491,9 @@ bool SharedMemoryPosix::isSegmentTableValid(position_t start, id_t firstId) cons
                        c_segment_table_size - c_entry_size)) {
         return false;
     }
-    position_t continuation = dataViewToUnsigned<position_t>(
-        std::span{partialSegmentTable}.subspan(c_segment_table_size - sizeof(link_t)));
+    position_t continuation = SI<position_t>::deserialize(
+        std::span{partialSegmentTable}
+            .subspan<c_segment_table_size - sizeof(link_t), sizeof(link_t)>());
     return continuation ? isSegmentTableValid(continuation, firstId + c_contiguous_segment_count)
                         : true;
 }

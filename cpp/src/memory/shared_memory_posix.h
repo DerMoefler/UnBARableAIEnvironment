@@ -110,6 +110,14 @@ public:
     static void remove(std::string_view name);
 
     /**
+     * \brief Update the information about the SharedMemory.
+     *
+     * \returns Whether or not layout changes have been detected.
+     * \note Value changes are not reported, only changes in size.
+     */
+    bool update(void);
+
+    /**
      * \brief Creates a new \ref Segment with the specified size.
      *
      * \param size The size allocated for the Segment.
@@ -215,10 +223,10 @@ public:
     /**
      * \brief Deletes a segment of data from memory.
      *
-     * \param id The id the memory segment has been assigned (returned previously by the call to
-     * \ref writeSegment).
+     * \param segmentId The id the memory segment has been assigned (returned previously by the call
+     * to \ref writeSegment).
      */
-    // void    deleteSegment(const id_t id);
+    void deleteSegment(id_t segmentId);
 
     /**
      * \brief Get the id of a linked segment.
@@ -324,19 +332,6 @@ private:
         return true;
     }
 
-    template <std::unsigned_integral T>
-    static T dataViewToUnsigned(DataView serializedData) {
-        if (serializedData.size() != sizeof(T)) {
-            throw std::runtime_error(
-                "Size mismatch between unsigned type and serializedData.size()");
-        }
-        T value{};
-        for (size_t i = 0; i < sizeof(T); i++) {
-            value |= static_cast<T>(serializedData[i]) << ((sizeof(T) - 1 - i) * 8);
-        }
-        return value;
-    }
-
     /**
      * \brief Read raw data bytes.
      * \param position Position to start reading from.
@@ -394,7 +389,7 @@ private:
      * all this function cares, they could point to somewhere inside the segment table (which would
      * obviously not be a good thing, if that were the case).
      */
-    bool isSegmentTableValid(position_t start, id_t firstId = 0) const;
+    bool isSegmentTableValid(position_t start = c_segment_table_start, id_t firstId = 0) const;
 
     static_assert(
         c_segment_table_size < c_size_increase,
