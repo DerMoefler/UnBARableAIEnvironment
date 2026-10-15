@@ -656,41 +656,6 @@ def _extract_episode_debug_from_info(step_info: Any) -> dict[str, Any]:
     return result
 
 
-def _infer_buffer_insert_mode(buffer: Any) -> str:
-    """
-    Determines whether a replay buffer uses the extended insert signature.
-
-    Parameters
-    ----------
-    buffer : Any
-        Replay buffer exposing an `insert` method.
-
-    Returns
-    -------
-    mode : str
-        Either `"extended"` or `"simple"`.
-
-    Examples
-    --------
-    >>> class Buffer:
-    ...     def insert(self, a, b, c, d, e, f, g, h, i, rnn_states):
-    ...         pass
-    >>> _infer_buffer_insert_mode(Buffer())
-    'extended'
-    """
-    try:
-        sig = inspect.signature(buffer.insert)
-        params = list(sig.parameters.keys())
-
-        if "rnn_states" in params or len(params) >= 10:
-            return "extended"
-
-        return "simple"
-
-    except Exception:
-        return "simple"
-
-
 def _make_rnn_state_arrays(
     num_agents: int,
     recurrent_n: int = 1,
@@ -1162,8 +1127,6 @@ def main() -> None:
                     device=device,
                 )
 
-        insert_mode = _infer_buffer_insert_mode(buffer)
-
         logging.info("created shared replay buffer")
 
         trainer_args = TrainerArgs()
@@ -1187,6 +1150,7 @@ def main() -> None:
         trainer._map_policy_action_to_engine_action = (
             map_policy_action_to_bar_action_id
         )
+        #End of WTF is happening here
 
         #Warm up policy
         logging.info("Warming up policy on {device} before starting BAR")
@@ -1203,8 +1167,9 @@ def main() -> None:
 
         for episode in range(start_episode, start_episode + data.episodes):
             logging.info("DEBUG: starting episode %d", episode + 1)
-            inference_seconds = 0.0
-            engine_start_seconds = 0.0
+            #unused right now
+            #inference_seconds = 0.0
+            #engine_start_seconds = 0.0
             engine_step_seconds = 0.0
 
             # Do not reuse an environment whose engine session or gRPC server
@@ -1214,7 +1179,7 @@ def main() -> None:
                     env.close()
                     logging.debug("previous environment closed")
                 except Exception as close_err:
-                    logging.warning("previous env.close() failed: %s", {close_err})
+                    logging.error("previous env.close() failed: %s", {close_err})
 
                 finally:
                     env = None
@@ -1302,11 +1267,7 @@ def main() -> None:
                     if 0 <= a < data.action_dimension:
                         action_counts[a] += 1
                     else:
-                        print(
-                            f"WARNING: sampled invalid action {a}, "
-                            f"expected range [0, {data.action_dimension - 1}]",
-                            flush=True,
-                        )
+                        logging.warning("sampled invalid action %s expected range %d", a, [0, {data.action_dimension - 1}])
 
                 environment_started_at = time.perf_counter()
                 step_result = _step_all_agents(env, env_actions)
@@ -1577,9 +1538,9 @@ def main() -> None:
         success = True
         
     except Exception as e:
-            logging.warning("ERROR: Exception occurred during simulated 3v3 training!")
-            logging.error("ERROR TYPE: ",type(e).__name__)
-            logging.error("ERROR MSG : ",e)
+            logging.error("Exception occurred during simulated 3v3 training!")
+            logging.error("TYPE: ",type(e).__name__)
+            logging.error("MSG : ",e)
             logging.warning("TRACEBACK:")
             logging.warning(traceback.print_exc)
             raise
