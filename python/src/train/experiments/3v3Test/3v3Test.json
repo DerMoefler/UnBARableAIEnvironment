@@ -1,7 +1,7 @@
 {
     "action_dimension"      : 1,
     "buffer_size"           : 1,   
-    "episodes"              : 500,
+    "episodes"              : 10,
     "device"                : "auto",
     "gamma"                 : 1,
     "learning_rate"         : 1,
@@ -10,8 +10,8 @@
     "model_root"            : 1,
     "number_of_agents"      : 3,   
     "observation_dimension" : 1,
-    "run_name"              : "derBesteRunEver",
+    "run_name"              : "3v3Test",
     "resume"                : false,
-    "save_every_x_episode"  : 100,
+    "save_every_x_episode"  : 5,
     "training_team_id"      : 1
 }

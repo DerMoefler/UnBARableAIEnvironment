@@ -24,3 +24,6 @@ wandb/
 
 # Models
 models/
+
+# logs
+logs/

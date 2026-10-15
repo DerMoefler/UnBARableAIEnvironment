@@ -1084,14 +1084,14 @@ def _save_checkpoint(policy: Any,
 
 def main() -> None:
     #import Json configfile
-    with open("experiments/3v3.json", "r") as configfile:
+    with open("python/src/train/experiments/3v3Test/3v3Test.json", "r") as configfile:
         data = json.load(configfile)
 
     #start logging and configure log 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%MS-%NS")
 
     logging.basicConfig(
-        filename=f"src/train/logging/{data.run_name}_{timestamp}.log",
+        filename=f"src/train/experiments/{data.run_name}/{data.run_name}_{timestamp}.log",
         filemode="w",
         format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s",
         level=logging.INFO,
@@ -1120,7 +1120,8 @@ def main() -> None:
     #Choosing to resume another run or start a new one
     #Resuming not inplemented as of now.
 
-    model_directory = "python/src/train/experiments/models"
+    model_directory = Path(f"python/src/train/experiments/{data.run_name}/models")
+    run_directory = Path(f"python/src/train/experiments/{data.run_name}/run")
 
     #Starting new run
     logging.info("run_name: %s", data.run_name)
@@ -1324,44 +1325,272 @@ def main() -> None:
                 ) = _parse_step_result(step_result)
 
                 final_step_info = step_info
+
+                debug_metrics = _extract_episode_debug_from_info(step_info)
+                
+                if debug_metrics["won"]:
+                    episode_won = True
+
+                if debug_metrics["lost"]:
+                    episode_lost = True
+
+                if debug_metrics["ally_alive"] is not None:
+                    final_ally_alive = debug_metrics["ally_alive"]
+
+                if debug_metrics["enemy_alive"] is not None:
+                    final_enemy_alive = debug_metrics["enemy_alive"]
+
+                enemy_damage_done += debug_metrics["enemy_damage_done"]
+                own_damage_taken += debug_metrics["own_damage_taken"]
+
+                if debug_metrics["info_keys"]:
+                    last_info_keys = debug_metrics["info_keys"]
+
+                terminated_arr = _prepare_dones(
+                    terminated,
+                    data.number_of_agents,
+                )
+
+                truncated_arr = _prepare_dones(
+                    truncated,
+                    data.number_of_agents,
+                )
+
+                dones = np.logical_or(
+                    terminated_arr,
+                    truncated_arr,
+                )
+
+                done_env = bool(np.all(dones))
+                done = done_env
+
+                next_obs = _prepare_obs(
+                    next_obs_raw,
+                    data.number_of_agents,
+                    obs_dim,
+                    training_team_id=data.training_team_id,
+                )
+
+                next_share_obs = _prepare_share_obs(
+                    next_share_obs_raw,
+                    next_obs,
+                    data.number_of_agents,
+                    obs_dim,
+                )
+
+                next_available_actions = _prepare_available_actions(
+                    next_available_actions_raw,
+                    data.number_of_agents,
+                    action_dim,
+                )
+
+                reward_arr = _prepare_reward(
+                    reward,
+                    data.number_of_agents,
+                )
+
+                masks = np.ones((data.number_of_agents, 1), dtype=np.float32)
+
+                if done_env:
+                    masks[:] = 0.0
+                    rnn_states[:] = 0.0
+                    rnn_states_critic[:] = 0.0
+
+                active_masks = np.ones((data.number_of_agents, 1), dtype=np.float32)
+                active_masks[dones] = 0.0
+
+                if done_env:
+                    active_masks[:] = 1.0
+
+                bad_masks = _extract_bad_masks(
+                    step_info,
+                    data.number_of_agents,
+                )
+
+                try:
+                    buffer.insert(
+                        share_obs=share_obs,
+                        obs=obs,
+                        actions=actions,
+                        action_log_probs=action_log_probs,
+                        value_preds=value_preds,
+                        rewards=reward_arr,
+                        masks=masks,
+                        active_masks=active_masks,
+                    )
+
+                except TypeError:
+                    buffer.insert(
+                        share_obs,
+                        obs,
+                        actions,
+                        action_log_probs,
+                        value_preds,
+                        reward_arr,
+                        masks,
+                        active_masks,
+                    )
+
+                episode_reward += float(reward_arr.mean())
+                step_count += 1
+
+                obs = next_obs
+                share_obs = next_share_obs
+                available_actions = next_available_actions
+
+            try:
+                if final_enemy_alive is not None and int(final_enemy_alive) <= 0:
+                    episode_won = True
+            except Exception:
+                pass
+
+            try:
+                if final_ally_alive is not None and int(final_ally_alive) <= 0:
+                    episode_lost = True
+            except Exception:
+                pass
+
+            with torch.no_grad():
+                share_obs_tensor = torch.as_tensor(
+                    share_obs,
+                    dtype=torch.float32,
+                    device=device,
+                ).unsqueeze(0)
+
+                next_value_tensor = policy.critic(share_obs_tensor)
+
+            next_value = _repeat_value(
+                next_value_tensor,
+                data.number_of_agents,
+            )
+
+            try:
+                buffer.compute_returns(
+                    next_value,
+                    gamma=data.gamma,
+                )
+
+            except TypeError:
+                buffer.compute_returns(next_value)
+
+            print("DEBUG: buffer.compute_returns() done", flush=True)
+
+            trainer.prep_training()
+            print("DEBUG: trainer.prep_training() done", flush=True)
+
+            training_started_at = time.perf_counter()
+            train_info = trainer.train(
+                buffer,
+                update_actor=True,
+            )
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            training_seconds = time.perf_counter() - training_started_at
+            total_training_seconds += training_seconds
+
+
+            logging.info("trainer.training() done")
+
+            buffer.reset()
+            logging.info("buffer.reset() done")
+
+            logging.info("Episode %.2f",(episode + 1)/(start_episode + data.number_of_episodes))
+            logging.info("Episode Reward: %.4f", episode_reward)
+            logging.info("Steps: %d", step_count)
+
+            logging.info("Won: %s", episode_won)
+            logging.info("Lost: %s", episode_lost)
+            logging.info("Final Ally Alive: %s",final_ally_alive)
+            logging.info("Final Enemy Alive: %s",final_enemy_alive)
+            logging.info("Enemy Damage Done: %.4f",enemy_damage_done)
+            logging.info("Own Damage Taken: %.4f",own_damage_taken)
+
+            logging.info("Action Counts: %d", action_counts.tolist())
+            logging.info(f"  Action Trace: %d",action_trace)
+
+            if last_info_keys:
+                logging.info("Last Info Keys: ", last_info_keys)
+            else:
+                logging.info("Last Info Keys: []")
+
+            if final_step_info is not None:
+                logging.info("Final Step Info: ", final_step_info)
+
+            logging.info("Value Loss: %.6f", train_info.get('value_loss', 0))
+            logging.info("Policy Loss: %.6f", train_info.get('policy_loss', 0))
+            logging.info("Entropy: %.6f", train_info.get('dist_entropy', 0))
+
+            #Time logging still needed
+            #episode_seconds = time.perf_counter() - episode_started_at
+            #elapsed_seconds = time.perf_counter() - run_started_at
+            #completed_this_run = episode - start_episode + 1
+            #average_episode_seconds = elapsed_seconds / completed_this_run
+            #remaining_episodes = start_episode + args.num_episodes - episode - 1
+            #eta_seconds = average_episode_seconds * remaining_episodes
+            #print(f"  Timing: episode={_format_duration(episode_seconds)}", flush=True)
+            #print(f"          inference={_format_duration(inference_seconds)}", flush=True)
+            #print(f"          engine start/reset={_format_duration(engine_start_seconds)}", flush=True)
+            #print(f"          engine steps/waiting={_format_duration(engine_step_seconds)}", flush=True)
+            #print(f"          PPO update={_format_duration(training_seconds)}", flush=True)
+            #print(f"          elapsed={_format_duration(elapsed_seconds)}", flush=True)
+            #print(f"          ETA={_format_duration(eta_seconds)}", flush=True)
+
+            if data.save_every_x_episode > 0 and (episode + 1) % data.save_every_x_episode == 0:
+                checkpoint_started_at = time.perf_counter()
+                checkpoint_path = _save_checkpoint(
+                    policy, data, episode + 1, run_directory
+                )
+                total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
+                logging.info("Saved checkpoint: %s", checkpoint_path)
+
+        # Always save the final state, even when save_every is disabled or the
+        # final episode is not an exact multiple of it.
+        checkpoint_started_at = time.perf_counter()
+        final_checkpoint = _save_checkpoint(
+            policy, data, start_episode + data.number_of_episodes, run_directory
+        )
+        total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
+        logging.info("Final model saved to: %s", final_checkpoint)
+        logging.info("Latest model saved to: %s", run_directory / 'r_mappo_latest.pt')
+
+        total_runtime = time.perf_counter() - run_started_at
+        measured_runtime = (
+            total_engine_start_seconds
+            + total_engine_step_seconds
+            + total_inference_seconds
+            + total_training_seconds
+            + total_checkpoint_seconds
+        )
+        other_seconds = max(0.0, total_runtime - measured_runtime)
+
+        def percentage(seconds: float) -> float:
+            return 100.0 * seconds / total_runtime if total_runtime > 0.0 else 0.0
+
+        logging.info("Overall timing summary")
+        logging.info("Total runtime: %d (100.00%)", _format_duration(total_runtime))
+        logging.info("Engine start/reset: %d , %6.2f", _format_duration(total_engine_start_seconds), percentage(total_engine_start_seconds))
+        logging.info("Engine steps/waiting: %d , %6.2f", _format_duration(total_engine_step_seconds), percentage(total_engine_step_seconds))
+        logging.info("Policy inference: %d , %6.2f", _format_duration(total_inference_seconds), percentage(total_inference_seconds))
+        logging.info("PPO updates: %d , %6.2f", _format_duration(total_training_seconds), percentage(total_training_seconds))
+        logging.info("Checkpoint writing: %d , %6.2f", _format_duration(total_checkpoint_seconds), percentage(total_checkpoint_seconds))
+        logging.info("Other Python/logging: %d , %6.2f",  _format_duration(other_seconds), percentage(other_seconds))
+        success = True
         
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     except Exception as e:
-            print("\nERROR: Exception occurred during simulated 3v3 training!", flush=True)
-            print(f"ERROR TYPE: {type(e).__name__}", flush=True)
-            print(f"ERROR MSG : {e}", flush=True)
-            print("\nTRACEBACK:", flush=True)
-            traceback.print_exc()
+            logging.warning("ERROR: Exception occurred during simulated 3v3 training!")
+            logging.error("ERROR TYPE: ",type(e).__name__)
+            logging.error("ERROR MSG : ",e)
+            logging.warning("TRACEBACK:")
+            logging.warning(traceback.print_exc)
             raise
     
     finally:
         if env is not None:
             try:
                 env.close()
-                print("DEBUG: env.close() done", flush=True)
+                logging.debug("env.close() done")
             except Exception as close_err:
-                print(f"WARNING: env.close() failed: {close_err}", flush=True)
+                logging.warning("env.close() failed: ", close_err)
 
         if success:
             print("Simulated 3v3 pawn training complete!", flush=True)
