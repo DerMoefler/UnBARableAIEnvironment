@@ -77,4 +77,42 @@ TEST_F(SharedMemoryPosixTest, OpenRead) {
     SharedMemoryPosix::remove("/shm-posix-test-open-read");
 }
 
+TEST_F(SharedMemoryPosixTest, Delete) {
+    constexpr std::size_t numSegments = 10;
+    constexpr std::size_t segmentSize = 32;
+    std::vector<std::byte> sequentialData;
+    sequentialData.reserve(numSegments * segmentSize);
+    for (std::size_t i = 0; i < numSegments * segmentSize; i++) {
+        sequentialData.push_back(static_cast<std::byte>(i));
+    }
+
+    std::string shmName = "/shm-posix-test-delete";
+
+    SharedMemoryPosix writer = SharedMemoryPosix::create(shmName);
+    SharedMemoryPosix reader = SharedMemoryPosix::open(shmName);
+
+    auto view = std::span{sequentialData};
+    for (std::size_t i = 0; i < numSegments; i++) {
+        auto segmentView = view.subspan(i * segmentSize, segmentSize);
+        writer.writeSegment(segmentView);
+    }
+
+    reader.update();
+    EXPECT_EQ(reader.getSegmentsCount(), numSegments);
+
+    writer.deleteSegment(2);
+    writer.deleteSegment(5);
+
+    reader.update();
+    EXPECT_EQ(reader.getSegmentsCount(), numSegments - 2);
+
+
+    writer.deleteSegment(numSegments);
+
+    reader.update();
+    EXPECT_EQ(reader.getSegmentsCount(), numSegments - 3);
+
+    SharedMemoryPosix::remove("/shm-posix-test-delete");
+}
+
 }  // namespace UnBARableAINS
