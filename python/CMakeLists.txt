@@ -20,6 +20,7 @@ find_package(
 )
 
 find_package(pybind11 CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 
 set(CPP_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../cpp"
@@ -50,6 +51,11 @@ target_include_directories(bar_ai
 
         # Für <memory/...>, <serialization/...> und <id/...>
         "${CPP_DIR}/src"
+)
+
+target_link_libraries(bar_ai
+    PRIVATE
+        spdlog::spdlog
 )
 
 install(

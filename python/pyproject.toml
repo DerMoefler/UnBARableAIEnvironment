@@ -23,6 +23,9 @@ markers = [
 [tool.scikit-build]
 wheel.packages = ["src"]
 
+[tool.scikit-build.cmake.define]
+CMAKE_TOOLCHAIN_FILE = "../cpp/build/Release/generators/conan_toolchain.cmake"
+
 [build-system]
 requires = ["scikit-build-core", "pybind11", "grpcio-tools"]
 build-backend = "scikit_build_core.build"
