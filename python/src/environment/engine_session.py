@@ -41,7 +41,7 @@ class EngineSessionConfig:
         if not self.isolation_dir.is_dir():
             raise ValueError(f"Isolation directory does not exist: {self.isolation_dir}")
         if not self.engine_exe.is_file():
-            raise ValueError(f"Engine xecutable does not exist: {self.engine_exe}")
+            raise ValueError(f"Engine executable does not exist: {self.engine_exe}")
         if not os.access(self.engine_exe, os.X_OK):
             raise PermissionError(f"spring-headless is not executable: {self.engine_exe}")
 
