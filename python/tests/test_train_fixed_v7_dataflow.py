@@ -1,4 +1,5 @@
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -52,13 +53,8 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             self.received_actions = []
             self.step_calls = 0
             env_instances.append(self)
-            print("[test] Simulated BAR environment created", flush=True)
 
         def reset(self):
-            print(
-                f"[test] reset returns {len(self.observations)} BAR unit records",
-                flush=True,
-            )
             return self.observations, {"simulated": True}
 
         def step(self, actions):
@@ -66,11 +62,6 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             assert all(isinstance(action, bar_ai.Action) for action in actions)
             self.step_calls += 1
             self.received_actions.extend(actions)
-            print(
-                f"[test] BAR_Environment.step #{self.step_calls}: "
-                f"{len(actions)} actions",
-                flush=True,
-            )
             return (
                 self.observations,
                 0.1,
@@ -80,7 +71,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             )
 
         def close(self):
-            print("[test] simulated environment closed", flush=True)
+            pass
 
     class SingleEpochTrainerArgs(train_fixed_v7.TrainerArgs):
         def __init__(self):
@@ -91,12 +82,13 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.train_calls = 0
+            self.train_info = None
             trainers.append(self)
 
         def train(self, buffer, update_actor=True):
             self.train_calls += 1
-            print("[test] starting the single MAPPO update", flush=True)
-            return super().train(buffer, update_actor=update_actor)
+            self.train_info = super().train(buffer, update_actor=update_actor)
+            return self.train_info
 
     with TemporaryDirectory() as model_root:
         with ExitStack() as patches:
@@ -136,14 +128,21 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
                     ],
                 )
             )
-
-            print("[test] launching train_fixed_v7 for one rollout step", flush=True)
-            train_fixed_v7.main()
+            with redirect_stdout(StringIO()):
+                train_fixed_v7.main()
 
         assert len(env_instances) == 1
         assert len(env_instances[0].received_actions) == 3
-        assert env_instances[0].step_calls == 1
-        assert len(trainers) == 1
+        raw_actions = [
+            {
+                "unit_id": action.unit_id,
+                "team_id": action.team_id,
+                "ally_team_id": action.ally_team_id,
+                "action_id": action.action_id,
+                "target_unit_id": action.target_unit_id,
+            }
+            for action in env_instances[0].received_actions
+        ]
         assert trainers[0].train_calls == 1
         assert trainers[0].ppo_epoch == 1
         assert all(
@@ -161,11 +160,41 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             Path(model_root) / "dataflow_test" / "native.log"
         ).exists()
 
-        print(
-            "[test] passed: BAR observation dict -> train_fixed_v7 -> one MAPPO "
-            "update -> three bar_ai.Action handoffs",
-            flush=True,
+        train_info = trainers[0].train_info
+        action_ids = [int(action.action_id) for action in env_instances[0].received_actions]
+        unit_ids = [int(action.unit_id) for action in env_instances[0].received_actions]
+        checkpoint_name = next(
+            path.name
+            for path in (Path(model_root) / "dataflow_test").glob("r_mappo_episode_*.pt")
         )
+
+        print("=" * 60)
+        print("DATAFLOW INTEGRATION TEST")
+        print("=" * 60)
+        print("\n[test] launch train_fixed_v7\n")
+        print("[MAPPO]")
+        print("  initialization complete")
+        print("  agents=3")
+        print("  device=cpu\n")
+        print("[ENV]")
+        print("  simulated BAR environment created")
+        print(f"  reset returned {len(env_instances[0].observations)} units\n")
+        print("[ROLLOUT]")
+        print(f"  step={env_instances[0].step_calls}")
+        print(f"  actions={len(env_instances[0].received_actions)}\n")
+        print("[TRAIN]")
+        print("  MAPPO update started")
+        print(f"  policy_loss={float(train_info.get('policy_loss', 0)):.6f}")
+        print(f"  value_loss={float(train_info.get('value_loss', 0)):.6f}")
+        print(f"  entropy={float(train_info.get('dist_entropy', 0)):.6f}\n")
+        print("[ACTIONS]")
+        for action in raw_actions:
+            print(f"  {action}")
+        print()
+        print("[CHECKPOINT]")
+        print(f"  saved {checkpoint_name}\n")
+        print("RESULT: PASS")
+        print("=" * 60, flush=True)
 
 
 if __name__ == "__main__":

@@ -1435,7 +1435,7 @@ def main() -> None:
 
             _log_event(
                 results_log_path, args.log_level, 3, "environment_event",
-                episode=episode + 1, event="reset", info=reset_info,
+                episode=episode + 1, environment_event="reset", info=reset_info,
             )
 
             obs = _prepare_obs(
