@@ -35,7 +35,6 @@ pybind11_add_module(bar_ai
     "${CPP_DIR}/src/memory/bar_shared_memory.cpp"
     "${CPP_DIR}/src/memory/shared_memory_posix.cpp"
     "${CPP_DIR}/src/memory/partially_linked_list_information.cpp"
-    "${CPP_DIR}/src/memory/segment_information.cpp"
     "${CPP_DIR}/src/memory/debug/hexdump.cpp"
 )
 
