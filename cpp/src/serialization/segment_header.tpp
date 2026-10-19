@@ -75,6 +75,20 @@ static_assert(
         std::type_identity<SerializeInformation<memory::SegmentHeader>::F_NextSegmentId>{}) == 12,
     "Wrong offset for F_TotalSize (or implementation changed).");
 
+constexpr memory::SegmentHeader header{16};
+
+constexpr auto serializedHeader = serialize(header);
+constexpr auto deserializedHeader = deserialize<memory::SegmentHeader>(serializedHeader);
+
+constexpr memory::SegmentHeader headerWithLink{
+    getSerializableSize(std::type_identity<memory::SegmentHeader>{}) + 16, 7, 1};
+
+constexpr auto serializedWithLink = serialize(headerWithLink);
+constexpr auto deserializedWithLink = deserialize<memory::SegmentHeader>(serializedWithLink);
+
+// TODO fix
+// static_assert(deserializedWithLink.remainingSize() == 9, "Reamining size is wrong");
+
 }  // namespace test
 
 }  // namespace serialization

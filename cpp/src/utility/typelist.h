@@ -92,6 +92,10 @@ struct TypeAtIndex_MF<Typelist<Head, Tail...>, index> {
                                              TypeAtIndex_MF<TailTypelist, index - 1>>::Type;
 };
 
+/// \brief Type alias for \ref TypeAtIndex_MF::Type.
+template <typename List, std::size_t index>
+using TypeAtIndex_T = typename TypeAtIndex_MF<List, index>::Type;
+
 /**
  * \brief Metafunction to check if a Typelist \p List contains a Type \p T.
  * \tparam List The Typelist.
@@ -268,6 +272,26 @@ template <typename List, std::size_t offset, std::size_t count>
 using Sublist_T = typename Sublist_MF<List, offset, count>::Type;
 
 /**
+ * \brief Execute \p Metafun on each element of the \p List, building a new Typelist with the
+ * results.
+ * \tparam List The Typelist.
+ * \tparam Metafun Metafunction to apply each Elements. Computed type must be available via
+ * Metafun<Element>::Type.
+ */
+template <typename List, template <typename> typename Metafun>
+struct Transform_MF;
+
+/// \brief Implementation.
+template <typename... Elements, template <typename> typename Metafun>
+struct Transform_MF<Typelist<Elements...>, Metafun> {
+    using Type = Typelist<typename Metafun<Elements>::Type...>;
+};
+
+/// \brief Type alias for \ref Transform_MF::Type.
+template <typename List, template <typename> typename Metafun>
+using Transform_T = typename Transform_MF<List, Metafun>::Type;
+
+/**
  * \brief Metafunction to rebind a typelist.
  * \tparam Rebind Type to rebind to.
  * \tparam List Typelist to rebind.
@@ -288,6 +312,10 @@ struct Rebind_MF<Rebind, Typelist<Elements...>> {
     using Type = Rebind<Elements...>;
 };
 
+/// \brief Type aliast for \ref Rebind_MF::Type.
+template <template <typename...> typename Rebind, typename List>
+using Rebind_T = Rebind_MF<Rebind, List>::Type;
+
 /**
  * \brief Metafunction to rebind a Typelist using a \p Mapper.
  * \tparam Mapper Type to remap the \p List into.
@@ -303,6 +331,7 @@ struct Rebind_MF<Rebind, Typelist<Elements...>> {
  * TransformRebind_MF<Holder, std::tuple, Typelist<int, float>>::Type
  * = std::tuple<Holder<int>, Holder<float>>
  * \endcode
+ * \todo Refactor or something now that we have Transform_MF.
  */
 template <template <typename> typename Mapper, template <typename...> typename Rebind,
           typename List>

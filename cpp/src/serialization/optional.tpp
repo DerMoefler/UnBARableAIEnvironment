@@ -77,10 +77,10 @@ constexpr std::size_t value{0xFF};
 constexpr std::optional<std::size_t> optional{value};
 using SI = SerializeInformation<std::optional<std::size_t>>;
 
-constexpr auto serialized = SI::serialize(optional);
-constexpr auto deserialized = SI::deserialize(serialized);
-static_assert(deserialized.has_value(), "Deserialized object must have a value");
-static_assert(deserialized.value() == value, "Deserialized values must match");
+constexpr auto serializedOptional = SI::serialize(optional);
+constexpr auto deserializedOptional = SI::deserialize(serializedOptional);
+static_assert(deserializedOptional.has_value(), "Deserialized object must have a value");
+static_assert(deserializedOptional.value() == value, "Deserialized values must match");
 
 constexpr auto nulloptSerialized = SI::serialize(std::nullopt);
 constexpr auto nulloptDeserialized = SI::deserialize(nulloptSerialized);
