@@ -134,6 +134,27 @@ struct FindType_MF<Typelist<>, T> {
 };
 
 /**
+ * \brief Metafunction to check that a \p Predicate is true for every Element in the \p List.
+ * \tparam List Typelist to apply the predicate to.
+ * \tparam Predicate Predicate to verify.
+ */
+template <typename List, template <typename> typename Predicate>
+struct AllOf_MF;
+
+/**
+ * \brief Implementation, applies \p Predicate to each Element.
+ * \tparam Elements Elements of the Typelist.
+ * \tparam Predicate Predicate to verify.
+ */
+template <typename... Elements, template <typename> typename Predicate>
+struct AllOf_MF<Typelist<Elements...>, Predicate>
+    : std::bool_constant<(Predicate<Elements>::value && ...)> {};
+
+/// \brief Value template for AllOf_MF.
+template <typename List, template <typename> typename Predicate>
+static constexpr bool AllOf_v = AllOf_MF<List, Predicate>::value;
+
+/**
  * \brief Metafunction to rebind a typelist.
  * \tparam Rebind Type to rebind to.
  * \tparam List Typelist to rebind.

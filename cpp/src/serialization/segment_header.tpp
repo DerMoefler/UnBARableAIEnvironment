@@ -5,6 +5,7 @@
 #include "memory/shared_memory_types.h"
 #include "serialization/optional.tpp"
 #include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
 
 namespace UnBARableAINS {
 
@@ -53,8 +54,10 @@ struct SerializeInformation<memory::SegmentHeader> {
 namespace test {
 
 static_assert(Serializable<memory::SegmentHeader>, "SegmentHeader is not serializable.");
+static_assert(TrivialSerializable<memory::SegmentHeader> &&
+              "SegmentHeader is not trivially serializable");
 
-}
+}  // namespace test
 
 }  // namespace serialization
 
