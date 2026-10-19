@@ -56,10 +56,24 @@ namespace test {
 
 static_assert(Serializable<memory::SegmentHeader>, "SegmentHeader is not serializable.");
 static_assert(TrivialSerializable<memory::SegmentHeader> &&
-              "SegmentHeader is not trivially serializable");
+              "SegmentHeader is not trivially serializable.");
 static_assert(getSerializableSize(std::type_identity<memory::SegmentHeader>{}) == 17,
               "Incorrect size for SegmentHeader (or implemenation changed, in that case just "
-              "change the comparison value)");
+              "change the comparison value).");
+static_assert(getFieldOffset(
+                  std::type_identity<memory::SegmentHeader>{},
+                  std::type_identity<SerializeInformation<memory::SegmentHeader>::F_TotalSize>{}) ==
+                  0,
+              "Wrong offset for F_TotalSize (or implementation changed).");
+static_assert(
+    getFieldOffset(std::type_identity<memory::SegmentHeader>{},
+                   std::type_identity<SerializeInformation<memory::SegmentHeader>::F_Head>{}) == 8,
+    "Wrong offset for F_Head (or implementation changed).");
+static_assert(
+    getFieldOffset(
+        std::type_identity<memory::SegmentHeader>{},
+        std::type_identity<SerializeInformation<memory::SegmentHeader>::F_NextSegmentId>{}) == 12,
+    "Wrong offset for F_TotalSize (or implementation changed).");
 
 }  // namespace test
 

@@ -120,6 +120,19 @@ consteval std::size_t getSerializableSize(std::type_identity<S>) {
     }
 }
 
+template <TrivialSerializable S, detail::Fieldlike F>
+consteval std::size_t getFieldOffset(std::type_identity<S>, std::type_identity<F>) {
+    using Fields = typename SerializeInformation<S>::Fields;
+    constexpr std::size_t fieldIndex = Typelist::FindType_MF<Fields, F>::value;
+    if constexpr (!fieldIndex) {
+        return 0;
+    }
+    else {
+        using FieldsBefore = Typelist::Sublist_T<Fields, 0, fieldIndex>;
+        return detail::SumFieldSizes_MF<FieldsBefore>::value;
+    }
+}
+
 }  // namespace serialization
 
 }  // namespace UnBARableAINS
