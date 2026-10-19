@@ -33,6 +33,8 @@ struct SerializeInformation<std::optional<T>> {
     using BoolSI = SerializeInformation<bool>;
     using TypeSI = SerializeInformation<T>;
 
+    using Fields = detail::Fields<>;
+
     inline static constexpr bool c_serializable = Serializable<T>;
     inline static constexpr std::size_t c_serialized_size =
         BoolSI::c_serialized_size + TypeSI::c_serialized_size;
