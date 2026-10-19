@@ -69,6 +69,24 @@ struct SerializeInformation<std::optional<T>> {
     }
 };
 
+namespace test {
+
+constexpr std::size_t value{0xFF};
+constexpr std::optional<std::size_t> optional{value};
+using SI = SerializeInformation<std::optional<std::size_t>>;
+
+constexpr auto serialized = SI::serialize(optional);
+constexpr auto deserialized = SI::deserialize(serialized);
+static_assert(deserialized.has_value(), "Deserialized object must have a value");
+static_assert(deserialized.value() == value, "Deserialized values must match");
+
+constexpr auto nulloptSerialized = SI::serialize(std::nullopt);
+constexpr auto nulloptDeserialized = SI::deserialize(nulloptSerialized);
+static_assert(!nulloptDeserialized.has_value(), "std::nullopt deserialized must have no value");
+static_assert(nulloptDeserialized == std::nullopt, "std::nullopt incorecctly deserialized");
+
+}  // namespace test
+
 }  // namespace serialization
 
 }  // namespace UnBARableAINS

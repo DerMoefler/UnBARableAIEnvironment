@@ -56,6 +56,24 @@ public:
         , m_head(0)
         , m_nextSegmentId(std::nullopt) {}
 
+    constexpr SegmentHeader(const std::size_t totalSize, const memory::position_t head,
+                            const std::optional<memory::id_t> nextSegmentId)
+        : m_totalSize(totalSize)
+        , m_dataSize(totalSize - c_size)
+        , m_head(head)
+        , m_nextSegmentId(nextSegmentId) {
+        if (m_head > m_dataSize) {
+            throw std::logic_error(
+                std::format("Head cannot be at position {} because the maximum data size is {}.",
+                            m_head, m_dataSize));
+        }
+        if (m_totalSize < c_size) {
+            throw std::logic_error(std::format(
+                "Total size cannot be {} bytes because the header itself requires {} bytes.",
+                m_totalSize, c_size));
+        }
+    }
+
     /// \brief Default comparison.
     constexpr bool operator==(const SegmentHeader& other) const = default;
 
@@ -86,6 +104,8 @@ public:
 
     /// \brief Getter for head.
     constexpr position_t getHead(void) const { return m_head; }
+
+    constexpr std::optional<id_t> getNextSegmentId(void) const { return m_nextSegmentId; }
 
 private:
     std::size_t m_totalSize;
