@@ -1,9 +1,13 @@
 #ifndef TRIVIAL_SERIALIZABLE_H_
 #define TRIVIAL_SERIALIZABLE_H_
 
+#include <algorithm>
 #include <type_traits>
+#include <tuple>
+#include <utility>
 
 #include "serialization/serialize_information.h"
+#include "utility/always_false.h"
 #include "utility/typelist.h"
 
 namespace UnBARableAINS {
@@ -103,7 +107,7 @@ struct SumFieldSizes_MF<detail::Fields<Fs...>>
 }  // namespace detail
 
 /**
- * \brief Computer the size of a TrivialSerializable.
+ * \brief Compute the size of a TrivialSerializable.
  * \tparam S A TrivialSerializable.
  * \returns Constant serialized size of \p S.
  */
@@ -120,6 +124,12 @@ consteval std::size_t getSerializableSize(std::type_identity<S>) {
     }
 }
 
+/**
+ * \brief Compute the offset of \p F in \p S.
+ * \tparam S A TrivialSerializable.
+ * \tparam F Field inside TrivialSerializable.
+ * \returns The offset.
+ */
 template <TrivialSerializable S, detail::Fieldlike F>
 consteval std::size_t getFieldOffset(std::type_identity<S>, std::type_identity<F>) {
     using Fields = typename SerializeInformation<S>::Fields;
@@ -130,6 +140,112 @@ consteval std::size_t getFieldOffset(std::type_identity<S>, std::type_identity<F
     else {
         using FieldsBefore = Typelist::Sublist_T<Fields, 0, fieldIndex>;
         return detail::SumFieldSizes_MF<FieldsBefore>::value;
+    }
+}
+
+/**
+ * \brief Metafunction that computes the View (std::span with fixed size) for a TrivialSerializable.
+ * \tparam S A TrivialSerializable.
+ */
+template <TrivialSerializable S>
+struct GetSerializableView_MF {
+    using Type = std::span<const std::byte, getSerializableSize(std::type_identity<S>{})>;
+};
+
+/// \brief Type alias for \ref TrivialSerializable::Type.
+template <TrivialSerializable S>
+using GetSerializableView_T = typename GetSerializableView_MF<S>::Type;
+
+/**
+ * \brief Serialize a TrivialSerializable,
+ * \tparam S A TrivialSerializable.
+ * \param value The value of type \p S to serialize.
+ * \returns The serialized representation of \p value.
+ */
+template <TrivialSerializable S>
+constexpr auto serialize(const S& value)
+    -> std::array<std::byte, getSerializableSize(std::type_identity<S>{})> {
+    // Base case
+    if constexpr (detail::SerializeMethodAvailable<S>) {
+        return SerializeInformation<S>::serialize(value);
+    }
+    // Recursive case
+    else {
+        static_assert(!detail::SerializeMethodAvailable<S>,
+                      "Serialize method should not be available");
+        using Fields = typename SerializeInformation<S>::Fields;
+        using ValueTypes = Typelist::Transform_T<Fields, detail::GetFieldlikeValueType_MF>;
+
+        std::array<std::byte, getSerializableSize(std::type_identity<S>{})> result{};
+
+        // Nested immediately invoked lambdaes: Serialize each field and copy it into result.
+        [&]<std::size_t... Is>(std::index_sequence<Is...>) -> void {
+            (
+                [&]() -> void {
+                    using Field = Typelist::TypeAtIndex_T<Fields, Is>;
+                    using ValueType = Typelist::TypeAtIndex_T<ValueTypes, Is>;
+
+                    constexpr std::size_t offset =
+                        getFieldOffset(std::type_identity<S>{}, std::type_identity<Field>{});
+                    constexpr std::size_t size =
+                        getSerializableSize(std::type_identity<ValueType>{});
+                    const std::array<std::byte, size> serialized =
+                        serialize(SerializeInformation<S>::get(std::type_identity<Field>{}, value));
+
+                    std::ranges::copy(serialized, result.begin() + offset);
+                }(),
+                ...);
+        }(std::make_index_sequence<Typelist::Size_MF<Fields>::value>{});
+
+        return result;
+    }
+}
+
+/**
+ * \brief Deserialize a TrivialSerializable.
+ * \tparam S A TrivialSerializable.
+ * \param serialized Serialized representation (obtainable through \ref serialize).
+ * \returns The original value.
+ */
+template <TrivialSerializable S>
+constexpr S deserialize(const GetSerializableView_T<S> serialized) {
+    // Base case
+    if constexpr (detail::DeserializeMethodAvailable<S>) {
+        return SerializeInformation<S>::deserialize(serialized);
+    }
+    // Recursive case
+    else if constexpr (detail::ConstructibleFromFields<S>) {
+        using Fields = typename SerializeInformation<S>::Fields;
+        using ValueTypes = Typelist::Transform_T<Fields, detail::GetFieldlikeValueType_MF>;
+        using ValueTypesTuple = Typelist::Rebind_T<std::tuple, ValueTypes>;
+
+        // Build the tuple.
+        const auto values = [&]<std::size_t... Is>(std::index_sequence<Is...>) -> ValueTypesTuple {
+            return ValueTypesTuple{[&]() {
+                using Field = Typelist::TypeAtIndex_T<Fields, Is>;
+                using ValueType = Typelist::TypeAtIndex_T<ValueTypes, Is>;
+
+                constexpr std::size_t offset =
+                    getFieldOffset(std::type_identity<S>{}, std::type_identity<Field>{});
+                constexpr std::size_t size = getSerializableSize(std::type_identity<ValueType>{});
+                auto fieldView = serialized.template subspan<offset, size>();
+                return deserialize<ValueType>(fieldView);
+            }()...};
+        }(std::make_index_sequence<Typelist::Size_MF<Fields>::value>{});
+
+        // Unpack the tuple and call constructFromFields.
+        return std::apply(
+            []<typename... Values>(Values&&... values) -> S {
+                return SerializeInformation<S>::constructFromFields(
+                    std::forward<Values>(values)...);
+            },
+            std::move(values));
+    }
+    // Error
+    else {
+        static_assert(AlwaysFalse_MF<S>::value,
+                      "Trivial serializable must either provide a deserialize method or be "
+                      "constructible from its fields");
     }
 }
 
