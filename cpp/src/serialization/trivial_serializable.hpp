@@ -76,6 +76,50 @@ template <typename S>
 concept TrivialSerializable =
     detail::TrivialSerializableImpl_v<S> || detail::FundamentalSerializable<S>;
 
+// Forward declaration
+template <TrivialSerializable S>
+consteval std::size_t getSerializableSize(std::type_identity<S>);
+
+namespace detail {
+
+/**
+ * \brief Metafunction to sum the sizes of Fields.
+ * \tparam Fields Typelist of Fieldlikes to sum.
+ */
+template <typename Fields>
+struct SumFieldSizes_MF;
+
+/**
+ * \brief Implemenation to sum field sizes.
+ * \tparam Fs The actual fields.
+ */
+template <detail::Fieldlike... Fs>
+struct SumFieldSizes_MF<detail::Fields<Fs...>>
+    : std::integral_constant<
+          std::size_t,
+          (getSerializableSize(std::type_identity<typename GetFieldlikeValueType_MF<Fs>::Type>{}) +
+           ... + std::size_t{0})> {};
+
+}  // namespace detail
+
+/**
+ * \brief Computer the size of a TrivialSerializable.
+ * \tparam S A TrivialSerializable.
+ * \returns Constant serialized size of \p S.
+ */
+template <TrivialSerializable S>
+consteval std::size_t getSerializableSize(std::type_identity<S>) {
+    // Base case
+    if constexpr (detail::ConstSize<S>) {
+        return SerializeInformation<S>::c_serialized_size;
+    }
+    // Recursive case
+    else {
+        using Fields = typename SerializeInformation<S>::Fields;
+        return detail::SumFieldSizes_MF<Fields>::value;
+    }
+}
+
 }  // namespace serialization
 
 }  // namespace UnBARableAINS

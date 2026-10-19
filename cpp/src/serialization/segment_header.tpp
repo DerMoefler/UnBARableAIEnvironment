@@ -1,6 +1,7 @@
 #ifndef SEGMENT_HEADER_TPP_
 #define SEGMENT_HEADER_TPP_
 
+#include <type_traits>
 #include "memory/segment_header.hpp"
 #include "memory/shared_memory_types.h"
 #include "serialization/optional.tpp"
@@ -56,6 +57,9 @@ namespace test {
 static_assert(Serializable<memory::SegmentHeader>, "SegmentHeader is not serializable.");
 static_assert(TrivialSerializable<memory::SegmentHeader> &&
               "SegmentHeader is not trivially serializable");
+static_assert(getSerializableSize(std::type_identity<memory::SegmentHeader>{}) == 17,
+              "Incorrect size for SegmentHeader (or implemenation changed, in that case just "
+              "change the comparison value)");
 
 }  // namespace test
 
