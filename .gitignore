@@ -26,4 +26,4 @@ wandb/
 models/
 
 # logs
-logs/
+.log
