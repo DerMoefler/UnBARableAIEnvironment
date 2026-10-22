@@ -90,7 +90,7 @@ class BAR_Environment:
 
         status, update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
-            timeout=600.0,
+            timeout=180.0,
         )
         if status == "timeout":
             raise TimeoutError("Kein erstes handleEventUpdate nach reset(). Timeout.")

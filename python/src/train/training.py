@@ -1052,8 +1052,6 @@ def main() -> None:
     with open("src/train/experiments/3v3Test/3v3Test.json", "r") as configfile:
         data = json.load(configfile)
 
-    print("imported json file")
-
     #start logging and configure log 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -1100,13 +1098,12 @@ def main() -> None:
     total_training_seconds = 0.0
     total_checkpoint_seconds = 0.0
     
-    env = None
+    logging.info("Initializing new BAR Environment")
+    env = BAR_Environment()
+    logging.info("Initialized new BAR Environment")
     success = False
 
     try:
-        # BAR_Environment cannot restart its gRPC server after an engine
-        # session has ended. A fresh environment is therefore created for each
-        # episode below instead of calling reset() on a closed environment.
         obs_dim = OBS_DIM
         action_dim = data["action_dimension"]
 
@@ -1154,28 +1151,8 @@ def main() -> None:
         hidden_size = 1
 
         for episode in range(start_episode, start_episode + data["episodes"]):
-            logging.info("DEBUG: starting episode %d", episode + 1)
-            #unused right now
-            #inference_seconds = 0.0
-            #engine_start_seconds = 0.0
+            logging.debug("starting episode %d", episode + 1)
             engine_step_seconds = 0.0
-
-            # Do not reuse an environment whose engine session or gRPC server
-            # was stopped by the preceding episode.
-            if env is not None:
-                try:
-                    env.close()
-                    logging.debug("previous environment closed")
-                except Exception as close_err:
-                    logging.error("previous env.close() failed: %s", {close_err})
-
-                finally:
-                    env = None
-
-            logging.info("Initializing new BAR Environment")
-            environment_started_at = time.perf_counter()
-            env = BAR_Environment()
-            logging.info("Initialized new BAR Environment")
 
             logging.info("starting environment reset")
             reset_result = env.reset()
@@ -1210,7 +1187,6 @@ def main() -> None:
             done = False
             step_count = 0
 
-            #TODO what does action_counts do?
             action_counts = np.zeros(data["action_dimension"], dtype=np.int64)
             action_trace: list[list[int]] = []
 
