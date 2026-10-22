@@ -339,3 +339,15 @@ Run the Python tests from the `python` directory with:
 ```console
 uv run pytest
 ```
+
+## Using training.py
+
+configure the json data in src/train/experiments/
+
+The "run_name" has to be the same as the folder inside experiments.
+
+To run the trainig use this terminal command from the python folder:
+
+```console
+uv run src/train/training.py
+```
