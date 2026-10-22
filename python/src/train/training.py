@@ -1021,10 +1021,10 @@ def _save_checkpoint(policy: Any,
     checkpoint = {
         "format_version": 1,
         "episode": int(episode),
-        "obs_dim": int(config.observation_dimension),
-        "action_dim": int(config.action_dimension),
-        "num_agents": int(config.number_of_agents),
-        "training_team_id": int(config.training_team_id),
+        "obs_dim": int(OBS_DIM),
+        "action_dim": int(config["action_dimension"]),
+        "num_agents": int(config["number_of_agents"]),
+        "training_team_id": int(config["training_team_id"]),
         "actor_state_dict": policy.actor.state_dict(),
         "critic_state_dict": policy.critic.state_dict(),
         "actor_optimizer_state_dict": (
@@ -1255,7 +1255,7 @@ def main() -> None:
                     if 0 <= a < data["action_dimension"]:
                         action_counts[a] += 1
                     else:
-                        logging.warning("sampled invalid action %s expected range %d", a, [0, data["action_dimension"] - 1])
+                        logging.warning("sampled invalid action %s expected range %s", a, [0, data["action_dimension"] - 1])
 
                 environment_started_at = time.perf_counter()
                 step_result = _step_all_agents(env, env_actions)
@@ -1454,16 +1454,16 @@ def main() -> None:
             logging.info("Enemy Damage Done: %.4f",enemy_damage_done)
             logging.info("Own Damage Taken: %.4f",own_damage_taken)
 
-            logging.info("Action Counts: %d", action_counts.tolist())
-            logging.info(f"  Action Trace: %d",action_trace)
+            logging.info("Action Counts: %s", action_counts.tolist())
+            logging.info("Action Trace: %s",action_trace)
 
             if last_info_keys:
-                logging.info("Last Info Keys: ", last_info_keys)
+                logging.info("Last Info Keys: %s", last_info_keys)
             else:
                 logging.info("Last Info Keys: []")
 
             if final_step_info is not None:
-                logging.info("Final Step Info: ", final_step_info)
+                logging.info("Final Step Info: %s", final_step_info)
 
             logging.info("Value Loss: %.6f", train_info.get('value_loss', 0))
             logging.info("Policy Loss: %.6f", train_info.get('policy_loss', 0))
@@ -1501,19 +1501,19 @@ def main() -> None:
             return 100.0 * seconds / total_runtime if total_runtime > 0.0 else 0.0
 
         logging.info("Overall timing summary")
-        logging.info("Total runtime: %d (100.00%)", _format_duration(total_runtime))
-        logging.info("Engine start/reset: %d , %6.2f", _format_duration(total_engine_start_seconds), percentage(total_engine_start_seconds))
-        logging.info("Engine steps/waiting: %d , %6.2f", _format_duration(total_engine_step_seconds), percentage(total_engine_step_seconds))
-        logging.info("Policy inference: %d , %6.2f", _format_duration(total_inference_seconds), percentage(total_inference_seconds))
-        logging.info("PPO updates: %d , %6.2f", _format_duration(total_training_seconds), percentage(total_training_seconds))
-        logging.info("Checkpoint writing: %d , %6.2f", _format_duration(total_checkpoint_seconds), percentage(total_checkpoint_seconds))
-        logging.info("Other Python/logging: %d , %6.2f",  _format_duration(other_seconds), percentage(other_seconds))
+        logging.info("Total runtime: %s (100.00%%)", _format_duration(total_runtime))
+        logging.info("Engine start/reset: %s , %6.2f", _format_duration(total_engine_start_seconds), percentage(total_engine_start_seconds))
+        logging.info("Engine steps/waiting: %s , %6.2f", _format_duration(total_engine_step_seconds), percentage(total_engine_step_seconds))
+        logging.info("Policy inference: %s , %6.2f", _format_duration(total_inference_seconds), percentage(total_inference_seconds))
+        logging.info("PPO updates: %s , %6.2f", _format_duration(total_training_seconds), percentage(total_training_seconds))
+        logging.info("Checkpoint writing: %s , %6.2f", _format_duration(total_checkpoint_seconds), percentage(total_checkpoint_seconds))
+        logging.info("Other Python/logging: %s , %6.2f",  _format_duration(other_seconds), percentage(other_seconds))
         success = True
         
     except Exception as e:
             logging.error("Exception occurred during simulated 3v3 training!")
-            logging.error("TYPE: ",type(e).__name__)
-            logging.error("MSG : ",e)
+            logging.error("TYPE: %s",type(e).__name__)
+            logging.error("MSG : %s",e)
             logging.warning("TRACEBACK:")
             logging.warning(traceback.print_exc)
             raise
@@ -1524,7 +1524,7 @@ def main() -> None:
                 env.close()
                 logging.debug("env.close() done")
             except Exception as close_err:
-                logging.warning("env.close() failed: ", close_err)
+                logging.warning("env.close() failed: %s", close_err)
 
         if success:
             print("Simulated 3v3 pawn training complete!", flush=True)

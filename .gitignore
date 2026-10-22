@@ -24,6 +24,8 @@ wandb/
 
 # Models
 models/
+run/
 
 # logs
 *.log
+logs/
