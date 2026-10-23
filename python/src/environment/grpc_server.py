@@ -47,7 +47,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
             Wird von der API benötigt aber nicht verwendet.
 
         """
-        logging.info("Received handleEventUpdate call")
+        logging.debug("Received handleEventUpdate call")
 
         with self._condition:
 
@@ -55,7 +55,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
             self.arrived_update_count += 1
             my_update_id = self.arrived_update_count
 
-            logging.info(
+            logging.debug(
                 "handleEventUpdate arrived: update_id=%s (acked=%s)",
                 my_update_id,
                 self.acked_update_count,
@@ -83,7 +83,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
                     self.acked_update_count,
                 )         
 
-            logging.info(
+            logging.debug(
                 "handleEventUpdate returning: update_id=%s (acked=%s)",
                 my_update_id,
                 self.acked_update_count,
@@ -153,7 +153,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
         with self._condition:
             if update_id > self.acked_update_count:
                 self.acked_update_count = update_id
-                logging.info(
+                logging.debug(
                     "Acked update_id=%s (arrived=%s)",
                     self.acked_update_count,
                     self.arrived_update_count,
@@ -175,7 +175,6 @@ class UnBARableAIGRPCServer:
         self._service = UnBARableAIService()
 
     def start(self):
-        logging.basicConfig(level=logging.DEBUG)
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
         unbarable_ai_pb2_grpc.add_UnBARableAIServiceServicer_to_server(
             self._service,

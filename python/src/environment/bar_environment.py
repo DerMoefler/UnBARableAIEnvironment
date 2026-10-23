@@ -327,7 +327,7 @@ class BAR_Environment:
             a dict where every agent is a key and the data is a numpy array with the infos from the UniData
         """
         unit_list = shared_memory.read_all_units()
-        logging.info(unit_list)
+        logging.debug(unit_list)
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
