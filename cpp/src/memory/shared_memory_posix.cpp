@@ -21,9 +21,11 @@
 
 #include "memory/shared_memory_types.h"
 #include "memory/segment_header.hpp"
+#include "memory/shm_header.hpp"
 #include "serialization/serialize_information.h"
 #include "utility/unsigned_of_size.hpp"
 
+#include "serialization/shm_header.tpp"
 static auto logger = spdlog::stdout_color_mt("SharedMemoryPosix");
 
 namespace UnBARableAINS {
@@ -48,17 +50,20 @@ auto deserializeUnsigned(const std::vector<std::byte>& serialized)
 }  // namespace detail
 
 SharedMemoryPosix SharedMemoryPosix::create(std::string_view name) {
-    SharedMemoryPosix vThis(name);
-    vThis.m_id = shm_open(vThis.m_name.c_str(), O_CREAT | O_RDWR | O_EXCL, 0600);
-    if (vThis.m_id == -1) {
+    SharedMemoryPosix result(name);
+    result.m_id = shm_open(result.m_name.c_str(), O_CREAT | O_RDWR | O_EXCL, 0600);
+    if (result.m_id == -1) {
         throw std::system_error(errno, std::generic_category(), "shm_open failed");
     }
-    vThis.increaseSize();
-    vThis.write(c_UnBARableAI_magic);
-    vThis.write(c_version);
-    vThis.extendSegmentTable();
+    // Initially allocate 4096 bytes
+    result.increaseSize();
+
+    result.write(ShmHeader{}, 0);
+
+    result.extendSegmentTable();
+
     SPDLOG_LOGGER_INFO(logger, "Created shared memory \"{}\"", name);
-    return vThis;
+    return result;
 }
 
 SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
@@ -457,6 +462,7 @@ std::vector<std::byte> SharedMemoryPosix::read(position_t position, size_t numBy
 }
 
 bool SharedMemoryPosix::isStartValid(void) const {
+    // TODO refactor to use deserialize maybe
     std::vector<std::byte> shmStart = read(0, 8);
     return isContainedAt(shmStart, c_UnBARableAI_magic) && isContainedAt(shmStart, c_version, 4);
 }

@@ -361,12 +361,13 @@ private:
      * \brief Helper method to write binary data into memory at specified position.
      * \tparam T Some unsigned integral of size 1, 2, 4 or 8.
      * \param value The value to be endianized.
+     * \tparam T Any TrivialSerializable.
+     * \param value The value to be written.
      * \param position Offset from \ref m_memoryStart to write to.
      */
-    template <std::unsigned_integral T>
+    template <serialization::TrivialSerializable T>
     inline void write(T value, uint64_t position) {
-        using SerializeInformation = serialization::SerializeInformation<T>;
-        auto serialized = SerializeInformation::serialize(value);
+        auto serialized = serialization::serialize(value);
         static_assert(serialization::ByteContainer<std::remove_cvref_t<decltype(serialized)>>,
                       "T's SerializeInformation does not return a ByteContainer on serialization.");
         std::memcpy(m_memoryStart + position, serialized.data(), serialized.size());
