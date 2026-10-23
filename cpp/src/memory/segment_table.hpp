@@ -8,8 +8,15 @@
 #include <vector>
 #include <utility>
 
+#include "id/id_allocator.hpp"
+#include "memory/partial_segment_table.hpp"
 #include "memory/shared_memory_types.h"
+#include "memory/shm_header.hpp"
 #include "memory/segment_information.hpp"
+#include "serialization/trivial_serializable.hpp"
+
+#include "serialization/partial_segment_table.tpp"
+#include "serialization/shm_header.tpp"
 
 namespace UnBARableAINS {
 
@@ -94,37 +101,42 @@ private:
 }  // namespace detail
 
 class SegmentTable {
-private:
-    using PartialSegmentTable = detail::PartialSegmentTable;
-
 public:
-    /// \brief Number of contiguous segments.
-    inline static constexpr std::size_t c_contiguous_segments_count =
-        PartialSegmentTable::c_segments_count;
+    SegmentTable(std::vector<PartialSegmentTable> tables);
 
-    using SerializePartialSegmentTableView = PartialSegmentTable::SerializedView;
-
-    /// \brief The id used to signal that the next entry is not an offset for a data segment but
-    /// rather the offset to the next partial segment table.
-    inline static constexpr id_t c_partial_table_link_id = 0xFE'FC'BA'98;  //'76'54'32'10
-
-    inline SegmentTable(void)
-        : m_partialTables() {}
-
-    inline SegmentTable(position_t offset)
-        : m_partialTables{PartialSegmentTable(offset, 0)} {}
-
-    id_t allocate(void);
-    void allocate(const id_t requestedId);
+    id_t allocate(const std::size_t segmentDataSize);
 
     void release(const id_t segmentId);
 
-    void extend(void);
+    const PartialSegmentTable& extend(void);
 
-    std::size_t validSegmentCount(void) const;
+    [[nodiscard]]
+    position_t getHead(void) const {
+        return m_head;
+    }
+
+    [[nodiscard("The new PartialSegmentTable has to be written.")]]
+    const std::vector<PartialSegmentTable>& getPartialSegmentTables(void) const {
+        return m_partialSegmentTables;
+    }
 
 private:
-    std::vector<PartialSegmentTable> m_partialTables;
+    static constexpr std::size_t c_partial_table_size =
+        serialization::getSerializableSize(std::type_identity<PartialSegmentTable>{});
+
+    /**
+     * \brief Helper to allocate a chunk of memory.
+     * \param chunkSize Number of bytes for the chunk.
+     * \returns position_t of the first byte.
+     */
+    position_t allocateChunk(const std::size_t chunkSize);
+
+    /// \brief Head of the shared memory.
+    position_t m_head = static_cast<position_t>(
+        serialization::getSerializableSize(std::type_identity<ShmHeader>{}));
+
+    std::vector<PartialSegmentTable> m_partialSegmentTables;
+    id::IdAllocator m_idAllocator{};
 };
 
 }  // namespace memory

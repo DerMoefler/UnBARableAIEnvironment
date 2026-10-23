@@ -75,12 +75,23 @@ id_t PartialSegmentTable::deserializeAtPosition(SerializedView serialized, posit
 
 }  // namespace detail
 
-std::size_t SegmentTable::validSegmentCount(void) const {
-    std::size_t count{0};
-    for (const auto& partialTable : m_partialTables) {
-        count += partialTable.validSegmentCount();
-    }
-    return count;
+SegmentTable::SegmentTable(std::vector<PartialSegmentTable> tables)
+    : m_partialSegmentTables(std::move(tables)) {
+    // TODO validation, m_idAllocator and free chunk building
+}
+
+const PartialSegmentTable& SegmentTable::extend(void) {
+    const std::size_t index = m_partialSegmentTables.size();
+    position_t offset = allocateChunk(c_partial_table_size);
+    m_partialSegmentTables.push_back(PartialSegmentTable(offset, index));
+    return m_partialSegmentTables[index];
+}
+
+position_t SegmentTable::allocateChunk(const std::size_t chunkSize) {
+    // TODO use free chunks here as well instead of default allocating from the head
+    position_t position = m_head;
+    m_head += chunkSize;
+    return position;
 }
 
 }  // namespace memory

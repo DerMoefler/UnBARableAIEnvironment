@@ -7,11 +7,10 @@
 #include <string>
 #include <vector>
 
+#include "memory/shared_memory_types.h"
+#include "memory/segment_table.hpp"
 #include "serialization/byte_container.h"
 #include "serialization/serialize_information.h"
-#include "shared_memory_types.h"
-#include "segment_information.hpp"
-#include "id/id_allocator.hpp"
 
 namespace UnBARableAINS {
 
@@ -31,34 +30,12 @@ namespace memory {
  * \todo Refactor into two classes, one for managing segments and one for the actual posix backend.
  */
 class SharedMemoryPosix {
-    static_assert(sizeof(size_t) == 8, "Invalid bytelength for type 'size_t'");
+    static_assert(sizeof(std::size_t) == 8, "Invalid bytelength for type 'size_t'");
 
 public:
-    /// \brief The id used to signal that the next entry is not an offset for a data segment but
-    /// rather the offset to the next partial segment table.
-    inline static constexpr id_t c_partial_table_link_id = 0xFE'DC'BA'98;  //'76'54'32'10;
-
-    /**
-     * \brief Number of contiguous segments in the partially linked list.
-     * The last element is a relative pointer to next array. \todo image
-     * \todo possibly better as a runtime, not a compile time constant
-     */
-    inline static constexpr uint32_t c_contiguous_segment_count = 32;
-
     /// \brief Constant by which the shared memory's size is increased when more memory is needed
-    /// (should be the size of one page).
-    inline static constexpr size_t c_size_increase = 4096;
-
-    /// \brief Size of an extension of the segment table.
-    inline static constexpr size_t c_segment_table_size =
-        (c_contiguous_segment_count + 1) * sizeof(id_t) * 2;
-
-    /// \brief Position in memory where the segment table starts.
-    inline static constexpr position_t c_segment_table_start = 8;
-
-    /// \brief The id used to signal that the following bytes compose a \ref position_t to where the
-    /// segment continues.
-    inline static constexpr id_t c_segment_link_id = 0xAA'AA'AA'AA;
+    /// (should be the size of one (or multiple) page(s)).
+    inline static constexpr std::size_t c_size_increase = 4096;
 
     /**
      * \brief Create shared memory using shm_open().
@@ -134,8 +111,7 @@ public:
      */
     id_t createSegment(const std::size_t size);
 
-    // TODO refactor once deleting is implemented
-    inline size_t getSegmentsCount(void) const { return m_segmentsInformation.size(); }
+    inline size_t getSegmentsCount(void) const { return m_segmentTable.validSegmentCount(); }
 
     /**
      * \brief Get the segment information, i.e. its position and size in memory.
@@ -269,6 +245,18 @@ private:
     /// \brief Increase the size of the shared memory region by some amount.
     void increaseSize(const size_t size = c_size_increase);
 
+    /**
+     * \brief Increases the size only if SegmentTable::getHead() > m_size.
+     *
+     * The head is managed by the SegmentTable class. Therefore, every time that class allocates
+     * memory from the head through operations like SegmentTable::extend() or
+     * SegmentTable::allocate() it has to be checked that the head is not larger than the physical
+     * memory.
+     *
+     * This class increases the size by multiples of.
+     */
+    void increaseSizeIfNecessary(void);
+
     /// \brief Map the shared memory into the virtual address space using mmap().
     void map(void);
 
@@ -277,11 +265,10 @@ private:
 
     /**
      * \brief Read the segments information from an shm.
-     * \returns Whether the information was read.
-     * \pre m_segmentsInformation.empty(), m_segmentTableOffsets.empty(), \ref isSegmentTableValid()
-     * == true
+     * \returns Whether any segment information has changed.
+     * \ref isSegmentTableValid() == true
      */
-    bool initializeSegmentsInformation(void);
+    bool updateSegmentsInformation(void);
 
     /**
      * \brief Updates the head position.
@@ -298,7 +285,7 @@ private:
      */
     void initializeIdAllocator(void);
 
-    /// \brief Extend the segment table in memory by \ref c_contiguous_segment_count.
+    /// \brief Extend m_segmentTable and write the new PartialSegmentTable to memory.
     void extendSegmentTable(void);
 
     /// \brief Update the \ref link_t in the segment table for the given id. \todo Possibly change
@@ -341,26 +328,7 @@ private:
     std::vector<std::byte> read(position_t position, size_t numBytes) const;
 
     /**
-     * \brief Helper method to write binary data into memory at head.
-     * \tparam T Some unsigned integral of size 1, 2, 4 or 8.
-     * \param value The value to be endianized.
-     *
-     * Increases m_head by sizeof(T).
-     */
-    template <std::unsigned_integral T>
-    inline void write(T value) {
-        using SerializeInformation = serialization::SerializeInformation<T>;
-        auto serialized = SerializeInformation::serialize(value);
-        static_assert(serialization::ByteContainer<std::remove_cvref_t<decltype(serialized)>>,
-                      "T's SerializeInformation does not return a ByteContainer on serialization.");
-        std::memcpy(m_memoryStart + m_head, serialized.data(), serialized.size());
-        m_head += sizeof(T);
-    }
-
-    /**
-     * \brief Helper method to write binary data into memory at specified position.
-     * \tparam T Some unsigned integral of size 1, 2, 4 or 8.
-     * \param value The value to be endianized.
+     * \brief Helper method to write any trivial serializable into memory at \p position.
      * \tparam T Any TrivialSerializable.
      * \param value The value to be written.
      * \param position Offset from \ref m_memoryStart to write to.
@@ -392,21 +360,17 @@ private:
      */
     bool isSegmentTableValid(position_t start = c_segment_table_start, id_t firstId = 0) const;
 
-    static_assert(
-        c_segment_table_size < c_size_increase,
-        "This size should not exceed a normal size increase (which should increase by one page), "
-        "otherwise please change extendSegmentTable to do more than one increase and delete this "
-        "assertion "
-        "or change it (based on your implementation.)");
+    // static_assert(
+    //     c_segment_table_size < c_size_increase,
+    //     "This size should not exceed a normal size increase (which should increase by one page),
+    //     " "otherwise please change extendSegmentTable to do more than one increase and delete
+    //     this " "assertion " "or change it (based on your implementation.)");
 
     /// \brief Name of the shared memory region.
     std::string m_name;
 
     /// \brief Id returned by shm_open.
     int m_id = -1;
-
-    /// \brief Handles id allocation for segments.
-    id::IdAllocator m_idAllocator;
 
     /// \brief Location where the shared memory is mapped into actual RAM (which is a virtual
     /// adress).
@@ -415,23 +379,8 @@ private:
     /// \brief Size of the shared memory region.
     size_t m_size = 0;
 
-    /// \brief Head of the shared memory relative to \ref m_memoryStart.
-    position_t m_head = 0;
-
-    /**
-     * \brief Vector storing Segments where the index correponds to the Segment's id.
-     *
-     * The Segment's offsets stored as a partially linked list directly after the version tag. \todo
-     * Document using image
-     */
-    std::vector<SegmentInformation> m_segmentsInformation = {};
-
-    /**
-     * \brief Vector storing the relative position of the partial segment table offsets.
-     *
-     * \todo Document using image
-     */
-    std::vector<position_t> m_segmentTableOffsets = {};
+    /// \brief Handles segments.
+    SegmentTable m_segmentTable = SegmentTable({});
 };
 
 };  // namespace memory
