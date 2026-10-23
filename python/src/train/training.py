@@ -439,41 +439,7 @@ def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
     return arr.astype(np.float32)
 
 
-def _prepare_dones(done_like: Any, num_agents: int) -> np.ndarray:
-    """
-    Converts termination data to one boolean flag per agent.
 
-    Parameters
-    ----------
-    done_like : Any
-        Scalar or array-like termination data.
-    num_agents : int
-        Number of agents represented in the result.
-
-    Returns
-    -------
-    done_flags : np.ndarray
-        Boolean array with shape `(num_agents,)`.
-
-    Examples
-    --------
-    >>> _prepare_dones(True, 2).tolist()
-    [True, True]
-    """
-    if done_like is None:
-        return np.zeros((num_agents,), dtype=bool)
-
-    arr = np.asarray(done_like, dtype=bool)
-
-    if arr.ndim == 0:
-        return np.full((num_agents,), bool(arr), dtype=bool)
-
-    arr = arr.reshape(-1)
-    fixed = np.zeros((num_agents,), dtype=bool)
-    n = min(num_agents, arr.size)
-    fixed[:n] = arr[:n]
-
-    return fixed
 
 
 def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
@@ -1271,22 +1237,13 @@ def main() -> None:
                 if debug_metrics["info_keys"]:
                     last_info_keys = debug_metrics["info_keys"]
 
-                terminated_arr = _prepare_dones(
-                    terminated,
+                done_env = bool(terminated or truncated)
+
+                dones = np.full(
                     data["number_of_agents"],
+                    done_env,
+                    dtype=bool,
                 )
-
-                truncated_arr = _prepare_dones(
-                    truncated,
-                    data["number_of_agents"],
-                )
-
-                dones = np.logical_or(
-                    terminated_arr,
-                    truncated_arr,
-                )
-
-                done_env = bool(np.all(dones))
                 done = done_env
 
                 next_obs = _prepare_obs(
