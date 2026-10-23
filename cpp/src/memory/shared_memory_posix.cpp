@@ -26,6 +26,7 @@
 #include "utility/unsigned_of_size.hpp"
 
 #include "serialization/shm_header.tpp"
+
 static auto logger = spdlog::stdout_color_mt("SharedMemoryPosix");
 
 namespace UnBARableAINS {
@@ -82,28 +83,21 @@ SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
 SharedMemoryPosix::SharedMemoryPosix(SharedMemoryPosix&& other)
     : m_name(std::move(other.m_name))
     , m_id(std::exchange(other.m_id, -1))
-    , m_idAllocator(std::move(other.m_idAllocator))
     , m_memoryStart(std::exchange(other.m_memoryStart, nullptr))
     , m_size(std::exchange(other.m_size, 0))
-    , m_head(std::exchange(other.m_head, 0))
-    , m_segmentsInformation(std::move(other.m_segmentsInformation))
-    , m_segmentTableOffsets(std::move(other.m_segmentTableOffsets)) {}
+    , m_segmentTable(std::move(other.m_segmentTable)) {}
 
 SharedMemoryPosix& SharedMemoryPosix::operator=(SharedMemoryPosix&& other) {
     if (this == &other) {
         return *this;
     }
-
     release();
 
     m_name = std::move(other.m_name);
     m_id = std::exchange(other.m_id, -1);
-    m_idAllocator = id::IdAllocator();
     m_memoryStart = std::exchange(other.m_memoryStart, nullptr);
     m_size = std::exchange(other.m_size, 0);
-    m_head = std::exchange(other.m_head, 0);
-    m_segmentsInformation = std::move(other.m_segmentsInformation);
-    m_segmentTableOffsets = std::move(other.m_segmentTableOffsets);
+    m_segmentTable = std::move(other.m_segmentTable);
 
     return *this;
 }
@@ -292,6 +286,15 @@ void SharedMemoryPosix::increaseSize(const size_t size) {
     map();
 }
 
+void SharedMemoryPosix::increaseSizeIfNecessary(void) {
+    position_t head = m_segmentTable.getHead();
+    if (m_head > m_size) {
+        const std::size_t requiredSize = m_head - static_cast<position_t>(m_size);
+        const std::size_t sizeIncrease = (requiresSize / c_size_increase) * (c_size_increase + 1);
+        increaseSize(sizeIncrease);
+    }
+}
+
 void SharedMemoryPosix::map(void) {
     SPDLOG_LOGGER_TRACE(logger, "Mapping region into address space");
     m_memoryStart = static_cast<std::byte*>(
@@ -317,13 +320,17 @@ void SharedMemoryPosix::release(void) {
     m_segmentTableOffsets = {};
 }
 
-bool SharedMemoryPosix::initializeSegmentsInformation(void) {
-    if (!m_segmentsInformation.empty() || !m_segmentTableOffsets.empty()) {
-        return false;
-    }
-
-    size_t partialSegmentTableStart = c_segment_table_start;
+bool SharedMemoryPosix::updateSegmentsInformation(void) {
     constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
+
+    std::size_t partialSegmentTableStart = c_segment_table_start;
+    std::size_t partialSegmentTableIndex = 0;
+
+    auto change = false;
+    auto run = true;
+
+    while (run) {
+    }
 
     // Returns whether another partial segment table follows
     auto initializePartialSegmentsInformation = [&]() -> bool {
@@ -409,32 +416,9 @@ void SharedMemoryPosix::initializeIdAllocator(void) {
 }
 
 void SharedMemoryPosix::extendSegmentTable(void) {
-    if ((m_head + c_segment_table_size) > m_size) {
-        increaseSize();
-    }
-
-    id_t partialSegmentTablesCount = m_segmentTableOffsets.size();
-    // Link this new partial segment table to previous one.
-    if (partialSegmentTablesCount) {
-        // Start of the previous partial table
-        id_t previousOffset = m_segmentTableOffsets.back();
-        // Write offset for the current head in memory
-        id_t writePositionPreviousOffset = previousOffset + c_segment_table_size - sizeof(id_t);
-        write(static_cast<link_t>(m_head), writePositionPreviousOffset);
-    }
-    // TODO doesnt work as intended I believe
-    m_segmentsInformation.reserve(c_contiguous_segment_count + 1);
-    id_t firstId = partialSegmentTablesCount * c_contiguous_segment_count;
-    m_segmentTableOffsets.push_back(m_head);
-    for (id_t i = firstId; i < firstId + c_contiguous_segment_count; i++) {
-        m_segmentsInformation.push_back({i});
-        write(i);
-        write(static_cast<link_t>(0x00));
-    }
-    // Create last entry as a link, which will be overriden by the next call to this method as per
-    // above
-    write(c_partial_table_link_id);
-    write(static_cast<link_t>(0x00));
+    auto newPartialTable = m_segmentTable.extend();
+    result.write(newPartialTable, newPartialTable.getOffset());
+    increaseSizeIfNecessary();
 }
 
 void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position) {
