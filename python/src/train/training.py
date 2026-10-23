@@ -1,15 +1,10 @@
-import inspect
 import json
 import logging
-import os
-import random
-import sys
 import time
 import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
 
 import numpy as np
 import torch
@@ -26,27 +21,6 @@ from src.train.mappo.trainerargs import TrainerArgs
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
-def _set_seed(seed: int) -> None:
-    """
-    Seeds the random number generators used by the training script.
-
-    Parameters
-    ----------
-    seed : int
-        Seed applied to Python, NumPy, and PyTorch random generators.
-
-    Returns
-    -------
-    None
-
-    Examples
-    --------
-    >>> _set_seed(42)
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
 
 def _make_bar_action(action_index: Any, unit_id: Any) -> bar_ai.Action:
     """Convert one policy action row into the object required by BAR_Environment.
@@ -385,10 +359,6 @@ def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
 
     return arr.astype(np.float32)
 
-
-
-
-
 def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
     """
     Broadcasts critic values to one value per agent.
@@ -420,58 +390,6 @@ def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
     fixed[:n] = value_np[:n]
 
     return fixed.reshape(num_agents, 1)
-
-
-def _extract_bad_masks(step_info: Any, num_agents: int) -> np.ndarray:
-    """
-    Extracts bad-transition masks from environment step information.
-
-    Parameters
-    ----------
-    step_info : Any
-        Environment info dictionary or per-agent sequence of dictionaries.
-    num_agents : int
-        Number of agents represented in the result.
-
-    Returns
-    -------
-    bad_masks : np.ndarray
-        Float32 array with shape `(num_agents, 1)`, where zero marks a bad
-        transition and one marks a normal transition.
-
-    Examples
-    --------
-    >>> _extract_bad_masks({"bad_transition": True}, 2).tolist()
-    [[0.0], [0.0]]
-    """
-    bad_masks = np.ones((num_agents, 1), dtype=np.float32)
-
-    if step_info is None:
-        return bad_masks
-
-    if isinstance(step_info, dict):
-        if "bad_transition" in step_info:
-            val = 0.0 if bool(step_info["bad_transition"]) else 1.0
-            return np.full((num_agents, 1), val, dtype=np.float32)
-
-        for i in range(num_agents):
-            if i in step_info and isinstance(step_info[i], dict):
-                val = 0.0 if bool(step_info[i].get("bad_transition", False)) else 1.0
-                bad_masks[i, 0] = val
-
-        return bad_masks
-
-    if isinstance(step_info, (list, tuple)):
-        for i in range(min(num_agents, len(step_info))):
-            item = step_info[i]
-
-            if isinstance(item, dict):
-                bad_masks[i, 0] = 0.0 if bool(item.get("bad_transition", False)) else 1.0
-
-        return bad_masks
-
-    return bad_masks
-
 
 def _extract_episode_debug_from_info(step_info: Any) -> dict[str, Any]:
     """
@@ -778,7 +696,7 @@ def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any
     else:
         obs_raw = reset_result
 
-    return obs_raw, share_obs_raw, available_actions_raw, info
+    return obs_raw, share_obs_raw, available_actions_raw
 
 
 def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
@@ -871,23 +789,6 @@ def _format_duration(seconds: float) -> str:
     if minutes:
         return f"{minutes:d}m {seconds:06.3f}s"
     return f"{seconds:.3f}s"
-
-
-def _log_event(log_path: Path, log_level: int, event_level: int, event: str, **fields: Any) -> None:
-    if event_level > log_level:
-        return
-    record = {
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "level": event_level,
-        "event": event,
-        **fields,
-    }
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as log_file:
-        log_file.write(json.dumps(record, default=str, sort_keys=True) + "\n")
-    details = " ".join(f"{key}={value}" for key, value in fields.items())
-    print(f"[MAPPO:L{event_level}] {event}{': ' + details if details else ''}", flush=True)
-
 
 def _warm_up_policy(
     policy: Any,
@@ -1072,7 +973,7 @@ def main() -> None:
             logging.info("reset complete")
 
 
-            obs_raw, share_obs_raw, available_actions_raw, reset_info = _parse_reset_result(
+            obs_raw, share_obs_raw, available_actions_raw = _parse_reset_result(
                 reset_result
             )
 
@@ -1122,7 +1023,6 @@ def main() -> None:
 
             while not done and step_count < data["buffer_size"]:
 
-                inference_started_at = time.perf_counter()
                 value_preds, actions, action_log_probs = _policy_sample_actions(
                     policy=policy,
                     obs=obs,
@@ -1230,11 +1130,6 @@ def main() -> None:
 
                 if done_env:
                     active_masks[:] = 1.0
-
-                bad_masks = _extract_bad_masks(
-                    step_info,
-                    data["number_of_agents"],
-                )
 
                 try:
                     buffer.insert(
