@@ -67,7 +67,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
             # Jetzt selbst blockieren
             ok =self._condition.wait_for(
                 lambda: self._stopping or self.acked_update_count >= my_update_id,
-                timeout=10
+                timeout=60
             )
 
             if not ok:
