@@ -6,6 +6,8 @@
 #include "memory/segment_table_entry.hpp"
 #include "serialization/serialize_information.h"
 
+#include "serialization/optional.tpp"
+
 namespace UnBARableAINS {
 
 namespace serialization {
