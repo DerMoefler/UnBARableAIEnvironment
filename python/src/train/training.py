@@ -651,6 +651,11 @@ def _policy_sample_actions(
                 target_features=target_features_tensor,
                 candidate_target_ids=candidate_target_ids,
                 target_mask=target_mask_tensor,
+                available_actions=torch.as_tensor(
+                    available_actions,
+                    dtype=torch.bool,
+                    device=device,
+                ),
             )
         else:
             actions, action_log_probs = policy.get_action(
@@ -1133,13 +1138,6 @@ def main() -> None:
 
                 final_step_info = step_info
 
-                step_result = _step_all_agents(
-                    env,
-                    env_actions,
-                    obs_raw=obs_raw,
-                    training_team_id=data["training_team_id"],
-                    policy=policy,
-                )
                 debug_metrics = _extract_episode_debug_from_info(step_info)
                 
                 if debug_metrics["won"]:
@@ -1352,6 +1350,8 @@ def main() -> None:
         logging.info("PPO updates: %s , %6.2f", _format_duration(total_training_seconds), percentage(total_training_seconds))
         logging.info("Checkpoint writing: %s , %6.2f", _format_duration(total_checkpoint_seconds), percentage(total_checkpoint_seconds))
         logging.info("Other Python/logging: %s , %6.2f",  _format_duration(other_seconds), percentage(other_seconds))
+
+        success = True
         
     except Exception as e:
             logging.error("Exception occurred during simulated 3v3 training!")
@@ -1366,7 +1366,6 @@ def main() -> None:
             try:
                 env.close()
                 logging.debug("env.close() done")
-                success = True
             except Exception as close_err:
                 logging.warning("env.close() failed: %s", close_err)
 

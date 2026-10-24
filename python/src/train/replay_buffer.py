@@ -178,6 +178,12 @@ class SharedReplayBuffer:
         >>> buffer.step
         1
         """
+        if self.step >= self.buffer_size:
+            raise RuntimeError(
+                "Replay buffer is full. Call reset() before inserting "
+                f"more than {self.buffer_size} transitions."
+            )
+
         self.share_obs[self.step] = share_obs
         self.obs[self.step] = obs
         self.actions[self.step] = actions
@@ -285,111 +291,301 @@ class SharedReplayBuffer:
 
                 self.candidate_target_mask[self.step] = target_mask
 
-        self.step = (self.step + 1) % self.buffer_size
+        self.step += 1
 
-    def compute_returns(self, next_value, gamma=0.99, gae_lambda=0.95):
+    def compute_returns(
+        self,
+        next_value,
+        gamma=0.99,
+        gae_lambda=0.95,
+    ):
+        valid_steps = self.step
+
+        if valid_steps <= 0:
+            raise RuntimeError(
+                "Cannot compute returns for an empty buffer."
+            )
+
+        next_value = np.asarray(
+            next_value,
+            dtype=np.float32,
+        )
+
+        expected_shape = (
+            self.num_agents,
+            1,
+        )
+
+        if next_value.shape != expected_shape:
+            raise ValueError(
+                "Invalid next value shape: "
+                f"expected {expected_shape}, "
+                f"got {next_value.shape}."
+            )
+
+        self.value_preds[valid_steps] = next_value
+
+        gae = np.zeros(
+            (self.num_agents, 1),
+            dtype=np.float32,
+        )
+
+        for step in reversed(range(valid_steps)):
+            next_non_terminal = self.masks[step + 1]
+            next_value_step = self.value_preds[step + 1]
+
+            delta = (
+                self.rewards[step]
+                + gamma
+                * next_value_step
+                * next_non_terminal
+                - self.value_preds[step]
+            )
+
+            gae = (
+                delta
+                + gamma
+                * gae_lambda
+                * next_non_terminal
+                * gae
+            )
+
+            self.returns[step] = (
+                gae + self.value_preds[step]
+            )
+
+        self.returns[valid_steps] = next_value
+
+    def feed_forward_generator(
+        self,
+        advantages,
+        num_mini_batch,
+    ):
         """
-        Computes discounted returns and generalized advantage estimates (GAE).
+        Generate PPO mini-batches flattened over time and agents.
 
-        Parameters
-        ----------
-        self : SharedReplayBuffer
-            The replay buffer instance.
-        next_value : np.ndarray
-            Value prediction at the end of the trajectory.
-        gamma : float, optional
-            Discount factor, by default 0.99.
-        gae_lambda : float, optional
-            Lambda parameter for generalized advantage estimation, by default 0.95.
+        Input storage:
+            obs:               [T, N, obs_dim]
+            actions:           [T, N, action_width]
+            available_actions: [T, N, action_dim]
 
-        Returns
-        -------
-        None
-
-        Examples
-        --------
-        >>> buffer = SharedReplayBuffer(2, (4,), (1,), 4)
-        >>> next_value = np.zeros((2, 1), dtype=np.float32)
-        >>> buffer.compute_returns(next_value)
-        >>> buffer.returns.shape
-        (5, 2, 1)
+        Generated batches:
+            obs:               [B, obs_dim]
+            actions:           [B, action_width]
+            available_actions: [B, action_dim]
         """
-        self.value_preds[-1] = next_value
-        gae = 0
-        advantages = np.zeros_like(self.rewards)
+        valid_steps = self.step
 
-        for step in reversed(range(self.buffer_size)):
-            if step == self.buffer_size - 1:
-                next_non_terminal = self.masks[step + 1]
-                next_value_step = next_value
-            else:
-                next_non_terminal = self.masks[step + 1]
-                next_value_step = self.value_preds[step + 1]
+        if valid_steps <= 0:
+            raise RuntimeError(
+                "Cannot generate training batches from an empty buffer."
+            )
 
-            delta = self.rewards[step] + gamma * next_value_step * next_non_terminal - self.value_preds[step]
-            gae = delta + gamma * gae_lambda * next_non_terminal * gae
-            advantages[step] = gae
+        if num_mini_batch <= 0:
+            raise ValueError(
+                "num_mini_batch must be greater than zero."
+            )
 
-        self.returns[:-1] = advantages + self.value_preds[:-1]
+        advantages = np.asarray(
+            advantages,
+            dtype=np.float32,
+        )[:valid_steps]
 
-    def feed_forward_generator(self, advantages, num_mini_batch):
-        """
-        Generates mini-batches for feed-forward policy optimization.
+        expected_advantage_prefix = (
+            valid_steps,
+            self.num_agents,
+        )
 
-        Parameters
-        ----------
-        self : SharedReplayBuffer
-            The replay buffer instance.
-        advantages : np.ndarray
-            Precomputed advantage estimates for all stored transitions.
-        num_mini_batch : int
-            Number of mini-batches to generate.
+        if advantages.shape[:2] != expected_advantage_prefix:
+            raise ValueError(
+                "Invalid advantages shape: expected prefix "
+                f"{expected_advantage_prefix}, got {advantages.shape}."
+            )
 
-        Returns
-        -------
-        generator : generator
-            A generator yielding tuples containing mini-batch tensors/arrays
-            for feed-forward MAPPO training.
+        total_samples = valid_steps * self.num_agents
 
-        Examples
-        --------
-        >>> buffer = SharedReplayBuffer(2, (4,), (1,), 8)
-        >>> advantages = np.zeros((8, 2, 1), dtype=np.float32)
-        >>> gen = buffer.feed_forward_generator(advantages, 2)
-        >>> batch = next(gen)
-        >>> len(batch)
-        12
-        """
-        batch_size = self.buffer_size // num_mini_batch
-        sampler = np.random.permutation(self.buffer_size)
+        if num_mini_batch > total_samples:
+            raise ValueError(
+                "num_mini_batch cannot exceed the number of "
+                f"samples: batches={num_mini_batch}, "
+                f"samples={total_samples}."
+            )
 
-        for batch_idx in range(num_mini_batch):
-            batch_indices = sampler[batch_idx * batch_size:(batch_idx + 1) * batch_size]
+        # share_obs ist einmal pro Zeitschritt gespeichert.
+        # Jeder Agent desselben Schritts erhält denselben zentralen Zustand.
+        share_obs_flat = np.repeat(
+            self.share_obs[:valid_steps, None, ...],
+            self.num_agents,
+            axis=1,
+        ).reshape(
+            total_samples,
+            *self.share_obs.shape[1:],
+        )
 
-            share_obs_batch = self.share_obs[batch_indices]
-            obs_batch = self.obs[batch_indices]
-            rnn_states_batch = self.rnn_states[batch_indices]
-            rnn_states_critic_batch = self.rnn_states_critic[batch_indices]
-            actions_batch = self.actions[batch_indices]
-            value_preds_batch = self.value_preds[batch_indices]
-            return_batch = self.returns[batch_indices]
-            masks_batch = self.masks[batch_indices]
-            active_masks_batch = self.active_masks[batch_indices]
-            old_action_log_probs_batch = self.action_log_probs[batch_indices]
-            adv_targ = advantages[batch_indices]
-            available_actions_batch = self.available_actions[batch_indices]
+        obs_flat = self.obs[:valid_steps].reshape(
+            total_samples,
+            *self.obs.shape[2:],
+        )
+
+        rnn_states_flat = self.rnn_states[:valid_steps].reshape(
+            total_samples,
+            *self.rnn_states.shape[2:],
+        )
+
+        rnn_states_critic_flat = (
+            self.rnn_states_critic[:valid_steps].reshape(
+                total_samples,
+                *self.rnn_states_critic.shape[2:],
+            )
+        )
+
+        actions_flat = self.actions[:valid_steps].reshape(
+            total_samples,
+            *self.actions.shape[2:],
+        )
+
+        value_preds_flat = self.value_preds[:valid_steps].reshape(
+            total_samples,
+            *self.value_preds.shape[2:],
+        )
+
+        returns_flat = self.returns[:valid_steps].reshape(
+            total_samples,
+            *self.returns.shape[2:],
+        )
+
+        masks_flat = self.masks[:valid_steps].reshape(
+            total_samples,
+            *self.masks.shape[2:],
+        )
+
+        active_masks_flat = self.active_masks[:valid_steps].reshape(
+            total_samples,
+            *self.active_masks.shape[2:],
+        )
+
+        old_action_log_probs_flat = (
+            self.action_log_probs[:valid_steps].reshape(
+                total_samples,
+                *self.action_log_probs.shape[2:],
+            )
+        )
+
+        advantages_flat = advantages.reshape(
+            total_samples,
+            *advantages.shape[2:],
+        )
+
+        available_actions_flat = (
+            self.available_actions[:valid_steps].reshape(
+                total_samples,
+                self.action_dim,
+            )
+        )
+
+        if self.candidate_target_features is None:
+            candidate_target_features_flat = None
+        else:
+            candidate_target_features_flat = (
+                self.candidate_target_features[:valid_steps].reshape(
+                    total_samples,
+                    *self.candidate_target_features.shape[2:],
+                )
+            )
+
+        if self.candidate_target_mask is None:
+            candidate_target_mask_flat = None
+        else:
+            candidate_target_mask_flat = (
+                self.candidate_target_mask[:valid_steps].reshape(
+                    total_samples,
+                    *self.candidate_target_mask.shape[2:],
+                )
+            )
+
+        permutation = np.random.permutation(total_samples)
+
+        # array_split verliert keine Samples, falls total_samples nicht
+        # glatt durch num_mini_batch teilbar ist.
+        mini_batches = np.array_split(
+            permutation,
+            num_mini_batch,
+        )
+
+        for batch_indices in mini_batches:
+            if batch_indices.size == 0:
+                continue
+
+            share_obs_batch = share_obs_flat[batch_indices]
+            obs_batch = obs_flat[batch_indices]
+            rnn_states_batch = rnn_states_flat[batch_indices]
+            rnn_states_critic_batch = (
+                rnn_states_critic_flat[batch_indices]
+            )
+            actions_batch = actions_flat[batch_indices]
+            value_preds_batch = value_preds_flat[batch_indices]
+            return_batch = returns_flat[batch_indices]
+            masks_batch = masks_flat[batch_indices]
+            active_masks_batch = active_masks_flat[batch_indices]
+            old_action_log_probs_batch = (
+                old_action_log_probs_flat[batch_indices]
+            )
+            adv_targ = advantages_flat[batch_indices]
+            available_actions_batch = (
+                available_actions_flat[batch_indices]
+            )
 
             candidate_target_features_batch = (
                 None
-                if self.candidate_target_features is None
-                else self.candidate_target_features[batch_indices]
+                if candidate_target_features_flat is None
+                else candidate_target_features_flat[batch_indices]
             )
 
             candidate_target_mask_batch = (
                 None
-                if self.candidate_target_mask is None
-                else self.candidate_target_mask[batch_indices]
+                if candidate_target_mask_flat is None
+                else candidate_target_mask_flat[batch_indices]
             )
+
+            # Fehler möglichst nah am Buffer erkennen.
+            batch_size = len(batch_indices)
+
+            if obs_batch.shape[0] != batch_size:
+                raise RuntimeError(
+                    f"Invalid obs batch shape: {obs_batch.shape}."
+                )
+
+            if actions_batch.shape != (
+                batch_size,
+                *self.actions.shape[2:],
+            ):
+                raise RuntimeError(
+                    f"Invalid actions batch shape: {actions_batch.shape}."
+                )
+
+            if available_actions_batch.shape != (
+                batch_size,
+                self.action_dim,
+            ):
+                raise RuntimeError(
+                    "Invalid available-actions batch shape: "
+                    f"expected {(batch_size, self.action_dim)}, "
+                    f"got {available_actions_batch.shape}."
+                )
+
+            if candidate_target_features_batch is not None:
+                if candidate_target_features_batch.shape[0] != batch_size:
+                    raise RuntimeError(
+                        "Invalid target-feature batch shape: "
+                        f"{candidate_target_features_batch.shape}."
+                    )
+
+            if candidate_target_mask_batch is not None:
+                if candidate_target_mask_batch.shape[0] != batch_size:
+                    raise RuntimeError(
+                        "Invalid target-mask batch shape: "
+                        f"{candidate_target_mask_batch.shape}."
+                    )
 
             yield (
                 share_obs_batch,
@@ -510,3 +706,9 @@ class SharedReplayBuffer:
         self.rnn_states.fill(0.0)
         self.rnn_states_critic.fill(0.0)
         self.available_actions.fill(1.0)
+
+        if self.candidate_target_features is not None:
+            self.candidate_target_features.fill(0.0)
+
+        if self.candidate_target_mask is not None:
+            self.candidate_target_mask.fill(False)

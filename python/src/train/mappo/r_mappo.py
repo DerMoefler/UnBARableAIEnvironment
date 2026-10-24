@@ -185,12 +185,20 @@ class R_MAPPO:
         if update_actor:
             (policy_loss - dist_entropy * self.entropy_coef).backward()
 
+        actor_parameters = (
+            list(self.policy.actor.parameters())
+            + list(self.policy.target_scorer.parameters())
+        )
+
         if self._use_max_grad_norm:
             actor_grad_norm = nn.utils.clip_grad_norm_(
-                self.policy.actor.parameters(), self.max_grad_norm
+                actor_parameters,
+                self.max_grad_norm,
             )
         else:
-            actor_grad_norm = get_grad_norm(self.policy.actor.parameters())
+            actor_grad_norm = get_grad_norm(
+                actor_parameters
+            )
 
         self.policy.actor_optimizer.step()
 
@@ -212,29 +220,50 @@ class R_MAPPO:
         return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
 
     def train(self, buffer, update_actor=True):
+
         log_callback = getattr(self, "log_callback", None)
         log_level = getattr(self, "log_level", 1)
-        if log_callback is not None and log_level >= 2:
-            log_callback(
-                2,
-                "ppo_update_started",
-                ppo_epochs=self.ppo_epoch,
-                mini_batches=self.num_mini_batch,
-                buffer_steps=buffer.step,
-                update_actor=update_actor,
+        
+        valid_steps = buffer.step
+
+        if valid_steps <= 0:
+            raise RuntimeError(
+                "Cannot train MAPPO with an empty replay buffer."
             )
 
         if self._use_popart or self._use_valuenorm:
-            advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(
-                buffer.value_preds[:-1]
+            advantages = (
+                buffer.returns[:valid_steps]
+                - self.value_normalizer.denormalize(
+                    buffer.value_preds[:valid_steps]
+                )
             )
         else:
-            advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
+            advantages = (
+                buffer.returns[:valid_steps]
+                - buffer.value_preds[:valid_steps]
+            )
 
         advantages_copy = advantages.copy()
-        advantages_copy[buffer.active_masks[:-1] == 0.0] = np.nan
+
+        active_masks = buffer.active_masks[:valid_steps]
+
+        advantages_copy[active_masks == 0.0] = np.nan
+
         mean_advantages = np.nanmean(advantages_copy)
         std_advantages = np.nanstd(advantages_copy)
+
+        if not np.isfinite(mean_advantages):
+            raise FloatingPointError(
+                "Advantage mean is not finite. "
+                "All samples may be inactive."
+            )
+
+        if not np.isfinite(std_advantages):
+            raise FloatingPointError(
+                "Advantage standard deviation is not finite."
+            )
+
         advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
 
         train_info = {

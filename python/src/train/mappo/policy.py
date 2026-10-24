@@ -105,33 +105,214 @@ class R_MAPPO_Policy:
         obs = self._tensor(obs)
         return obs.unsqueeze(0) if obs.ndim == 1 else obs
 
-    def _mask_logits(self, logits, mask):
-        if mask is not None:
-            mask = self._tensor(mask, torch.bool)
-            if mask.ndim == 1:
-                mask = mask.unsqueeze(0)
-            logits = logits.masked_fill(~mask, -torch.inf)
-        return logits
+    def _mask_logits(self, logits, mask, *, name="distribution"):
+        if not torch.isfinite(logits).all():
+            bad_indices = (~torch.isfinite(logits)).nonzero(
+                as_tuple=False
+            )
 
-    def _action_dist(self, obs, available_actions=None):
-        logits = self._mask_logits(
-            self.actor(obs), available_actions
+            raise FloatingPointError(
+                f"{name} produced non-finite logits before masking. "
+                f"Bad indices: {bad_indices.detach().cpu().tolist()}, "
+                f"logits: {logits.detach().cpu().tolist()}"
+            )
+
+        if mask is None:
+            return logits
+
+        mask = self._tensor(mask, torch.bool)
+
+        if mask.ndim == 1:
+            mask = mask.unsqueeze(0)
+
+        if mask.shape != logits.shape:
+            raise ValueError(
+                f"{name} mask shape {tuple(mask.shape)} does not match "
+                f"logits shape {tuple(logits.shape)}."
+            )
+
+        valid_per_row = mask.any(dim=-1)
+
+        if not valid_per_row.all():
+            invalid_rows = (~valid_per_row).nonzero(
+                as_tuple=False
+            ).flatten()
+
+            raise ValueError(
+                f"{name} has rows without any valid option: "
+                f"{invalid_rows.detach().cpu().tolist()}. "
+                f"Mask: {mask.detach().cpu().tolist()}"
+            )
+
+        return logits.masked_fill(
+            ~mask,
+            torch.finfo(logits.dtype).min,
         )
+
+    def _effective_action_mask(
+        self,
+        obs,
+        available_actions=None,
+        target_mask=None,
+    ):
+        batch_size = obs.size(0)
+
+        if available_actions is None:
+            action_mask = torch.ones(
+                (batch_size, self.action_dim),
+                dtype=torch.bool,
+                device=self.device,
+            )
+        else:
+            action_mask = self._tensor(
+                available_actions,
+                torch.bool,
+            )
+
+            if action_mask.ndim == 1:
+                action_mask = action_mask.unsqueeze(0)
+
+            if action_mask.size(0) == 1 and batch_size > 1:
+                action_mask = action_mask.expand(
+                    batch_size,
+                    -1,
+                )
+
+            if action_mask.shape != (
+                batch_size,
+                self.action_dim,
+            ):
+                raise ValueError(
+                    "available_actions has an invalid shape: "
+                    f"expected {(batch_size, self.action_dim)}, "
+                    f"got {tuple(action_mask.shape)}."
+                )
+
+            action_mask = action_mask.clone()
+
+        if target_mask is not None:
+            target_mask_tensor = self._tensor(
+                target_mask,
+                torch.bool,
+            )
+
+            if target_mask_tensor.ndim == 1:
+                target_mask_tensor = target_mask_tensor.unsqueeze(0)
+
+            if (
+                target_mask_tensor.size(0) == 1
+                and batch_size > 1
+            ):
+                target_mask_tensor = target_mask_tensor.expand(
+                    batch_size,
+                    -1,
+                )
+
+            if target_mask_tensor.size(0) != batch_size:
+                raise ValueError(
+                    "target_mask batch size does not match observations: "
+                    f"obs batch={batch_size}, "
+                    f"target mask={tuple(target_mask_tensor.shape)}."
+                )
+
+            has_valid_target = target_mask_tensor.any(dim=-1)
+
+            # Angriff für Agents ohne gültiges Ziel deaktivieren.
+            action_mask[
+                ~has_valid_target,
+                self.attack_action_index,
+            ] = False
+
+        valid_actions = action_mask.any(dim=-1)
+
+        if not valid_actions.all():
+            invalid_rows = (~valid_actions).nonzero(
+                as_tuple=False
+            ).flatten()
+
+            raise ValueError(
+                "Agents have no valid action after target-aware masking: "
+                f"rows={invalid_rows.detach().cpu().tolist()}, "
+                f"mask={action_mask.detach().cpu().tolist()}."
+            )
+
+        return action_mask
+
+    def _action_dist(
+        self,
+        obs,
+        available_actions=None,
+        target_mask=None,
+    ):
+        effective_mask = self._effective_action_mask(
+            obs,
+            available_actions=available_actions,
+            target_mask=target_mask,
+        )
+
+        logits = self.actor(obs)
+        logits = self._mask_logits(
+            logits,
+            effective_mask,
+            name="action distribution",
+        )
+
         return Categorical(logits=logits)
 
-    def _target_dist(self, obs, target_features, target_mask=None):
+    def _target_dist(
+        self,
+        obs,
+        target_features,
+        target_mask=None,
+    ):
         if target_features is None:
-            raise ValueError("Attack requires target_features.")
+            raise ValueError(
+                "Attack requires target_features."
+            )
 
         features = self._tensor(target_features)
+
         if features.ndim == 2:
             features = features.unsqueeze(0)
-        if features.size(0) == 1 and obs.size(0) > 1:
-            features = features.expand(obs.size(0), -1, -1)
 
-        logits = self.target_scorer(obs, features)
-        logits = self._mask_logits(logits, target_mask)
+        if features.size(0) == 1 and obs.size(0) > 1:
+            features = features.expand(
+                obs.size(0),
+                -1,
+                -1,
+            )
+
+        if features.size(0) != obs.size(0):
+            raise ValueError(
+                "Target-feature batch does not match observation batch: "
+                f"obs={tuple(obs.shape)}, "
+                f"features={tuple(features.shape)}."
+            )
+
+        if not torch.isfinite(features).all():
+            bad_indices = (~torch.isfinite(features)).nonzero(
+                as_tuple=False
+            )
+
+            raise FloatingPointError(
+                "Target features contain NaN or infinity. "
+                f"Bad indices: {bad_indices.detach().cpu().tolist()}, "
+                f"features: {features.detach().cpu().tolist()}"
+            )
+
+        logits = self.target_scorer(
+            obs,
+            features,
+        )
+
+        logits = self._mask_logits(
+            logits,
+            target_mask,
+            name="target distribution",
+        )
+
         return Categorical(logits=logits)
+
 
     @torch.no_grad()
     def get_action(
@@ -143,36 +324,106 @@ class R_MAPPO_Policy:
         available_actions=None,
     ):
         obs = self._batch_obs(obs)
-        action_dist = self._action_dist(obs, available_actions)
+
+        if not torch.isfinite(obs).all():
+            bad_indices = (~torch.isfinite(obs)).nonzero(
+                as_tuple=False
+            )
+
+            raise FloatingPointError(
+                "Policy observations contain NaN or infinity. "
+                f"Bad indices: {bad_indices.detach().cpu().tolist()}"
+            )
+
+        target_features_tensor = (
+            self._tensor(target_features)
+            if target_features is not None
+            else None
+        )
+
+        target_mask_tensor = (
+            self._tensor(target_mask, torch.bool)
+            if target_mask is not None
+            else None
+        )
+
+        if (
+            target_features_tensor is not None
+            and target_features_tensor.ndim == 2
+        ):
+            target_features_tensor = (
+                target_features_tensor.unsqueeze(0)
+            )
+
+        if (
+            target_mask_tensor is not None
+            and target_mask_tensor.ndim == 1
+        ):
+            target_mask_tensor = target_mask_tensor.unsqueeze(0)
+
+        # Die Attack-Action wird hier deaktiviert, wenn kein Ziel
+        # vorhanden ist.
+        action_dist = self._action_dist(
+            obs,
+            available_actions=available_actions,
+            target_mask=target_mask_tensor,
+        )
+
         action_type = action_dist.sample()
         log_prob = action_dist.log_prob(action_type)
 
-        # Column 1 stores a candidate index, not a BAR unit ID.
+        # Spalte 1 enthält einen Kandidatenindex, keine BAR-Unit-ID.
         target_index = torch.zeros_like(action_type)
+
         attack = action_type == self.attack_action_index
 
         if attack.any():
             if candidate_target_ids is None:
-                raise ValueError("Attack requires candidate_target_ids.")
+                raise ValueError(
+                    "Attack requires candidate_target_ids."
+                )
+
+            if target_features_tensor is None:
+                raise ValueError(
+                    "Attack requires target_features."
+                )
+
+            if target_mask_tensor is None:
+                raise ValueError(
+                    "Attack requires target_mask."
+                )
+
+            attack_features = target_features_tensor[attack]
+            attack_mask = target_mask_tensor[attack]
+
+            # Sollte durch _effective_action_mask eigentlich unmöglich sein.
+            if not attack_mask.any(dim=-1).all():
+                raise RuntimeError(
+                    "Attack was selected for an agent without a valid "
+                    "target. This indicates inconsistent action masking."
+                )
 
             target_dist = self._target_dist(
                 obs[attack],
-                self._tensor(target_features)[
-                    attack
-                ] if self._tensor(target_features).ndim == 3
-                else self._tensor(target_features).unsqueeze(0),
-                self._tensor(target_mask, torch.bool)[attack]
-                if target_mask is not None
-                and self._tensor(target_mask).ndim == 2
-                else target_mask,
+                attack_features,
+                attack_mask,
             )
 
             selected = target_dist.sample()
+
             target_index[attack] = selected
             log_prob[attack] += target_dist.log_prob(selected)
 
-        actions = torch.stack([action_type, target_index], dim=-1)
-        return actions.cpu().numpy(), log_prob.cpu().numpy()
+        actions = torch.stack(
+            [action_type, target_index],
+            dim=-1,
+        )
+
+        return (
+            actions.cpu().numpy(),
+            log_prob.unsqueeze(-1).cpu().numpy(),
+        )
+
 
     def resolve_target_id(self, action_type, target_index, candidate_target_ids):
         """Convert the sampled candidate index to the actual BAR target ID."""
@@ -205,8 +456,12 @@ class R_MAPPO_Policy:
             target_index = actions[..., 1]
 
         values = self.critic(share_obs)
-        action_dist = self._action_dist(obs, available_actions_batch)
-       
+        action_dist = self._action_dist(
+            obs,
+            available_actions=available_actions_batch,
+            target_mask=candidate_target_mask_batch,
+        )
+            
         log_probs = action_dist.log_prob(action_type)
         entropy = action_dist.entropy()
 

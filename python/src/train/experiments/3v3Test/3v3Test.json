@@ -1,6 +1,6 @@
 {
     "action_dimension"      : 5,
-    "buffer_size"           : 600,   
+    "buffer_size"           : 6000,   
     "episodes"              : 2,
     "device"                : "auto",
     "gamma"                 : 0.99,
@@ -12,5 +12,5 @@
     "run_name"              : "3v3Test",
     "resume"                : false,
     "save_every_x_episode"  : 1,
-    "training_team_id"      : 1
+    "training_team_id"      : 0
 }
