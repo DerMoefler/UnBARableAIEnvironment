@@ -1008,7 +1008,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "grpcio", specifier = ">=1.84.1" },
+    { name = "grpcio", specifier = ">=1.84.0" },
     { name = "grpcio-tools", specifier = ">=1.83.1" },
     { name = "numpy" },
     { name = "pybind11", specifier = ">=3.0.4" },
