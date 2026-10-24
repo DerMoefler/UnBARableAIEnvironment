@@ -112,11 +112,27 @@ class SharedReplayBuffer:
         self.rnn_states = np.zeros((buffer_size + 1, num_agents, 1), dtype=np.float32)  # Placeholder
         self.rnn_states_critic = np.zeros((buffer_size + 1, num_agents, 1), dtype=np.float32)  # Placeholder
         self.available_actions = np.ones((buffer_size + 1, num_agents, self.action_dim), dtype=np.float32)  # Placeholder
+        self.candidate_target_features = None
+        self.candidate_target_mask = None    
 
         self.step = 0
 
-    def insert(self, share_obs, obs, actions, action_log_probs, value_preds,
-               rewards, masks, active_masks, available_actions=None):
+    def insert(
+        self,
+        share_obs,
+        obs,
+        rnn_states,
+        rnn_states_critic,
+        actions,
+        action_log_probs,
+        value_preds,
+        rewards,
+        masks,
+        active_masks=None,
+        available_actions=None,
+        candidate_target_features=None,
+        candidate_target_mask=None,
+    ):
         """
         Inserts one transition into the replay buffer.
 
@@ -129,9 +145,9 @@ class SharedReplayBuffer:
         obs : np.ndarray
             Per-agent observations for the current timestep.
         actions : np.ndarray
-            Actions taken by the agents at the current timestep.
+        Actions taken by the agents at the current timestep.
         action_log_probs : np.ndarray
-            Log-probabilities of the selected actions.
+        Log-probabilities of the selected actions.
         value_preds : np.ndarray
             Critic value predictions for the current timestep.
         rewards : np.ndarray
@@ -210,7 +226,64 @@ class SharedReplayBuffer:
 
                 self.available_actions = new_available_actions
 
-            self.available_actions[self.step + 1] = available_actions
+            self.available_actions[self.step] = available_actions
+
+            if candidate_target_features is not None:
+                target_features = np.asarray(
+                    candidate_target_features,
+                    dtype=np.float32,
+                )
+
+                if target_features.shape[0] != self.num_agents:
+                    raise ValueError(
+                        "candidate_target_features must have num_agents "
+                        f"as first dimension; got {target_features.shape}"
+                    )
+
+                expected_shape = (self.buffer_size, *target_features.shape)
+
+                if self.candidate_target_features is None:
+                    self.candidate_target_features = np.zeros(
+                        expected_shape,
+                        dtype=np.float32,
+                    )
+                elif self.candidate_target_features.shape[1:] != target_features.shape:
+                    raise ValueError(
+                        "candidate_target_features shape changed: "
+                        f"expected {self.candidate_target_features.shape[1:]}, "
+                        f"got {target_features.shape}"
+                    )
+
+                self.candidate_target_features[self.step] = target_features
+
+
+            if candidate_target_mask is not None:
+                target_mask = np.asarray(
+                    candidate_target_mask,
+                    dtype=np.bool_,
+                )
+
+                if target_mask.shape[0] != self.num_agents:
+                    raise ValueError(
+                        "candidate_target_mask must have num_agents "
+                        f"as first dimension; got {target_mask.shape}"
+                    )
+
+                expected_shape = (self.buffer_size, *target_mask.shape)
+
+                if self.candidate_target_mask is None:
+                    self.candidate_target_mask = np.zeros(
+                        expected_shape,
+                        dtype=np.bool_,
+                    )
+                elif self.candidate_target_mask.shape[1:] != target_mask.shape:
+                    raise ValueError(
+                        "candidate_target_mask shape changed: "
+                        f"expected {self.candidate_target_mask.shape[1:]}, "
+                        f"got {target_mask.shape}"
+                    )
+
+                self.candidate_target_mask[self.step] = target_mask
 
         self.step = (self.step + 1) % self.buffer_size
 
@@ -306,6 +379,18 @@ class SharedReplayBuffer:
             adv_targ = advantages[batch_indices]
             available_actions_batch = self.available_actions[batch_indices]
 
+            candidate_target_features_batch = (
+                None
+                if self.candidate_target_features is None
+                else self.candidate_target_features[batch_indices]
+            )
+
+            candidate_target_mask_batch = (
+                None
+                if self.candidate_target_mask is None
+                else self.candidate_target_mask[batch_indices]
+            )
+
             yield (
                 share_obs_batch,
                 obs_batch,
@@ -318,7 +403,9 @@ class SharedReplayBuffer:
                 active_masks_batch,
                 old_action_log_probs_batch,
                 adv_targ,
-                available_actions_batch
+                available_actions_batch,
+                candidate_target_features_batch,
+                candidate_target_mask_batch,
             )
 
     def recurrent_generator(self, advantages, num_mini_batch, data_chunk_length):

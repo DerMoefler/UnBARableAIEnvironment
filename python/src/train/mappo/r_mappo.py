@@ -74,7 +74,43 @@ class R_MAPPO:
         return value_loss
 
     def ppo_update(self, sample, update_actor=True):
-        if len(sample) == 12:
+        if len(sample) == 14:
+            (
+                share_obs_batch,
+                obs_batch,
+                rnn_states_batch,
+                rnn_states_critic_batch,
+                actions_batch,
+                value_preds_batch,
+                return_batch,
+                masks_batch,
+                active_masks_batch,
+                old_action_log_probs_batch,
+                adv_targ,
+                available_actions_batch,
+                candidate_target_features_batch,
+                candidate_target_mask_batch,
+            ) = sample
+
+        elif len(sample) == 13:
+            (
+                share_obs_batch,
+                obs_batch,
+                rnn_states_batch,
+                rnn_states_critic_batch,
+                actions_batch,
+                value_preds_batch,
+                return_batch,
+                masks_batch,
+                active_masks_batch,
+                old_action_log_probs_batch,
+                adv_targ,
+                available_actions_batch,
+                candidate_target_features_batch,
+            ) = sample
+            candidate_target_mask_batch = None
+
+        elif len(sample) == 12:
             (
                 share_obs_batch,
                 obs_batch,
@@ -89,22 +125,13 @@ class R_MAPPO:
                 adv_targ,
                 available_actions_batch,
             ) = sample
+            candidate_target_features_batch = None
+            candidate_target_mask_batch = None
+
         else:
-            (
-                share_obs_batch,
-                obs_batch,
-                rnn_states_batch,
-                rnn_states_critic_batch,
-                actions_batch,
-                value_preds_batch,
-                return_batch,
-                masks_batch,
-                active_masks_batch,
-                old_action_log_probs_batch,
-                adv_targ,
-                available_actions_batch,
-                _,
-            ) = sample
+            raise ValueError(
+                f"Unexpected PPO sample length: {len(sample)}"
+            )
 
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
@@ -121,6 +148,8 @@ class R_MAPPO:
             masks_batch,
             available_actions_batch,
             active_masks_batch,
+            candidate_target_features_batch=candidate_target_features_batch,
+            candidate_target_mask_batch=candidate_target_mask_batch,
         )
 
         value_active_masks_batch = active_masks_batch

@@ -57,7 +57,7 @@ import bar_ai
 #             ) from import_err
 
 from src.environment.bar_environment import BAR_Environment
-from src.train.policy import R_MAPPO_Policy
+from src.train.mappo.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.mappo.r_mappo import R_MAPPO
 #####To Fix in real training

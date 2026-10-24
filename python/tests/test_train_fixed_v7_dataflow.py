@@ -10,19 +10,20 @@ import torch
 
 import bar_ai
 from src.train import train_fixed_v7
-
+#from src.train import training
+#from src.train.mappo import trainerargs
 
 MOVEMENT_TARGET_ID = 4211
 
 # Unit 0 existiert in diesem Testszenario nicht mehr.
-OWN_UNIT_IDS = {1, 2}
+OWN_UNIT_IDS = {1, 2, 3}
 
 
 def _bar_observation_dict(enemy_count=2):
     """
     Create a simulated match with two controlled units.
 
-    Unit 0 is absent. Only units 1 and 2 are controlled.
+    Unit 0 is absent. Only units 1, 2 and 3 are controlled.
     Between zero and three enemies can be present.
     """
     if not 0 <= enemy_count <= 3:
@@ -30,15 +31,21 @@ def _bar_observation_dict(enemy_count=2):
 
     formations = [
         # unit_id, team_id, pos_x, pos_y, pos_z, health
+
+        # Eigene Einheiten (Team 0)
         (1, 0, 170.0, 245.0, 0.0, 82.0),
         (2, 0, 205.0, 190.0, 0.0, 64.0),
+        (6, 0, 240.0, 220.0, 0.0, 91.0),
+
+        # Gegnerische Einheiten (Team 1)
         (3, 1, 610.0, 540.0, 0.0, 92.0),
         (4, 1, 665.0, 505.0, 0.0, 74.0),
         (5, 1, 700.0, 570.0, 0.0, 56.0),
     ]
 
-    # Keep the two own units and add the requested enemy units.
-    formations = formations[:2] + formations[2:2 + enemy_count]
+    # Alle drei eigenen Einheiten bleiben erhalten.
+    # Anschließend werden die gewünschten Gegner hinzugefügt.
+    formations = formations[:3] + formations[3:3 + enemy_count]
 
     return {
         f"agent_{unit_id}": np.asarray(
@@ -176,7 +183,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
                         "--num-episodes",
                         "1",
                         "--num-agents",
-                        "2",
+                        "3",
                         "--buffer-size",
                         "1",
                         "--num-mini-batch",
@@ -199,6 +206,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             with redirect_stdout(StringIO()):
                 train_fixed_v7.main()
 
+
         # ------------------------------------------------------------
         # Training/dataflow assertions
         # ------------------------------------------------------------
@@ -214,7 +222,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
 
         assert env.step_calls >= 1
 
-        # Exactly two actions are expected: one for unit 1 and one for unit 2.
+        # Exactly three actions are expected: one for each controlled unit.
         assert len(env.received_actions) == len(OWN_UNIT_IDS)
 
         assert len(trainers) == 1
