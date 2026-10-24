@@ -1904,7 +1904,11 @@ def main() -> None:
                 entropy=float(train_info.get("dist_entropy", 0)),
                 actor_grad_norm=float(train_info.get("actor_grad_norm", 0)),
                 critic_grad_norm=float(train_info.get("critic_grad_norm", 0)),
-                importance_ratio=float(train_info.get("ratio", 0)),
+                importance_ratio=(
+                    float(train_info["ratio"].detach().cpu().item())
+                    if isinstance(train_info.get("ratio"), torch.Tensor)
+                    else float(train_info.get("ratio", 0))
+                ),
             )
 
             episode_seconds = time.perf_counter() - episode_started_at

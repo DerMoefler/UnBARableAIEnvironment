@@ -1,4 +1,3 @@
-
 from contextlib import ExitStack, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -14,22 +13,23 @@ from src.train import train_fixed_v7
 
 
 MOVEMENT_TARGET_ID = 4211
-OWN_UNIT_IDS = {0, 1, 2}
+
+# Unit 0 existiert in diesem Testszenario nicht mehr.
+OWN_UNIT_IDS = {1, 2}
 
 
 def _bar_observation_dict(enemy_count=2):
     """
-    Create a mock 3vN match.
+    Create a simulated match with two controlled units.
 
-    There are always three controlled units and between zero and three
-    enemies. This lets the test exercise missing enemy slots.
+    Unit 0 is absent. Only units 1 and 2 are controlled.
+    Between zero and three enemies can be present.
     """
     if not 0 <= enemy_count <= 3:
         raise ValueError("enemy_count must be between 0 and 3")
 
     formations = [
         # unit_id, team_id, pos_x, pos_y, pos_z, health
-        (0, 0, 130.0, 210.0, 0.0, 100.0),
         (1, 0, 170.0, 245.0, 0.0, 82.0),
         (2, 0, 205.0, 190.0, 0.0, 64.0),
         (3, 1, 610.0, 540.0, 0.0, 92.0),
@@ -37,8 +37,8 @@ def _bar_observation_dict(enemy_count=2):
         (5, 1, 700.0, 570.0, 0.0, 56.0),
     ]
 
-    # Simulate units that are no longer present in the dictionary.
-    formations = formations[:3] + formations[3:3 + enemy_count]
+    # Keep the two own units and add the requested enemy units.
+    formations = formations[:2] + formations[2:2 + enemy_count]
 
     return {
         f"agent_{unit_id}": np.asarray(
@@ -76,7 +76,6 @@ def _is_attack_action(action):
     if attack_enum is not None:
         return action_id == attack_enum
 
-    # Fallback for enums with a differently represented member.
     action_name = getattr(action_id, "name", str(action_id))
     return "attack" in action_name.lower()
 
@@ -87,7 +86,6 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
     env_instances = []
     trainers = []
 
-    # Two enemies deliberately exercise the missing third target slot.
     enemy_count = 2
     expected_enemy_ids = {3, 4}
 
@@ -119,7 +117,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
                 False,
                 False,
                 {
-                    "own_alive_count": 3,
+                    "own_alive_count": len(OWN_UNIT_IDS),
                     "enemy_alive_count": enemy_count,
                 },
             )
@@ -178,7 +176,7 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
                         "--num-episodes",
                         "1",
                         "--num-agents",
-                        "3",
+                        "2",
                         "--buffer-size",
                         "1",
                         "--num-mini-batch",
@@ -208,9 +206,16 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
 
         env = env_instances[0]
 
-        assert len(env.observations) == 3 + enemy_count
-        assert len(env.received_actions) == 3
+        assert len(env.observations) == len(OWN_UNIT_IDS) + enemy_count
+        assert set(
+            int(np.asarray(obs).item().unit_id)
+            for obs in env.observations.values()
+        ) == OWN_UNIT_IDS | expected_enemy_ids
+
         assert env.step_calls >= 1
+
+        # Exactly two actions are expected: one for unit 1 and one for unit 2.
+        assert len(env.received_actions) == len(OWN_UNIT_IDS)
 
         assert len(trainers) == 1
         trainer = trainers[0]
@@ -223,9 +228,19 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             for action in env.received_actions
         )
 
-        assert all(
-            int(action.unit_id) in OWN_UNIT_IDS
+        action_unit_ids = [
+            int(action.unit_id)
             for action in env.received_actions
+        ]
+
+        # Unit 0 must never receive an action.
+        assert 0 not in action_unit_ids, (
+            f"Unit 0 unexpectedly received an action: {action_unit_ids}"
+        )
+
+        assert set(action_unit_ids) == OWN_UNIT_IDS
+        assert len(action_unit_ids) == len(set(action_unit_ids)), (
+            "A controlled unit received more than one action in the rollout."
         )
 
         # ------------------------------------------------------------
@@ -240,7 +255,6 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             if _is_attack_action(action):
                 attack_count += 1
 
-                # An attack may only target a present enemy candidate.
                 assert target_id in expected_enemy_ids, (
                     f"Attack targeted unit {target_id}, but valid enemies "
                     f"are {sorted(expected_enemy_ids)}."
@@ -248,7 +262,6 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
             else:
                 movement_count += 1
 
-                # Every non-attack action must use the movement target ID.
                 assert target_id == MOVEMENT_TARGET_ID, (
                     f"Movement action used target {target_id}; "
                     f"expected {MOVEMENT_TARGET_ID}."
@@ -267,67 +280,79 @@ def test_train_fixed_v7_dataflow_one_mappo_update():
         )
         assert checkpoint_files
 
-        train_info = trainer.train_info
+        train_info = trainer.train_info or {}
 
         # ------------------------------------------------------------
         # Report
         # ------------------------------------------------------------
-        raw_actions = [
-            {
-                "unit_id": int(action.unit_id),
-                "team_id": int(action.team_id),
-                "ally_team_id": int(action.ally_team_id),
-                "action_id": action.action_id,
-                "target_unit_id": int(action.target_unit_id),
-            }
-            for action in env.received_actions
-        ]
+        separator = "=" * 76
+        line = "-" * 76
 
-        print("=" * 60)
-        print("DATAFLOW INTEGRATION TEST")
-        print("=" * 60)
+        print(f"\n\n{separator}")
+        print("  MAPPO INTEGRATION TEST — DATAFLOW REPORT")
+        print(separator)
 
-        print("\n[ENV]")
-        print("  simulated BAR environment created")
-        print(f"  units in dictionary={len(env.observations)}")
-        print(f"  own units={len(OWN_UNIT_IDS)}")
-        print(f"  enemy units={enemy_count}")
+        print("\n[1] ENVIRONMENT")
+        print(line)
+        print(f"  Environment       : {type(env).__name__}")
+        print(f"  Total units       : {len(env.observations)}")
+        print(f"  Controlled units  : {sorted(OWN_UNIT_IDS)}")
+        print(f"  Removed unit      : 0")
+        print(f"  Enemy units       : {sorted(expected_enemy_ids)}")
+        print(f"  Environment steps : {env.step_calls}")
 
-        print("\n[ROLLOUT]")
-        print(f"  steps={env.step_calls}")
-        print(f"  actions={len(env.received_actions)}")
+        print("\n[2] TRAINING")
+        print(line)
+        print(f"  Trainer           : {type(trainer).__name__}")
+        print(f"  Training calls    : {trainer.train_calls}")
+        print(f"  PPO epochs        : {trainer.ppo_epoch}")
 
-        print("\n[TRAIN]")
-        print(f"  train calls={trainer.train_calls}")
-        print(f"  PPO epochs={trainer.ppo_epoch}")
+        for key in ("policy_loss", "value_loss", "dist_entropy"):
+            value = train_info.get(key)
+            if value is not None:
+                print(f"  {key:<20}: {value}")
+
+        print("\n[3] ACTION OUTPUT")
+        print(line)
+        print(f"  Total actions     : {len(env.received_actions)}")
+        print(f"  Attack actions    : {attack_count}")
+        print(f"  Movement actions  : {movement_count}")
+
+        print("\n  Actions received by the environment:")
+
+        for index, action in enumerate(env.received_actions):
+            action_name = getattr(
+                action.action_id,
+                "name",
+                str(action.action_id),
+            )
+
+            print(
+                f"    [{index:02d}] "
+                f"unit={int(action.unit_id):>3} | "
+                f"team={int(action.team_id):>2} | "
+                f"action={action_name:<12} | "
+                f"target={int(action.target_unit_id):>4}"
+            )
+
+        print("\n[4] VALIDATION")
+        print(line)
+        print(f"  Active own IDs    : {sorted(OWN_UNIT_IDS)}")
+        print(f"  Unit 0 has action : {0 in action_unit_ids}")
+        print(f"  Valid enemy IDs   : {sorted(expected_enemy_ids)}")
+        print(f"  Movement target   : {MOVEMENT_TARGET_ID}")
+        print("  Unit validation   : PASS")
+        print("  Target validation : PASS")
+
+        print("\n[5] CHECKPOINTS")
+        print(line)
+        print(f"  Latest checkpoint : {run_dir / 'r_mappo_latest.pt'}")
+        print(f"  Episode checkpoint: {checkpoint_files[0].name}")
         print(
-            f"  policy_loss="
-            f"{float(train_info.get('policy_loss', 0)):.6f}"
-        )
-        print(
-            f"  value_loss="
-            f"{float(train_info.get('value_loss', 0)):.6f}"
-        )
-        print(
-            f"  entropy="
-            f"{float(train_info.get('dist_entropy', 0)):.6f}"
+            f"  Native log absent : "
+            f"{not (run_dir / 'native.log').exists()}"
         )
 
-        print("\n[ACTIONS]")
-        for action in raw_actions:
-            print(f"  {action}")
-
-        print("\n[TARGET VALIDATION]")
-        print(f"  attack actions={attack_count}")
-        print(f"  movement actions={movement_count}")
-        print(f"  valid enemy IDs={sorted(expected_enemy_ids)}")
-        print(f"  movement target ID={MOVEMENT_TARGET_ID}")
-        print("\n[CHECKPOINT]")
-        print(f"  saved {checkpoint_files[0].name}")
-
-        print("\nRESULT: PASS")
-        print("=" * 60, flush=True)
-
-
-if __name__ == "__main__":
-    test_train_fixed_v7_dataflow_one_mappo_update()
+        print(f"\n{separator}")
+        print("  RESULT: PASS")
+        print(f"{separator}\n", flush=True)

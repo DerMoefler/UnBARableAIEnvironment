@@ -29,15 +29,55 @@ def _field(unit: Any, name: str) -> Any:
     return getattr(unit, name)
 
 
+
+def _controlled_units(
+    unit_dictionary: Mapping[str, Any],
+    training_team_id: int,
+) -> list[Any]:
+    """Return controlled units sorted by their actual unit IDs."""
+    units = [
+        _unit_record(value)
+        for value in unit_dictionary.values()
+    ]
+
+    controlled = sorted(
+        (
+            unit
+            for unit in units
+            if int(_field(unit, "team_id")) == training_team_id
+        ),
+        key=lambda unit: int(_field(unit, "unit_id")),
+    )
+
+    unit_ids = [
+        int(_field(unit, "unit_id"))
+        for unit in controlled
+    ]
+
+    if len(unit_ids) != len(set(unit_ids)):
+        raise ValueError(
+            f"Doppelte Unit-IDs im selben Team gefunden: {unit_ids}"
+        )
+
+    return controlled
+
+
+
 def _health_fraction(unit: Any) -> float:
     """Return health as a fraction of maximum health."""
-    max_health = max(0.0, float(_field(unit, "max_health")))
+    max_health = max(
+        0.0,
+        float(_field(unit, "max_health")),
+    )
 
     if max_health == 0.0:
         return 0.0
 
     health = float(_field(unit, "health"))
-    return float(np.clip(health / max_health, 0.0, 1.0))
+
+    return float(
+        np.clip(health / max_health, 0.0, 1.0)
+    )
 
 
 def _self_features(unit: Any) -> list[float]:
@@ -50,12 +90,14 @@ def _self_features(unit: Any) -> list[float]:
         float(_field(unit, "pos_z")) / POSITION_SCALE,
         float(_field(unit, "los_radius")) / POSITION_SCALE,
         float(bool(_field(unit, "is_dead"))),
-        float(bool(_field(unit, "being_built")),
-        ),
+        float(bool(_field(unit, "being_built"))),
     ]
 
 
-def _distance_squared(first: Any, second: Any) -> float:
+def _distance_squared(
+    first: Any,
+    second: Any,
+) -> float:
     """Squared 3D distance between two units."""
     return sum(
         (
@@ -66,7 +108,10 @@ def _distance_squared(first: Any, second: Any) -> float:
     )
 
 
-def _unit_slot(unit: Any, observing_unit: Any) -> list[float]:
+def _unit_slot(
+    unit: Any,
+    observing_unit: Any,
+) -> list[float]:
     """Features describing an enemy relative to the controlled unit."""
     return [
         1.0,  # Slot occupied
@@ -95,7 +140,7 @@ def _nearest_units(
     observing_unit: Any,
     limit: int,
 ) -> list[Any]:
-    """Select the nearest units, with a stable tie-breaker."""
+    """Select nearest units, with a stable tie-breaker."""
     return sorted(
         units,
         key=lambda unit: (
@@ -103,6 +148,7 @@ def _nearest_units(
             int(_field(unit, "unit_id")),
         ),
     )[:limit]
+
 
 def build_r_mappo_observations(
     unit_dictionary: Mapping[str, Any],
@@ -114,14 +160,14 @@ def build_r_mappo_observations(
     - 8 self features
     - 3 nearest enemy slots with 9 features each
     """
-    units = [_unit_record(value) for value in unit_dictionary.values()]
+    units = [
+        _unit_record(value)
+        for value in unit_dictionary.values()
+    ]
 
-    controlled_units = sorted(
-        (
-            unit for unit in units
-            if int(_field(unit, "team_id")) == training_team_id
-        ),
-        key=lambda unit: int(_field(unit, "unit_id")),
+    controlled_units = _controlled_units(
+        unit_dictionary,
+        training_team_id,
     )
 
     observations = np.zeros(
@@ -133,6 +179,7 @@ def build_r_mappo_observations(
         features = list(_self_features(unit))
 
         ally_team_id = int(_field(unit, "ally_team_id"))
+
         enemies = [
             candidate
             for candidate in units
@@ -148,52 +195,70 @@ def build_r_mappo_observations(
         for enemy in nearest_enemies:
             features.extend(_unit_slot(enemy, unit))
 
-        # Keep the observation size fixed if fewer than 3 enemies exist.
+        # Keep observation size fixed if fewer than 3 enemies exist.
         while len(features) < OBS_DIM:
-            features.extend([0.0] * UNIT_SLOT_FEATURE_DIM)
+            features.extend(
+                [0.0] * UNIT_SLOT_FEATURE_DIM
+            )
 
-        observations[row] = np.asarray(features[:OBS_DIM], dtype=np.float32)
+        observations[row] = np.asarray(
+            features[:OBS_DIM],
+            dtype=np.float32,
+        )
 
     return observations
+
 
 def build_r_mappo_action_context(
     unit_dictionary: Mapping[str, Any],
     training_team_id: int = 0,
 ):
     """Return own unit IDs and matching enemy target candidates/features."""
-    units = [_unit_record(value) for value in unit_dictionary.values()]
+    units = [
+        _unit_record(value)
+        for value in unit_dictionary.values()
+    ]
 
-    controlled_units = sorted(
-        (
-            unit for unit in units
-            if int(_field(unit, "team_id")) == training_team_id
-        ),
-        key=lambda unit: int(_field(unit, "unit_id")),
+    controlled_units = _controlled_units(
+        unit_dictionary,
+        training_team_id,
     )
 
     own_unit_ids = []
+
     target_ids = np.full(
         (len(controlled_units), MAX_ENEMY_SLOTS),
         -1,
         dtype=np.int64,
     )
+
     target_features = np.zeros(
-        (len(controlled_units), MAX_ENEMY_SLOTS, UNIT_SLOT_FEATURE_DIM),
+        (
+            len(controlled_units),
+            MAX_ENEMY_SLOTS,
+            UNIT_SLOT_FEATURE_DIM,
+        ),
         dtype=np.float32,
     )
+
     target_mask = np.zeros(
         (len(controlled_units), MAX_ENEMY_SLOTS),
         dtype=bool,
     )
 
     for row, unit in enumerate(controlled_units):
-        own_unit_ids.append(int(_field(unit, "unit_id")))
+        own_unit_ids.append(
+            int(_field(unit, "unit_id"))
+        )
+
         ally_team_id = int(_field(unit, "ally_team_id"))
 
         enemies = [
-            candidate for candidate in units
+            candidate
+            for candidate in units
             if int(_field(candidate, "ally_team_id")) != ally_team_id
         ]
+
         nearest_enemies = _nearest_units(
             enemies,
             unit,
@@ -201,11 +266,15 @@ def build_r_mappo_action_context(
         )
 
         for col, enemy in enumerate(nearest_enemies):
-            target_ids[row, col] = int(_field(enemy, "unit_id"))
+            target_ids[row, col] = int(
+                _field(enemy, "unit_id")
+            )
+
             target_features[row, col] = np.asarray(
                 _unit_slot(enemy, unit),
                 dtype=np.float32,
             )
+
             target_mask[row, col] = True
 
     return (
