@@ -1,408 +1,238 @@
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
+from torch.distributions import Categorical
+
+MOVEMENT_TARGET_ID = 4211
 
 
 class Actor(nn.Module):
-    """
-    Actor network for policy optimization.
-
-    This network maps observations to action logits, which can be used to build
-    a categorical policy distribution.
-
-    Parameters
-    ----------
-    obs_dim : int
-        Dimension of the input observation vector.
-    action_dim : int
-        Number of discrete actions.
-    hidden_dim : int, optional
-        Size of the hidden layers, by default 256.
-
-    Returns
-    -------
-    Actor
-        A neural network module representing the policy actor.
-
-    Examples
-    --------
-    >>> actor = Actor(obs_dim=128, action_dim=7)
-    >>> obs = torch.randn(4, 128)
-    >>> logits = actor(obs)
-    >>> logits.shape
-    torch.Size([4, 7])
-    """
-
-    def __init__(self, obs_dim: int, action_dim: int, hidden_dim: int = 256):
-        """
-        Initializes the actor network.
-
-        Parameters
-        ----------
-        self : Actor
-            The actor network instance.
-        obs_dim : int
-            Dimension of the input observation vector.
-        action_dim : int
-            Number of discrete actions.
-        hidden_dim : int, optional
-            Size of the hidden layers, by default 256.
-
-        Returns
-        -------
-        None
-
-        Examples
-        --------
-        >>> actor = Actor(64, 5)
-        >>> isinstance(actor.net, nn.Sequential)
-        True
-        """
-        super(Actor, self).__init__()
+    def __init__(self, obs_dim, action_dim, hidden_dim=256):
+        super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Linear(obs_dim, hidden_dim), nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, action_dim),
         )
 
     def forward(self, obs):
-        """
-        Computes action logits from observations.
-
-        Parameters
-        ----------
-        self : Actor
-            The actor network instance.
-        obs : torch.Tensor
-            Input observation tensor of shape `(batch_size, obs_dim)`.
-
-        Returns
-        -------
-        action_logits : torch.Tensor
-            Tensor containing unnormalized action scores for each action.
-
-        Examples
-        --------
-        >>> actor = Actor(32, 4)
-        >>> obs = torch.randn(2, 32)
-        >>> actor(obs).shape
-        torch.Size([2, 4])
-        """
         return self.net(obs)
 
 
 class Critic(nn.Module):
-    """
-    Critic network for value estimation.
-
-    This network maps observations to scalar value predictions used by the
-    critic in actor-critic training.
-
-    Parameters
-    ----------
-    obs_dim : int
-        Dimension of the input observation vector.
-    hidden_dim : int, optional
-        Size of the hidden layers, by default 256.
-
-    Returns
-    -------
-    Critic
-        A neural network module representing the value function critic.
-
-    Examples
-    --------
-    >>> critic = Critic(obs_dim=128)
-    >>> obs = torch.randn(4, 128)
-    >>> values = critic(obs)
-    >>> values.shape
-    torch.Size([4, 1])
-    """
-
-    def __init__(self, obs_dim: int, hidden_dim: int = 256):
-        """
-        Initializes the critic network.
-
-        Parameters
-        ----------
-        self : Critic
-            The critic network instance.
-        obs_dim : int
-            Dimension of the input observation vector.
-        hidden_dim : int, optional
-            Size of the hidden layers, by default 256.
-
-        Returns
-        -------
-        None
-
-        Examples
-        --------
-        >>> critic = Critic(64)
-        >>> isinstance(critic.net, nn.Sequential)
-        True
-        """
-        super(Critic, self).__init__()
+    def __init__(self, obs_dim, hidden_dim=256):
+        super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Linear(obs_dim, hidden_dim), nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
-        self.v_out = self.net  # for POPart compatibility
+        self.v_out = self.net
 
     def forward(self, obs):
-        """
-        Computes scalar value predictions from observations.
-
-        Parameters
-        ----------
-        self : Critic
-            The critic network instance.
-        obs : torch.Tensor
-            Input observation tensor of shape `(batch_size, obs_dim)`.
-
-        Returns
-        -------
-        values : torch.Tensor
-            Tensor containing scalar value estimates of shape `(batch_size, 1)`.
-
-        Examples
-        --------
-        >>> critic = Critic(32)
-        >>> obs = torch.randn(2, 32)
-        >>> critic(obs).shape
-        torch.Size([2, 1])
-        """
         return self.net(obs)
 
 
+class TargetScorer(nn.Module):
+    """Scores a variable number of target candidates."""
+
+    def __init__(self, obs_dim, target_feature_dim, hidden_dim=128):
+        super().__init__()
+        self.agent_encoder = nn.Sequential(
+            nn.Linear(obs_dim, hidden_dim), nn.ReLU()
+        )
+        self.target_encoder = nn.Sequential(
+            nn.Linear(target_feature_dim, hidden_dim), nn.ReLU()
+        )
+        self.scorer = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, obs, target_features):
+        # obs: [B, obs_dim]
+        # target_features: [B, N, target_feature_dim]
+        agent = self.agent_encoder(obs).unsqueeze(1)
+        targets = self.target_encoder(target_features)
+        agent = agent.expand(-1, targets.size(1), -1)
+        return self.scorer(torch.cat([agent, targets], dim=-1)).squeeze(-1)
+
+
 class R_MAPPO_Policy:
-    """
-    MAPPO policy wrapper containing actor and critic networks.
-
-    This class bundles together the policy actor, value critic, and their
-    corresponding optimizers. It also provides helper methods for action
-    evaluation and action sampling.
-
-    Parameters
-    ----------
-    obs_dim : int
-        Dimension of the observation vector.
-    action_dim : int
-        Number of discrete actions.
-    device : torch.device, optional
-        Torch device on which the networks are allocated,
-        by default torch.device("cpu").
-    lr : float, optional
-        Learning rate for both actor and critic optimizers,
-        by default 5e-4.
-    target_dim : int, optional
-        Number of target IDs represented by the auxiliary target actor,
-        by default 3.
-
-    Returns
-    -------
-    R_MAPPO_Policy
-        A policy wrapper containing actor, critic, and optimizers.
-
-    Examples
-    --------
-    >>> policy = R_MAPPO_Policy(obs_dim=128, action_dim=7)
-    >>> policy.obs_dim
-    128
-    >>> policy.action_dim
-    7
-    """
-
-    def __init__(self, obs_dim: int, action_dim: int, device=torch.device("cpu"), lr: float = 5e-4, target_dim: int = 3):
-        """
-        Initializes the MAPPO policy wrapper.
-
-        Parameters
-        ----------
-        self : R_MAPPO_Policy
-            The policy wrapper instance.
-        obs_dim : int
-            Dimension of the observation vector.
-        action_dim : int
-            Number of discrete actions.
-        device : torch.device, optional
-            Torch device on which the networks are created,
-            by default torch.device("cpu").
-        lr : float, optional
-            Learning rate for the Adam optimizers, by default 5e-4.
-        target_dim : int, optional
-            Number of target IDs represented by the auxiliary target actor,
-            by default 3.
-
-        Returns
-        -------
-        None
-
-        Examples
-        --------
-        >>> policy = R_MAPPO_Policy(64, 5)
-        >>> isinstance(policy.actor, Actor)
-        True
-        >>> isinstance(policy.critic, Critic)
-        True
-        """
-        self.device = device
-        self.obs_dim = obs_dim
+    def __init__(
+        self,
+        obs_dim,
+        action_dim,
+        device=torch.device("cpu"),
+        lr=5e-4,
+        target_feature_dim=None,
+        attack_action_index=None,
+        hidden_dim=256,
+        target_hidden_dim=128,
+    ):
+        self.device = torch.device(device)
         self.action_dim = action_dim
-        self.target_dim = target_dim
+        self.attack_action_index = (
+            action_dim - 1 if attack_action_index is None
+            else attack_action_index
+        )
 
-        self.actor = Actor(obs_dim, action_dim).to(device)
-        self.target_actor = Actor(obs_dim, target_dim).to(device)
-        self.critic = Critic(obs_dim).to(device)
+        target_feature_dim = target_feature_dim or obs_dim
+
+        self.actor = Actor(obs_dim, action_dim, hidden_dim).to(self.device)
+        self.target_scorer = TargetScorer(
+            obs_dim, target_feature_dim, target_hidden_dim
+        ).to(self.device)
+        self.critic = Critic(obs_dim, hidden_dim).to(self.device)
 
         self.actor_optimizer = torch.optim.Adam(
-            list(self.actor.parameters()) + list(self.target_actor.parameters()),
+            list(self.actor.parameters())
+            + list(self.target_scorer.parameters()),
             lr=lr,
         )
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr)
-
-    def evaluate_actions(self, share_obs_batch, obs_batch, rnn_states_batch,
-                        rnn_states_critic_batch, actions_batch, masks_batch,
-                        available_actions_batch, active_masks_batch):
-        """
-        Evaluates actions using the actor and critic networks.
-
-        The critic predicts values from the shared observations, while the actor
-        computes action logits from the local observations. A categorical action
-        distribution is then used to compute log-probabilities and entropy for
-        the provided actions.
-
-        Parameters
-        ----------
-        self : R_MAPPO_Policy
-            The policy wrapper instance.
-        share_obs_batch : np.ndarray or torch.Tensor
-            Shared observations used by the critic, typically for a centralized
-            value function.
-        obs_batch : np.ndarray or torch.Tensor
-            Agent-specific observations used by the actor.
-        rnn_states_batch : np.ndarray or torch.Tensor
-            RNN states for the actor. Included for interface compatibility.
-        rnn_states_critic_batch : np.ndarray or torch.Tensor
-            RNN states for the critic. Included for interface compatibility.
-        actions_batch : np.ndarray or torch.Tensor
-            Actions whose log-probabilities should be evaluated.
-        masks_batch : np.ndarray or torch.Tensor
-            Masks for handling sequence boundaries in recurrent setups.
-        available_actions_batch : np.ndarray or torch.Tensor
-            Mask of currently legal actions. Included for interface compatibility.
-        active_masks_batch : np.ndarray or torch.Tensor
-            Mask indicating which agents are active. Included for interface compatibility.
-
-        Returns
-        -------
-        values : torch.Tensor
-            Critic value predictions.
-        action_log_probs : torch.Tensor
-            Log-probabilities of the provided actions.
-        dist_entropy : torch.Tensor
-            Mean entropy of the action distribution.
-
-        Examples
-        --------
-        >>> policy = R_MAPPO_Policy(32, 4)
-        >>> share_obs = torch.randn(3, 32)
-        >>> obs = torch.randn(3, 32)
-        >>> actions = torch.stack((torch.randint(0, 4, (3,)), torch.randint(0, 3, (3,))), dim=1)
-        >>> values, log_probs, entropy = policy.evaluate_actions(
-        ...     share_obs, obs, None, None, actions, None, None, None
-        ... )
-        >>> values.shape
-        torch.Size([3, 1])
-        >>> log_probs.shape
-        torch.Size([3, 1])
-        """
-        # Convert numpy arrays to tensors
-        if isinstance(share_obs_batch, np.ndarray):
-            share_obs_batch = torch.FloatTensor(share_obs_batch).to(self.device)
-        if isinstance(obs_batch, np.ndarray):
-            obs_batch = torch.FloatTensor(obs_batch).to(self.device)
-        if isinstance(actions_batch, np.ndarray):
-            actions_batch = torch.as_tensor(
-                actions_batch, dtype=torch.long, device=self.device
-            )
-        elif not torch.is_tensor(actions_batch):
-            actions_batch = torch.as_tensor(
-                actions_batch, dtype=torch.long, device=self.device
-            )
-        else:
-            actions_batch = actions_batch.to(device=self.device, dtype=torch.long)
-
-        # Get value predictions from critic
-        values = self.critic(share_obs_batch)
-
-        # Get action logits from actor
-        action_logits = self.actor(obs_batch)
-        target_logits = self.target_actor(obs_batch)
-
-        action_dist = torch.distributions.Categorical(logits=action_logits)
-        target_dist = torch.distributions.Categorical(logits=target_logits)
-
-        if actions_batch.ndim == 1:
-            action_types = actions_batch
-            target_ids = torch.zeros_like(action_types)
-        else:
-            action_types = actions_batch[..., 0]
-            target_ids = actions_batch[..., 1]
-
-        action_log_probs = (
-            action_dist.log_prob(action_types)
-            + target_dist.log_prob(target_ids)
+        self.critic_optimizer = torch.optim.Adam(
+            self.critic.parameters(), lr=lr
         )
-        dist_entropy = (action_dist.entropy() + target_dist.entropy()).mean()
 
-        return values, action_log_probs.unsqueeze(-1), dist_entropy
+    def _tensor(self, value, dtype=torch.float32):
+        if value is None:
+            return None
+        return torch.as_tensor(value, dtype=dtype, device=self.device)
 
-    def get_action(self, obs):
-        """
-        Samples an action from the current policy.
+    def _batch_obs(self, obs):
+        obs = self._tensor(obs)
+        return obs.unsqueeze(0) if obs.ndim == 1 else obs
 
-        This method performs a forward pass through the actor network,
-        constructs a categorical action distribution, and samples one action
-        per input observation.
+    def _mask_logits(self, logits, mask):
+        if mask is not None:
+            mask = self._tensor(mask, torch.bool)
+            if mask.ndim == 1:
+                mask = mask.unsqueeze(0)
+            logits = logits.masked_fill(~mask, -torch.inf)
+        return logits
 
-        Parameters
-        ----------
-        self : R_MAPPO_Policy
-            The policy wrapper instance.
-        obs : torch.Tensor
-            Observation tensor used to sample actions.
+    def _action_dist(self, obs, available_actions=None):
+        logits = self._mask_logits(
+            self.actor(obs), available_actions
+        )
+        return Categorical(logits=logits)
 
-        Returns
-        -------
-        action : np.ndarray
-            Sampled action indices as a numpy array.
-        action_log_prob : np.ndarray
-            Log-probabilities of the sampled actions as a numpy array.
+    def _target_dist(self, obs, target_features, target_mask=None):
+        if target_features is None:
+            raise ValueError("Attack requires target_features.")
 
-        Examples
-        --------
-        >>> policy = R_MAPPO_Policy(16, 3)
-        >>> obs = torch.randn(2, 16)
-        >>> action, log_prob = policy.get_action(obs)
-        >>> action.shape
-        (2, 2)
-        """
-        with torch.no_grad():
-            action_logits = self.actor(obs)
-            target_logits = self.target_actor(obs)
-            action_dist = torch.distributions.Categorical(logits=action_logits)
-            target_dist = torch.distributions.Categorical(logits=target_logits)
-            action_type = action_dist.sample()
-            target_id = target_dist.sample()
-            action_log_prob = (
-                action_dist.log_prob(action_type)
-                + target_dist.log_prob(target_id)
+        features = self._tensor(target_features)
+        if features.ndim == 2:
+            features = features.unsqueeze(0)
+        if features.size(0) == 1 and obs.size(0) > 1:
+            features = features.expand(obs.size(0), -1, -1)
+
+        logits = self.target_scorer(obs, features)
+        logits = self._mask_logits(logits, target_mask)
+        return Categorical(logits=logits)
+
+    @torch.no_grad()
+    def get_action(
+        self,
+        obs,
+        target_features=None,
+        candidate_target_ids=None,
+        target_mask=None,
+        available_actions=None,
+    ):
+        obs = self._batch_obs(obs)
+        action_dist = self._action_dist(obs, available_actions)
+        action_type = action_dist.sample()
+        log_prob = action_dist.log_prob(action_type)
+
+        # Column 1 stores a candidate index, not a BAR unit ID.
+        target_index = torch.zeros_like(action_type)
+        attack = action_type == self.attack_action_index
+
+        if attack.any():
+            if candidate_target_ids is None:
+                raise ValueError("Attack requires candidate_target_ids.")
+
+            target_dist = self._target_dist(
+                obs[attack],
+                self._tensor(target_features)[
+                    attack
+                ] if self._tensor(target_features).ndim == 3
+                else self._tensor(target_features).unsqueeze(0),
+                self._tensor(target_mask, torch.bool)[attack]
+                if target_mask is not None
+                and self._tensor(target_mask).ndim == 2
+                else target_mask,
             )
-        action = torch.stack((action_type, target_id), dim=-1)
-        return action.cpu().numpy(), action_log_prob.cpu().numpy()
+
+            selected = target_dist.sample()
+            target_index[attack] = selected
+            log_prob[attack] += target_dist.log_prob(selected)
+
+        actions = torch.stack([action_type, target_index], dim=-1)
+        return actions.cpu().numpy(), log_prob.cpu().numpy()
+
+    def resolve_target_id(self, action_type, target_index, candidate_target_ids):
+        """Convert the sampled candidate index to the actual BAR target ID."""
+        if int(action_type) != self.attack_action_index:
+            return MOVEMENT_TARGET_ID
+        return int(candidate_target_ids[int(target_index)])
+
+    def evaluate_actions(
+        self,
+        share_obs_batch,
+        obs_batch,
+        rnn_states_batch,
+        rnn_states_critic_batch,
+        actions_batch,
+        masks_batch,
+        available_actions_batch,
+        active_masks_batch,
+        candidate_target_features_batch=None,
+        candidate_target_mask_batch=None,
+    ):
+        share_obs = self._batch_obs(share_obs_batch)
+        obs = self._batch_obs(obs_batch)
+        actions = self._tensor(actions_batch, torch.long)
+
+        if actions.ndim == 1:
+            action_type = actions
+            target_index = torch.zeros_like(action_type)
+        else:
+            action_type = actions[..., 0]
+            target_index = actions[..., 1]
+
+        values = self.critic(share_obs)
+        action_dist = self._action_dist(obs, available_actions_batch)
+       
+        log_probs = action_dist.log_prob(action_type)
+        entropy = action_dist.entropy()
+
+        attack = action_type == self.attack_action_index
+        if attack.any():
+            if candidate_target_features_batch is None:
+                raise ValueError(
+                    "PPO needs stored target features for attack actions."
+                )
+
+            features = self._tensor(candidate_target_features_batch)
+            if features.ndim == 2:
+                features = features.unsqueeze(0)
+
+            mask = candidate_target_mask_batch
+            if mask is not None:
+                mask = self._tensor(mask, torch.bool)
+                if mask.ndim == 1:
+                    mask = mask.unsqueeze(0)
+
+            target_dist = self._target_dist(
+                obs[attack],
+                features[attack],
+                mask[attack] if mask is not None else None,
+            )
+            log_probs[attack] += target_dist.log_prob(target_index[attack])
+            entropy[attack] += target_dist.entropy()
+
+        return values, log_probs.unsqueeze(-1), entropy.mean()

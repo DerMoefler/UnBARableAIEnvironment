@@ -60,7 +60,12 @@ from src.environment.bar_environment import BAR_Environment
 from src.train.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.mappo.r_mappo import R_MAPPO
-from src.train.mappo.obs_r_mappo import OBS_DIM, build_r_mappo_observations
+#####To Fix in real training
+from src.train.mappo.obs_r_mappo import (
+    OBS_DIM,
+    build_r_mappo_observations,
+    build_r_mappo_action_context,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -145,100 +150,100 @@ def _set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-
-def _make_bar_action(action_index: Any, unit_id: Any) -> bar_ai.Action:
-    """Convert one policy action row into the object required by BAR_Environment.
-
-    The policy samples zero-based action indices, but the bound C++ ActionId
-    values are one-based. NumPy scalar values are converted to ordinary Python
-    integers before crossing the pybind boundary.
-    """
+##### To Fix in real training
+def _make_bar_action(
+    action_index: Any,
+    unit_id: Any,
+    target_unit_id: Any = 4211,
+) -> bar_ai.Action:
+    """Convert a sampled action into a BAR action with an explicit target."""
     action_value = int(action_index) + 1
-    unit_value = int(unit_id)
     action_id = (
         bar_ai.ActionId(action_value)
         if hasattr(bar_ai, "ActionId")
         else action_value
     )
 
-    # Prefer named construction, because it cannot silently swap two integer
-    # constructor arguments.
-    for kwargs in (
-        {"action_id": action_id, "unit_id": unit_value},
-        {"actionId": action_id, "unitId": unit_value},
-    ):
-        try:
-            return bar_ai.Action(**kwargs)
-        except TypeError:
-            pass
-
-    # Most pybind versions of Action expose Action(action_id, unit_id).
-    try:
-        return bar_ai.Action(action_id, unit_value)
-    except TypeError:
-        pass
-
-    # Support a default-constructible binding with writable fields.
-    try:
-        result = bar_ai.Action()
-    except TypeError as exc:
-        raise TypeError(
-            "Could not construct bar_ai.Action from the sampled action. "
-            "Expected Action(action_id, unit_id), or a default constructor "
-            "with writable action_id and unit_id fields."
-        ) from exc
-
-    action_field = next(
-        (name for name in ("action_id", "actionId") if hasattr(result, name)),
-        None,
-    )
-    unit_field = next(
-        (name for name in ("unit_id", "unitId") if hasattr(result, name)),
-        None,
-    )
-    if action_field is None or unit_field is None:
-        raise TypeError(
-            "bar_ai.Action is default-constructible, but its action and unit "
-            "fields are not exposed to Python."
-        )
-
-    setattr(result, action_field, action_id)
-    setattr(result, unit_field, unit_value)
+    result = bar_ai.Action()
+    result.action_id = action_id
+    result.unit_id = int(unit_id)
+    result.target_unit_id = int(target_unit_id)
     return result
 
-
-def _step_all_agents(env: Any, actions: np.ndarray) -> Any:
-    """Submit a policy action for each controlled unit.
-
-    R_MAPPO returns one [action_index, unit_id] row per agent, while
-    BAR_Environment.step accepts a list of bar_ai.Action objects. All agent
-    actions are therefore converted and submitted together in one environment
-    step.
-    """
+###To Fix in real Training
+def _step_all_agents(
+    env: Any,
+    actions: np.ndarray,
+    obs_raw: Any,
+    training_team_id: int,
+    policy: Any,
+) -> Any:
+    """Resolve policy target indices and submit BAR actions."""
     action_rows = np.asarray(actions)
+
     if action_rows.ndim == 1:
         action_rows = action_rows.reshape(1, -1)
+
     if action_rows.ndim != 2 or action_rows.shape[1] != 2:
         raise ValueError(
             "Policy actions must have shape (num_agents, 2), got "
             f"{action_rows.shape}."
         )
 
-    action_list = [
-        _make_bar_action(action_index, unit_id)
-        for action_index, unit_id in action_rows
-    ]
+    if not isinstance(obs_raw, dict):
+        raise TypeError("Raw unit observations must be a dictionary.")
+
+    own_ids, candidate_ids, _, candidate_mask = (
+        build_r_mappo_action_context(
+            obs_raw,
+            training_team_id=training_team_id,
+        )
+    )
+
+    if len(own_ids) != len(action_rows):
+        raise ValueError(
+            f"Got {len(action_rows)} actions but {len(own_ids)} controlled units."
+        )
+
+    action_list = []
+
+    for row, (action_type, target_index) in enumerate(action_rows):
+        action_type = int(action_type)
+        target_index = int(target_index)
+
+        if action_type == policy.attack_action_index:
+            if not 0 <= target_index < candidate_ids.shape[1]:
+                raise ValueError(
+                    f"Invalid target index {target_index} for unit {own_ids[row]}."
+                )
+            if not candidate_mask[row, target_index]:
+                raise ValueError(
+                    f"Target slot {target_index} is empty for unit {own_ids[row]}."
+                )
+            target_id = int(candidate_ids[row, target_index])
+        else:
+            target_id = 4211
+
+        action_list.append(
+            _make_bar_action(
+                action_type,
+                own_ids[row],
+                target_id,
+            )
+        )
+
     if not action_list:
         raise ValueError("At least one agent action is required.")
 
     result = env.step(action_list)
+
     if not isinstance(result, tuple) or len(result) != 5:
         raise RuntimeError(
             "BAR_Environment.step must return "
             "(obs, reward, terminated, truncated, info)."
         )
-    return result
 
+    return result
 
 def _prepare_obs(
     obs: Any,
@@ -772,7 +777,7 @@ def _make_rnn_state_arrays(
         np.zeros(rnn_shape, dtype=np.float32),
     )
 
-
+###To Fix in real Training
 def _policy_sample_actions(
     policy: Any,
     obs: np.ndarray,
@@ -780,44 +785,24 @@ def _policy_sample_actions(
     available_actions: np.ndarray,
     device: torch.device,
     num_agents: int,
+    raw_obs: Any = None,
+    training_team_id: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Samples actions and value predictions from a compatible policy interface.
 
-    Parameters
-    ----------
-    policy : Any
-        Policy exposing `get_actions`, `get_action`, or actor and critic modules.
-    obs : np.ndarray
-        Per-agent observations.
-    share_obs : np.ndarray
-        Shared observation for the critic.
-    available_actions : np.ndarray
-        Per-agent legal-action mask.
-    device : torch.device
-        Device used for tensor inference.
-    num_agents : int
-        Number of agents represented in the result.
+    Supports policies exposing `get_actions`, `get_action`, or actor and
+    critic modules. For R_MAPPO_Policy, target information is derived from
+    the raw BAR observation and supplied to `get_action`.
 
     Returns
     -------
     values : np.ndarray
-        Critic predictions with shape `(num_agents, 1)`.
+        Critic predictions with shape (num_agents, 1).
     actions : np.ndarray
-        Sampled actions with one row per agent.
+        Sampled actions with shape (num_agents, 2) for the MAPPO policy.
     action_log_probs : np.ndarray
-        Sampled action log-probabilities with shape `(num_agents, 1)`.
-
-    Examples
-    --------
-    >>> class Policy:
-    ...     pass
-    >>> policy = Policy()
-    >>> policy.actor = torch.nn.Linear(2, 3)
-    >>> policy.critic = torch.nn.Linear(2, 1)
-    >>> result = _policy_sample_actions(policy, np.zeros((2, 2)), np.zeros(2), np.ones((2, 3)), torch.device("cpu"), 2)
-    >>> result[0].shape
-    (2, 1)
+        Sampled action log-probabilities with shape (num_agents, 1).
     """
     if hasattr(policy, "get_actions") and callable(policy.get_actions):
         rnn_states, rnn_states_critic = _make_rnn_state_arrays(num_agents)
@@ -840,10 +825,16 @@ def _policy_sample_actions(
 
         value_np = value.detach().cpu().numpy().reshape(-1)
         action_np = action.detach().cpu().numpy().reshape(num_agents, 2)
-        action_log_prob_np = action_log_prob.detach().cpu().numpy().reshape(num_agents, 1)
+        action_log_prob_np = (
+            action_log_prob.detach().cpu().numpy().reshape(num_agents, 1)
+        )
 
         if value_np.size == 1:
-            values = np.full((num_agents, 1), float(value_np[0]), dtype=np.float32)
+            values = np.full(
+                (num_agents, 1),
+                float(value_np[0]),
+                dtype=np.float32,
+            )
         else:
             fixed = np.zeros((num_agents,), dtype=np.float32)
             n = min(num_agents, value_np.size)
@@ -853,25 +844,105 @@ def _policy_sample_actions(
         return values, action_np, action_log_prob_np
 
     if hasattr(policy, "get_action") and callable(policy.get_action):
-        actions, action_log_probs = policy.get_action(
-            torch.as_tensor(obs, dtype=torch.float32, device=device)
-        )
-        action_np = np.asarray(actions, dtype=np.float32).reshape(num_agents, 2)
-        action_log_prob_np = np.asarray(action_log_probs, dtype=np.float32).reshape(num_agents, 1)
+        target_features_tensor = None
+        target_mask_tensor = None
+        candidate_target_ids = None
+
+        # R_MAPPO_Policy needs target candidates to sample attack targets.
+        if raw_obs is not None:
+            (
+                own_unit_ids,
+                candidate_target_ids,
+                target_features,
+                target_mask,
+            ) = build_r_mappo_action_context(
+                raw_obs,
+                training_team_id=training_team_id,
+            )
+
+            if len(own_unit_ids) != num_agents:
+                raise ValueError(
+                    "Mismatch between the number of controlled units in "
+                    f"raw_obs ({len(own_unit_ids)}) and num_agents "
+                    f"({num_agents})."
+                )
+
+            target_features_tensor = torch.as_tensor(
+                target_features,
+                dtype=torch.float32,
+                device=device,
+            )
+            target_mask_tensor = torch.as_tensor(
+                target_mask,
+                dtype=torch.bool,
+                device=device,
+            )
+
+        # Keep compatibility with policies whose get_action() accepts
+        # only the observation tensor.
+        if target_features_tensor is not None:
+            actions, action_log_probs = policy.get_action(
+                torch.as_tensor(
+                    obs,
+                    dtype=torch.float32,
+                    device=device,
+                ),
+                target_features=target_features_tensor,
+                candidate_target_ids=candidate_target_ids,
+                target_mask=target_mask_tensor,
+            )
+        else:
+            actions, action_log_probs = policy.get_action(
+                torch.as_tensor(
+                    obs,
+                    dtype=torch.float32,
+                    device=device,
+                )
+            )
+
+        # Support both torch tensors and NumPy-compatible return values.
+        if isinstance(actions, torch.Tensor):
+            action_np = actions.detach().cpu().numpy()
+        else:
+            action_np = np.asarray(actions)
+
+        if isinstance(action_log_probs, torch.Tensor):
+            action_log_prob_np = action_log_probs.detach().cpu().numpy()
+        else:
+            action_log_prob_np = np.asarray(action_log_probs)
+
+        action_np = action_np.reshape(num_agents, 2).astype(np.float32)
+        action_log_prob_np = action_log_prob_np.reshape(
+            num_agents, 1
+        ).astype(np.float32)
 
         with torch.no_grad():
             share_obs_tensor = torch.as_tensor(
-                share_obs, dtype=torch.float32, device=device
+                share_obs,
+                dtype=torch.float32,
+                device=device,
             ).unsqueeze(0)
+
             values = policy.critic(share_obs_tensor)
 
-        return _repeat_value(values, num_agents), action_np, action_log_prob_np
+        return (
+            _repeat_value(values, num_agents),
+            action_np,
+            action_log_prob_np,
+        )
 
-    obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device)
+    # Fallback for policies exposing only actor and critic modules.
+    obs_tensor = torch.as_tensor(
+        obs,
+        dtype=torch.float32,
+        device=device,
+    )
 
     with torch.no_grad():
         action_logits = policy.actor(obs_tensor)
-        action_dist = torch.distributions.Categorical(logits=action_logits)
+        action_dist = torch.distributions.Categorical(
+            logits=action_logits
+        )
         actions = action_dist.sample()
         action_log_probs = action_dist.log_prob(actions)
 
@@ -885,10 +956,11 @@ def _policy_sample_actions(
 
     value_preds = _repeat_value(values, num_agents)
     action_np = actions.detach().cpu().numpy().reshape(num_agents, 1)
-    action_log_prob_np = action_log_probs.detach().cpu().numpy().reshape(num_agents, 1)
+    action_log_prob_np = (
+        action_log_probs.detach().cpu().numpy().reshape(num_agents, 1)
+    )
 
     return value_preds, action_np, action_log_prob_np
-
 
 def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any]]:
     """
@@ -1062,6 +1134,7 @@ def _log_event(log_path: Path, log_level: int, event_level: int, event: str, **f
     print(f"[MAPPO:L{event_level}] {message}", flush=True)
 
 
+
 def _warm_up_policy(
     policy: Any,
     device: torch.device,
@@ -1069,33 +1142,27 @@ def _warm_up_policy(
     obs_dim: int,
     action_dim: int,
 ) -> None:
-    """Initialize lazy CPU/CUDA work before starting the real-time engine.
-
-    The fast BAR match can finish while the first CUDA operation is still
-    initializing its context and kernels. Running one synthetic inference
-    before env.reset() removes that one-time delay from the live episode.
-    """
-    dummy_obs = np.zeros((num_agents, obs_dim), dtype=np.float32)
-    dummy_share_obs = np.zeros((obs_dim,), dtype=np.float32)
-    dummy_available_actions = np.ones(
-        (num_agents, action_dim), dtype=np.float32
+    """Initialize policy inference before starting the live environment."""
+    dummy_obs = torch.zeros(
+        (num_agents, obs_dim),
+        dtype=torch.float32,
+        device=device,
+    )
+    dummy_share_obs = torch.zeros(
+        (num_agents, obs_dim),
+        dtype=torch.float32,
+        device=device,
     )
 
     policy.actor.eval()
     policy.critic.eval()
+
     with torch.no_grad():
-        _policy_sample_actions(
-            policy=policy,
-            obs=dummy_obs,
-            share_obs=dummy_share_obs,
-            available_actions=dummy_available_actions,
-            device=device,
-            num_agents=num_agents,
-        )
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-    policy.actor.train()
-    policy.critic.train()
+        # Warm up the actor without requiring live BAR target information.
+        policy.actor(dummy_obs)
+
+        # Warm up the critic.
+        policy.critic(dummy_share_obs)
 
 
 def _save_checkpoint(policy: Any, args: argparse.Namespace, episode: int, model_dir: Path) -> Path:
@@ -1497,6 +1564,7 @@ def main() -> None:
 
             while not done and step_count < args.buffer_size:
                 inference_started_at = time.perf_counter()
+                ###Fix
                 value_preds, actions, action_log_probs = _policy_sample_actions(
                     policy=policy,
                     obs=obs,
@@ -1504,6 +1572,8 @@ def main() -> None:
                     available_actions=available_actions,
                     device=device,
                     num_agents=args.num_agents,
+                    raw_obs=obs_raw,
+                    training_team_id=args.training_team_id,
                 )
                 if device.type == "cuda":
                     torch.cuda.synchronize(device)
@@ -1526,7 +1596,14 @@ def main() -> None:
                         )
 
                 environment_started_at = time.perf_counter()
-                step_result = _step_all_agents(env, env_actions)
+                ##### change in training
+                step_result = _step_all_agents(
+                    env,
+                    env_actions,
+                    obs_raw=obs_raw,
+                    training_team_id=args.training_team_id,
+                    policy=policy,
+                )
                 engine_step_elapsed = time.perf_counter() - environment_started_at
                 engine_step_seconds += engine_step_elapsed
                 total_engine_step_seconds += engine_step_elapsed
@@ -1540,6 +1617,31 @@ def main() -> None:
                     step_info,
                     next_available_actions_raw,
                 ) = _parse_step_result(step_result)
+
+                next_obs = _prepare_obs(
+                    next_obs_raw,
+                    args.num_agents,
+                    obs_dim,
+                    training_team_id=args.training_team_id,
+                )
+
+                next_share_obs = _prepare_share_obs(
+                    next_share_obs_raw,
+                    next_obs,
+                    args.num_agents,
+                    obs_dim,
+                )
+
+                next_available_actions = _prepare_available_actions(
+                    next_available_actions_raw,
+                    args.num_agents,
+                    action_dim,
+                )   
+
+                obs_raw = next_obs_raw
+                obs = next_obs
+                share_obs = next_share_obs
+                available_actions = next_available_actions
 
                 # -------------------------------------------------------------
                 # Extract win/loss/alive/debug info from env info.
