@@ -1,0 +1,303 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Sequenz Training" id="seq1">
+    <mxGraphModel dx="2929" dy="1554" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="2178" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;align=left;fontSize=16;" value="&lt;b&gt;Sequenzdiagramm – R-MAPPO Training (BAR 3v3)&lt;/b&gt;" vertex="1">
+          <mxGeometry height="30" width="700" x="10" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_t" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;outlineConnect=0;size=50;fillColor=#dae8fc;" value="training.py&lt;br&gt;(main)" vertex="1">
+          <mxGeometry height="2060" width="130" x="45" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_e" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;outlineConnect=0;size=50;fillColor=#f5f5f5;" value="BAR_Environment" vertex="1">
+          <mxGeometry height="2060" width="130" x="285" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_o" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;outlineConnect=0;size=50;fillColor=#d5e8d4;" value="obs_r_mappo.py" vertex="1">
+          <mxGeometry height="2060" width="130" x="525" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_p" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;outlineConnect=0;size=50;fillColor=#ffe6cc;" value="R_MAPPO_Policy&lt;br&gt;(policy.py)" vertex="1">
+          <mxGeometry height="2060" width="130" x="765" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_b" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;outlineConnect=0;size=50;fillColor=#d5e8d4;" value="SharedReplayBuffer" vertex="1">
+          <mxGeometry height="2060" width="130" x="1005" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_r" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;outlineConnect=0;size=50;fillColor=#ffe6cc;" value="R_MAPPO&lt;br&gt;(Trainer)" vertex="1">
+          <mxGeometry height="2060" width="130" x="1245" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ll_c" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;outlineConnect=0;size=50;fillColor=#f5f5f5;" value="Checkpoint-Datei&lt;br&gt;(.pt)" vertex="1">
+          <mxGeometry height="2060" width="130" x="1485" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c101" parent="1" style="text;html=1;align=left;fontStyle=1;fontSize=13;" value="Vorbereitung (einmalig)" vertex="1">
+          <mxGeometry height="24" width="500" x="10" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="c102" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="145" y="150" />
+              <mxPoint x="145" y="172" />
+            </Array>
+            <mxPoint x="110" y="150" as="sourcePoint" />
+            <mxPoint x="110" y="172" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c103" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="Config laden, Gerät (CPU/CUDA) wählen" vertex="1">
+          <mxGeometry height="26" width="330" x="152" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="c104" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="erzeugen (Actor, Critic, TargetScorer)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="200" as="sourcePoint" />
+            <mxPoint x="830" y="200" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c105" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="erzeugen (Speicher für eine Episode)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="240" as="sourcePoint" />
+            <mxPoint x="1070" y="240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c106" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="erzeugen (mit TrainerArgs + Policy)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="280" as="sourcePoint" />
+            <mxPoint x="1310" y="280" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c107" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="Warm-up (Dummy-Durchlauf)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="320" as="sourcePoint" />
+            <mxPoint x="830" y="320" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c108" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="reset()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="404" as="sourcePoint" />
+            <mxPoint x="350" y="404" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c109" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Rohdaten (alle Einheiten)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="350" y="442" as="sourcePoint" />
+            <mxPoint x="110" y="442" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c110" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="build_r_mappo_observations()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="482" as="sourcePoint" />
+            <mxPoint x="590" y="482" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c111" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Beobachtung pro eigene Einheit">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="590" y="520" as="sourcePoint" />
+            <mxPoint x="110" y="520" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c112" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="prep_rollout() (Eval-Modus)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="560" as="sourcePoint" />
+            <mxPoint x="1310" y="560" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c113" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="build_r_mappo_action_context()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="644" as="sourcePoint" />
+            <mxPoint x="590" y="644" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c114" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Ziel-IDs, Ziel-Features, Masken">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="590" y="682" as="sourcePoint" />
+            <mxPoint x="110" y="682" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c115" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="get_action(obs, Ziele, Masken)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="722" as="sourcePoint" />
+            <mxPoint x="830" y="722" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c116" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Aktionstyp + Ziel-Index, log_prob">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="830" y="760" as="sourcePoint" />
+            <mxPoint x="110" y="760" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c117" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="critic(share_obs)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="800" as="sourcePoint" />
+            <mxPoint x="830" y="800" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c118" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Wert des Zustands">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="830" y="838" as="sourcePoint" />
+            <mxPoint x="110" y="838" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c119" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="action_context erneut (Ziel-Index → Unit-ID)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="878" as="sourcePoint" />
+            <mxPoint x="590" y="878" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c120" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Ziel-ID">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="590" y="916" as="sourcePoint" />
+            <mxPoint x="110" y="916" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c121" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="step(Aktionen aller Einheiten)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="956" as="sourcePoint" />
+            <mxPoint x="350" y="956" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c122" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="neuer Zustand, Reward, terminated/truncated">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="350" y="994" as="sourcePoint" />
+            <mxPoint x="110" y="994" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c123" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="build_r_mappo_observations() (neuer Zustand)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1034" as="sourcePoint" />
+            <mxPoint x="590" y="1034" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c124" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="nächste Beobachtungen">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="590" y="1072" as="sourcePoint" />
+            <mxPoint x="110" y="1072" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c125" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="insert(Obs, Aktionen, Reward, Wert, log_prob, Masken)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1112" as="sourcePoint" />
+            <mxPoint x="1070" y="1112" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c126" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="critic(letzter Zustand)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1216" as="sourcePoint" />
+            <mxPoint x="830" y="1216" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c127" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="next_value">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="830" y="1254" as="sourcePoint" />
+            <mxPoint x="110" y="1254" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c128" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="compute_returns(next_value, gamma)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1294" as="sourcePoint" />
+            <mxPoint x="1070" y="1294" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c129" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Returns / Advantage-Basis berechnet">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1070" y="1332" as="sourcePoint" />
+            <mxPoint x="110" y="1332" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c130" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="prep_training() + train(buffer)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1372" as="sourcePoint" />
+            <mxPoint x="1310" y="1372" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c131" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="Mini-Batch holen (gemischt)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1310" y="1456" as="sourcePoint" />
+            <mxPoint x="1070" y="1456" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c132" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="Mini-Batch">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1070" y="1494" as="sourcePoint" />
+            <mxPoint x="1310" y="1494" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c133" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="evaluate_actions(Mini-Batch)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1310" y="1534" as="sourcePoint" />
+            <mxPoint x="830" y="1534" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c134" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="neue log_probs, Werte, Entropie">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="830" y="1572" as="sourcePoint" />
+            <mxPoint x="1310" y="1572" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c135" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="Actor + Critic Gewichte anpassen">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1310" y="1612" as="sourcePoint" />
+            <mxPoint x="830" y="1612" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c136" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;dashed=1;endArrow=open;" value="train_info (Losses, Entropie)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1310" y="1682" as="sourcePoint" />
+            <mxPoint x="110" y="1682" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c137" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="reset() (Buffer leeren)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1722" as="sourcePoint" />
+            <mxPoint x="1070" y="1722" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c138" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="145" y="1762" />
+              <mxPoint x="145" y="1784" />
+            </Array>
+            <mxPoint x="110" y="1762" as="sourcePoint" />
+            <mxPoint x="110" y="1784" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c139" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" value="Episode ins Log schreiben" vertex="1">
+          <mxGeometry height="26" width="330" x="152" y="1760" as="geometry" />
+        </mxCell>
+        <mxCell id="c140" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="_save_checkpoint() (Gewichte, Optimizer)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1866" as="sourcePoint" />
+            <mxPoint x="1550" y="1866" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c141" parent="1" style="text;html=1;align=left;fontStyle=1;fontSize=13;" value="Nach der letzten Episode" vertex="1">
+          <mxGeometry height="24" width="500" x="10" y="1960" as="geometry" />
+        </mxCell>
+        <mxCell id="c142" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="finaler Checkpoint">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="1998" as="sourcePoint" />
+            <mxPoint x="1550" y="1998" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c143" edge="1" parent="1" style="html=1;verticalAlign=bottom;labelBackgroundColor=none;fontSize=11;endArrow=block;endFill=1;" value="close()">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="2038" as="sourcePoint" />
+            <mxPoint x="350" y="2038" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c144" parent="1" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;fillColor=none;strokeColor=#666666;strokeWidth=2;width=260;height=26;fontStyle=1;" value="loop [für jede Episode]" vertex="1">
+          <mxGeometry height="1580" width="1630" x="20" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="c145" parent="1" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;fillColor=none;strokeColor=#6c8ebf;strokeWidth=2;width=420;height=26;fontStyle=1;" value="loop [Schritt – solange nicht done und Buffer nicht voll]" vertex="1">
+          <mxGeometry height="562" width="1590" x="40" y="590" as="geometry" />
+        </mxCell>
+        <mxCell id="c146" parent="1" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;fillColor=none;strokeColor=#d79b00;strokeWidth=3;width=440;height=26;fontStyle=1;" value="Ende der Episode: HIER wird gelernt (1× pro Episode)" vertex="1">
+          <mxGeometry height="652" width="1590" x="40" y="1160" as="geometry" />
+        </mxCell>
+        <mxCell id="c147" parent="1" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;fillColor=none;strokeColor=#d79b00;strokeWidth=2;width=300;height=26;fontStyle=1;" value="loop [PPO-Epochen × Mini-Batches]" vertex="1">
+          <mxGeometry height="230" width="1550" x="60" y="1422" as="geometry" />
+        </mxCell>
+        <mxCell id="c148" parent="1" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;fillColor=none;strokeColor=#666666;strokeWidth=2;width=200;height=26;fontStyle=1;" value="opt [alle x Episoden]" vertex="1">
+          <mxGeometry height="78" width="1590" x="40" y="1832" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
