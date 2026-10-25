@@ -700,7 +700,7 @@ def _policy_sample_actions(
             )
 
 
-def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any]]:
+def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any]:
     """
     Normalizes supported environment reset return formats.
 
@@ -712,12 +712,12 @@ def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any
     Returns
     -------
     parsed : tuple
-        Observation, shared observation, available actions, and info values.
+        Observation, shared observation, and available actions.
 
     Examples
     --------
     >>> _parse_reset_result(("obs", {"ready": True}))
-    ('obs', None, None, {'ready': True})
+    ('obs', None, None)
     """
     obs_raw = None
     share_obs_raw = None
@@ -730,27 +730,15 @@ def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any, dict[str, Any
 
         if len(reset_result) >= 2:
             second = reset_result[1]
-
-            if isinstance(second, dict):
-                info = second
-            else:
-                share_obs_raw = second
+            share_obs_raw = second
 
         if len(reset_result) >= 3:
             third = reset_result[2]
-
-            if isinstance(third, dict):
-                info = third
-            else:
-                available_actions_raw = third
+            available_actions_raw = third
 
         if len(reset_result) >= 4:
             fourth = reset_result[3]
-
-            if isinstance(fourth, dict):
-                info = fourth
-            else:
-                available_actions_raw = fourth
+            available_actions_raw = fourth
 
     else:
         obs_raw = reset_result
@@ -1285,7 +1273,7 @@ def main() -> None:
             buffer.reset()
             logging.info("buffer.reset() done")
 
-            logging.info("Episode %.2f",(episode + 1)/(start_episode + data["episodes"]))
+            logging.info("Episode %d of %d", episode, data["episodes"])
             logging.info("Episode Reward: %.4f", episode_reward)
             logging.info("Steps: %d", step_count)
 
