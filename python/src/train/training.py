@@ -529,6 +529,7 @@ def _make_rnn_state_arrays(
     )
 
 
+
 def _policy_sample_actions(
     policy: Any,
     obs: np.ndarray,
@@ -538,212 +539,160 @@ def _policy_sample_actions(
     num_agents: int,
     raw_obs: Any = None,
     training_team_id: int = 0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None,]:
-    """
-    Samples actions and value predictions from a compatible policy interface.
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray | None,
+    np.ndarray | None,
+]:
+    """Sample actions, log probabilities and critic values for all agents.
+    Acts as a bridge between the BAR environment and the R-MAPPO policy."""
+    target_features_array = None
+    target_mask_array = None
+    candidate_target_ids = None
 
-    Supports policies exposing `get_actions`, `get_action`, or actor and
-    critic modules. For R_MAPPO_Policy, target information is derived from
-    the raw BAR observation and supplied to `get_action`.
+    obs_tensor = torch.as_tensor(
+        obs,
+        dtype=torch.float32,
+        device=device,
+    )
+    available_actions_tensor = torch.as_tensor(
+        available_actions,
+        dtype=torch.bool,
+        device=device,
+    )
 
-    Returns
-    -------
-    values : np.ndarray
-        Critic predictions with shape (num_agents, 1).
-    actions : np.ndarray
-        Sampled actions with shape (num_agents, 2) for the MAPPO policy.
-    action_log_probs : np.ndarray
-        Sampled action log-probabilities with shape (num_agents, 1).
-    """
-    if hasattr(policy, "get_actions") and callable(policy.get_actions):
-        rnn_states, rnn_states_critic = _make_rnn_state_arrays(num_agents)
-        masks = np.ones((num_agents, 1), dtype=np.float32)
-
-        share_obs_for_policy = (
-            share_obs
-            if share_obs.ndim > 1
-            else np.repeat(share_obs[None, :], num_agents, axis=0)
+    if raw_obs is not None:
+        (
+            own_unit_ids,
+            candidate_target_ids,
+            target_features,
+            target_mask,
+        ) = build_r_mappo_action_context(
+            raw_obs,
+            training_team_id=training_team_id,
         )
 
-        value, action, action_log_prob, _, _ = policy.get_actions(
-            share_obs_for_policy,
-            obs,
-            rnn_states,
-            rnn_states_critic,
-            masks,
-            available_actions,
+        if len(own_unit_ids) != num_agents:
+            raise ValueError(
+                "Mismatch between the number of controlled units in "
+                f"raw_obs ({len(own_unit_ids)}) and num_agents "
+                f"({num_agents})."
+            )
+
+        target_features_array = np.asarray(
+            target_features,
+            dtype=np.float32,
+        )
+        target_mask_array = np.asarray(
+            target_mask,
+            dtype=np.bool_,
         )
 
-        value_np = value.detach().cpu().numpy().reshape(-1)
-        action_np = action.detach().cpu().numpy().reshape(num_agents, 2)
-        action_log_prob_np = (
-            action_log_prob.detach().cpu().numpy().reshape(num_agents, 1)
-        )
-
-        if value_np.size == 1:
-            values = np.full(
-                (num_agents, 1),
-                float(value_np[0]),
-                dtype=np.float32,
-            )
-        else:
-            fixed = np.zeros((num_agents,), dtype=np.float32)
-            n = min(num_agents, value_np.size)
-            fixed[:n] = value_np[:n]
-            values = fixed.reshape(num_agents, 1)
-
-        return values, action_np, action_log_prob_np, None, None
-
-    if hasattr(policy, "get_action") and callable(policy.get_action):
-        target_features_tensor = None
-        target_mask_tensor = None
-        candidate_target_ids = None
-
-        target_features_array = None
-        target_mask_array = None
-        
-        # R_MAPPO_Policy needs target candidates to sample attack targets.
-        if raw_obs is not None:
-            (
-                own_unit_ids,
-                candidate_target_ids,
-                target_features,
-                target_mask,
-            ) = build_r_mappo_action_context(
-                raw_obs,
-                training_team_id=training_team_id,
-            )
-
-            if len(own_unit_ids) != num_agents:
-                raise ValueError(
-                    "Mismatch between the number of controlled units in "
-                    f"raw_obs ({len(own_unit_ids)}) and num_agents "
-                    f"({num_agents})."
-                )
-
-            target_features_array = np.asarray(
-                target_features, dtype=np.float32
-            )
-            target_mask_array = np.asarray(
-                target_mask, dtype=np.bool_
-            )
-
-            target_features_tensor = torch.as_tensor(
-                target_features,
-                dtype=torch.float32,
-                device=device,
-            )
-            target_mask_tensor = torch.as_tensor(
-                target_mask,
-                dtype=torch.bool,
-                device=device,
-            )
-
-        # Keep compatibility with policies whose get_action() accepts
-        # only the observation tensor.
-        if target_features_tensor is not None:
-            actions, action_log_probs = policy.get_action(
-                torch.as_tensor(
-                    obs,
-                    dtype=torch.float32,
-                    device=device,
-                ),
-                target_features=target_features_tensor,
-                candidate_target_ids=candidate_target_ids,
-                target_mask=target_mask_tensor,
-                available_actions=torch.as_tensor(
-                    available_actions,
-                    dtype=torch.bool,
-                    device=device,
-                ),
-            )
-        else:
-            actions, action_log_probs = policy.get_action(
-                torch.as_tensor(
-                    obs,
-                    dtype=torch.float32,
-                    device=device,
-                )
-            )
-
-        # Support both torch tensors and NumPy-compatible return values.
-        if isinstance(actions, torch.Tensor):
-            action_np = actions.detach().cpu().numpy()
-        else:
-            action_np = np.asarray(actions)
-
-        if isinstance(action_log_probs, torch.Tensor):
-            action_log_prob_np = action_log_probs.detach().cpu().numpy()
-        else:
-            action_log_prob_np = np.asarray(action_log_probs)
-
-        action_np = action_np.reshape(num_agents, 2).astype(np.float32)
-        action_log_prob_np = action_log_prob_np.reshape(
-            num_agents, 1
-        ).astype(np.float32)
-
-        with torch.no_grad():
-            share_obs_tensor = torch.as_tensor(
-                share_obs,
-                dtype=torch.float32,
-                device=device,
-            ).unsqueeze(0)
-
-            values = policy.critic(share_obs_tensor)
-
-        return (
-            _repeat_value(values, num_agents),
-            action_np,
-            action_log_prob_np,
+        target_features_tensor = torch.as_tensor(
             target_features_array,
+            dtype=torch.float32,
+            device=device,
+        )
+        target_mask_tensor = torch.as_tensor(
             target_mask_array,
-            )
+            dtype=torch.bool,
+            device=device,
+        )
+
+        # Sample once, preserving target selection and its log probability.
+        actions, action_log_probs = policy.get_action(
+            obs_tensor,
+            target_features=target_features_tensor,
+            candidate_target_ids=candidate_target_ids,
+            target_mask=target_mask_tensor,
+            available_actions=available_actions_tensor,
+        )
+    else:
+        actions, action_log_probs = policy.get_action(
+            obs_tensor,
+            available_actions=available_actions_tensor,
+        )
+
+    action_np = (
+        actions.detach().cpu().numpy()
+        if isinstance(actions, torch.Tensor)
+        else np.asarray(actions)
+    )
+    action_log_prob_np = (
+        action_log_probs.detach().cpu().numpy()
+        if isinstance(action_log_probs, torch.Tensor)
+        else np.asarray(action_log_probs)
+    )
+
+    action_np = action_np.reshape(num_agents, 2).astype(np.float32)
+    action_log_prob_np = action_log_prob_np.reshape(
+        num_agents, 1
+    ).astype(np.float32)
+
+    with torch.no_grad():
+        share_obs_tensor = torch.as_tensor(
+            share_obs,
+            dtype=torch.float32,
+            device=device,
+        ).unsqueeze(0)
+
+        values = policy.critic(share_obs_tensor)
+
+    return (
+        _repeat_value(values, num_agents),
+        action_np,
+        action_log_prob_np,
+        target_features_array,
+        target_mask_array,
+    )
 
 
-def _parse_reset_result(reset_result: Any) -> tuple[Any, Any, Any]:
+
+
+def _parse_reset_result(
+    reset_result: Any,
+) -> tuple[Any, Any, Any]:
     """
-    Normalizes supported environment reset return formats.
+    Normalize environment reset results.
 
-    Parameters
-    ----------
-    reset_result : Any
-        Raw value returned by `env.reset()`.
-
-    Returns
-    -------
-    parsed : tuple
-        Observation, shared observation, and available actions.
-
-    Examples
-    --------
-    >>> _parse_reset_result(("obs", {"ready": True}))
-    ('obs', None, None)
+    Supported formats:
+    - (obs, info)
+    - (obs, share_obs, available_actions)
+    - (obs, share_obs, available_actions, info)
+    - obs
     """
-    obs_raw = None
+    if not isinstance(reset_result, tuple):
+        return reset_result, None, None
+
+    if len(reset_result) == 0:
+        raise RuntimeError("env.reset() returned an empty tuple.")
+
+    obs_raw = reset_result[0]
     share_obs_raw = None
     available_actions_raw = None
-    info: dict[str, Any] = {}
 
-    if isinstance(reset_result, tuple):
-        if len(reset_result) >= 1:
-            obs_raw = reset_result[0]
+    if len(reset_result) == 2:
+        # Standard Gymnasium: (obs, info)
+        # A dictionary in position 2 is metadata, not share_obs.
+        second = reset_result[1]
 
-        if len(reset_result) >= 2:
-            second = reset_result[1]
+        if not isinstance(second, dict):
             share_obs_raw = second
 
-        if len(reset_result) >= 3:
-            third = reset_result[2]
-            available_actions_raw = third
+    elif len(reset_result) == 3:
+        # Custom format: (obs, share_obs, available_actions)
+        share_obs_raw = reset_result[1]
+        available_actions_raw = reset_result[2]
 
-        if len(reset_result) >= 4:
-            fourth = reset_result[3]
-            available_actions_raw = fourth
-
-    else:
-        obs_raw = reset_result
+    elif len(reset_result) >= 4:
+        # Custom format: (obs, share_obs, available_actions, info)
+        share_obs_raw = reset_result[1]
+        available_actions_raw = reset_result[2]
 
     return obs_raw, share_obs_raw, available_actions_raw
+
 
 
 def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
