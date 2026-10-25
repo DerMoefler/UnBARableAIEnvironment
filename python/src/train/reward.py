@@ -3,6 +3,51 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
+def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
+    """
+    Converts raw rewards to one scalar float32 reward per agent.
+
+    Parameters
+    ----------
+    reward : Any
+        Scalar or array-like reward data returned by the environment.
+    num_agents : int
+        Number of agents represented in the result.
+
+    Returns
+    -------
+    rewards : np.ndarray
+        Array with shape `(num_agents, 1)` and dtype float32.
+
+    Examples
+    --------
+    >>> _prepare_reward(1.0, 2).shape
+    (2, 1)
+    """
+    if reward is None:
+        return np.zeros((num_agents, 1), dtype=np.float32)
+
+    arr = np.asarray(reward, dtype=np.float32)
+
+    if arr.ndim == 0:
+        arr = np.full((num_agents, 1), float(arr), dtype=np.float32)
+
+    elif arr.ndim == 1:
+        if arr.size == 1:
+            arr = np.full((num_agents, 1), float(arr[0]), dtype=np.float32)
+        elif arr.size == num_agents:
+            arr = arr.reshape(num_agents, 1)
+        else:
+            fixed = np.zeros((num_agents,), dtype=np.float32)
+            n = min(num_agents, arr.size)
+            fixed[:n] = arr[:n]
+            arr = fixed.reshape(num_agents, 1)
+
+    else:
+        arr = arr.reshape(num_agents, -1)
+        arr = arr[:, :1]
+
+    return arr.astype(np.float32)
 
 @dataclass
 class RewardConfig:
@@ -20,6 +65,7 @@ class RewardConfig:
 
 class RewardCalculator:
     """Calculates training rewards from per-step team statistics."""
+    
 
     def __init__(self, config: Optional[RewardConfig] = None) -> None:
         self.config = config if config is not None else RewardConfig()
@@ -100,52 +146,6 @@ class RewardCalculator:
             clipped_reward=clipped_reward,
         )
         return clipped_reward
-
-def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
-    """
-    Converts raw rewards to one scalar float32 reward per agent.
-
-    Parameters
-    ----------
-    reward : Any
-        Scalar or array-like reward data returned by the environment.
-    num_agents : int
-        Number of agents represented in the result.
-
-    Returns
-    -------
-    rewards : np.ndarray
-        Array with shape `(num_agents, 1)` and dtype float32.
-
-    Examples
-    --------
-    >>> _prepare_reward(1.0, 2).shape
-    (2, 1)
-    """
-    if reward is None:
-        return np.zeros((num_agents, 1), dtype=np.float32)
-
-    arr = np.asarray(reward, dtype=np.float32)
-
-    if arr.ndim == 0:
-        arr = np.full((num_agents, 1), float(arr), dtype=np.float32)
-
-    elif arr.ndim == 1:
-        if arr.size == 1:
-            arr = np.full((num_agents, 1), float(arr[0]), dtype=np.float32)
-        elif arr.size == num_agents:
-            arr = arr.reshape(num_agents, 1)
-        else:
-            fixed = np.zeros((num_agents,), dtype=np.float32)
-            n = min(num_agents, arr.size)
-            fixed[:n] = arr[:n]
-            arr = fixed.reshape(num_agents, 1)
-
-    else:
-        arr = arr.reshape(num_agents, -1)
-        arr = arr[:, :1]
-
-    return arr.astype(np.float32)
 
     @staticmethod
     def _make_info(
