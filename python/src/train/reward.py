@@ -52,13 +52,13 @@ def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
 @dataclass
 class RewardConfig:
     training_team_id: int = 0
-    damage_enemy_coef: float = 0.01
-    damage_own_coef: float = 0.01
-    enemy_kill: float = 1.0
-    own_death: float = 1.0
-    win: float = 5.0
-    loss: float = 5.0
-    time_penalty: float = 0.001
+    damage_enemy_coef: float = 0.02
+    damage_own_coef: float = 0.02
+    enemy_kill: float = 2.0
+    own_death: float = 2.0
+    win: float = 0.0 #win: float = 10.0 -> for when win loss calc is fixed
+    loss: float = 10.0
+    time_penalty: float = 0.002
     clip_min: float = -10.0
     clip_max: float = 10.0
 
@@ -121,8 +121,18 @@ class RewardCalculator:
             - config.own_death * own_deaths
         )
 
-        win_bonus = config.win if enemy_alive_count == 0 and own_alive_count > 0 else 0.0
-        loss_penalty = config.loss if own_alive_count == 0 and enemy_alive_count > 0 else 0.0
+        #win_bonus = config.win if enemy_health_sum == 0 and own_alive_count > 0 else 0.0
+        #loss_penalty = config.loss if own_alive_count == 0 and enemy_alive_count > 0 else 0.0
+        
+        #scuffed loss calc (maybe works)
+        loss_penalty = config.loss if own_alive_count == 0 else 0.0
+        
+        #equally as scuffed win calc (works probably not)
+        if loss_penalty == 0.0 and enemy_kills == 3:
+            win_bonus = config.win
+        else:
+            win_bonus = 0.0
+        
         reward += win_bonus - loss_penalty - config.time_penalty
 
         raw_reward = float(reward)
