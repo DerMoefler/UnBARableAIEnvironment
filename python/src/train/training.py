@@ -699,6 +699,59 @@ def _save_checkpoint(policy: Any,
     latest_temporary_path.replace(latest_path)
     return episode_path
 
+
+def _load_checkpoint(
+    policy: R_MAPPO_Policy,
+    config: Any,
+    device: torch.device,
+    checkpoint_path: Path,
+) -> int:
+    """Restore actor, critic, and available optimizer states from a checkpoint."""
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location=device,
+        weights_only=True,
+    )
+    if not isinstance(checkpoint, dict):
+        raise ValueError(
+            f"Checkpoint must contain a dictionary: {checkpoint_path}"
+        )
+
+    expected_dimensions = (OBS_DIM, int(config["action_dimension"]))
+    checkpoint_dimensions = (
+        int(checkpoint.get("obs_dim", -1)),
+        int(checkpoint.get("action_dim", -1)),
+    )
+    if checkpoint_dimensions != expected_dimensions:
+        raise ValueError(
+            "Checkpoint dimensions do not match this training run: "
+            f"checkpoint={checkpoint_dimensions}, "
+            f"requested={expected_dimensions}."
+        )
+
+    required_states = ("actor_state_dict", "critic_state_dict")
+    missing_states = [key for key in required_states if key not in checkpoint]
+    if missing_states:
+        raise ValueError(
+            "Checkpoint is missing required policy state(s): "
+            + ", ".join(missing_states)
+            + "."
+        )
+
+    policy.actor.load_state_dict(checkpoint["actor_state_dict"])
+    policy.critic.load_state_dict(checkpoint["critic_state_dict"])
+
+    actor_optimizer_state = checkpoint.get("actor_optimizer_state_dict")
+    if actor_optimizer_state is not None:
+        policy.actor_optimizer.load_state_dict(actor_optimizer_state)
+
+    critic_optimizer_state = checkpoint.get("critic_optimizer_state_dict")
+    if critic_optimizer_state is not None:
+        policy.critic_optimizer.load_state_dict(critic_optimizer_state)
+
+    return int(checkpoint.get("episode", 0))
+
+
 def load_training_config():
     with open(
         "src/train/experiments/3v3Test/3v3Test.json",
@@ -774,7 +827,36 @@ def main() -> None:
         )
         logging.info("created R MAPPO policy")
 
+        if "continue_training" not in data:
+            raise ValueError(
+                "Missing required training configuration key "
+                "'continue_training'. Set it to true or false."
+            )
+        continue_training = data["continue_training"]
+        if not isinstance(continue_training, bool):
+            raise ValueError(
+                "'continue_training' must be a boolean (true or false)."
+            )
+
         start_episode = 0
+        if continue_training:
+            checkpoint_path = run_directory / "r_mappo_latest.pt"
+            if not checkpoint_path.is_file():
+                raise FileNotFoundError(
+                    f"Cannot continue training: checkpoint not found at "
+                    f"{checkpoint_path}"
+                )
+            start_episode = _load_checkpoint(
+                policy,
+                data,
+                device,
+                checkpoint_path,
+            )
+            logging.info(
+                "Resumed training from %s at episode %d",
+                checkpoint_path,
+                start_episode,
+            )
 
         #initializing Replay Buffer
         buffer = SharedReplayBuffer(

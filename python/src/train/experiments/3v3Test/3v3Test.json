@@ -1,6 +1,7 @@
 {
     "action_dimension"      : 5,
-    "buffer_size"           : 6000,   
+    "buffer_size"           : 6000,
+    "continue_training"     : true,   
     "episodes"              : 2,
     "device"                : "auto",
     "gamma"                 : 0.99,
