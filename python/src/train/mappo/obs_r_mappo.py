@@ -149,6 +149,138 @@ def _nearest_units(
         ),
     )[:limit]
 
+def _prepare_obs(
+    obs: Any,
+    num_agents: int,
+    obs_dim: int,
+    training_team_id: int = 0,
+) -> np.ndarray:
+    """
+    Converts raw observations to a fixed per-agent float32 array.
+
+    Parameters
+    ----------
+    obs : Any
+        Raw observation data returned by the environment.
+    num_agents : int
+        Number of agents represented in the result.
+    obs_dim : int
+        Width of each agent observation.
+
+    Returns
+    -------
+    observations : np.ndarray
+        Array with shape `(num_agents, obs_dim)` and dtype float32.
+
+    Examples
+    --------
+    >>> _prepare_obs(np.zeros(4), 2, 4).shape
+    (2, 4)
+    """
+    if obs is None:
+        return np.zeros((num_agents, obs_dim), dtype=np.float32)
+
+    if isinstance(obs, dict):
+        obs = build_r_mappo_observations(
+            obs,
+            training_team_id=training_team_id,
+        )
+
+    arr = np.asarray(obs, dtype=np.float32)
+
+    if arr.ndim == 1:
+        if arr.size == obs_dim:
+            arr = np.tile(arr[None, :], (num_agents, 1))
+        elif arr.size == num_agents * obs_dim:
+            arr = arr.reshape(num_agents, obs_dim)
+        else:
+            fixed = np.zeros((num_agents * obs_dim,), dtype=np.float32)
+            n = min(fixed.size, arr.size)
+            fixed[:n] = arr.reshape(-1)[:n]
+            arr = fixed.reshape(num_agents, obs_dim)
+
+    elif arr.ndim >= 2:
+        if arr.shape[0] != num_agents:
+            flat = arr.reshape(-1)
+            fixed = np.zeros((num_agents * obs_dim,), dtype=np.float32)
+            n = min(fixed.size, flat.size)
+            fixed[:n] = flat[:n]
+            arr = fixed.reshape(num_agents, obs_dim)
+        else:
+            arr = arr.reshape(num_agents, -1)
+
+            if arr.shape[1] != obs_dim:
+                fixed = np.zeros((num_agents, obs_dim), dtype=np.float32)
+                n = min(obs_dim, arr.shape[1])
+                fixed[:, :n] = arr[:, :n]
+                arr = fixed
+
+    return arr.astype(np.float32)
+
+def _prepare_share_obs(
+    share_obs: Any,
+    obs: np.ndarray,
+    num_agents: int,
+    obs_dim: int,
+) -> np.ndarray:
+    """
+    Converts raw centralized observations to a fixed float32 vector.
+
+    Parameters
+    ----------
+    share_obs : Any
+        Raw shared observation data returned by the environment.
+    obs : np.ndarray
+        Prepared per-agent observations used as a fallback.
+    num_agents : int
+        Number of agents represented in the shared observation.
+    obs_dim : int
+        Width of the shared observation vector.
+
+    Returns
+    -------
+    shared_observation : np.ndarray
+        Vector with shape `(obs_dim,)` and dtype float32.
+
+    Examples
+    --------
+    >>> obs = np.zeros((2, 4), dtype=np.float32)
+    >>> _prepare_share_obs(None, obs, 2, 4).shape
+    (4,)
+    """
+    if share_obs is None:
+        return obs.mean(axis=0).astype(np.float32)
+
+    arr = np.asarray(share_obs, dtype=np.float32)
+
+    if arr.ndim == 1:
+        if arr.size == obs_dim:
+            return arr.astype(np.float32)
+
+        fixed = np.zeros((obs_dim,), dtype=np.float32)
+        n = min(obs_dim, arr.size)
+        fixed[:n] = arr.reshape(-1)[:n]
+        return fixed
+
+    if arr.ndim >= 2:
+        if arr.shape[0] == num_agents:
+            arr = arr.reshape(num_agents, -1)
+
+            if arr.shape[1] == obs_dim:
+                return arr.mean(axis=0).astype(np.float32)
+
+            fixed = np.zeros((num_agents, obs_dim), dtype=np.float32)
+            n = min(obs_dim, arr.shape[1])
+            fixed[:, :n] = arr[:, :n]
+            return fixed.mean(axis=0).astype(np.float32)
+
+        flat = arr.reshape(-1)
+        fixed = np.zeros((obs_dim,), dtype=np.float32)
+        n = min(obs_dim, flat.size)
+        fixed[:n] = flat[:n]
+        return fixed
+
+    return obs.mean(axis=0).astype(np.float32)
 
 def build_r_mappo_observations(
     unit_dictionary: Mapping[str, Any],
