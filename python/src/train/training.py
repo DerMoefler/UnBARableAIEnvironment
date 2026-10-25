@@ -27,24 +27,84 @@ from src.train.mappo.trainerargs import TrainerArgs
 # Helper functions
 # ---------------------------------------------------------------------------
 
+
 def _make_bar_action(
     action_index: Any,
     unit_id: Any,
     target_unit_id: Any = 4211,
 ) -> bar_ai.Action:
-    """Convert a sampled action into a BAR action with an explicit target."""
+    """Convert a policy action into a BAR action with an explicit target."""
     action_value = int(action_index) + 1
+    unit_value = int(unit_id)
+    target_value = int(target_unit_id)
+
     action_id = (
         bar_ai.ActionId(action_value)
         if hasattr(bar_ai, "ActionId")
         else action_value
     )
 
-    result = bar_ai.Action()
-    result.action_id = action_id
-    result.unit_id = int(unit_id)
-    result.target_unit_id = int(target_unit_id)
+    # Prefer named construction to avoid swapping integer arguments.
+    for kwargs in (
+        {
+            "action_id": action_id,
+            "unit_id": unit_value,
+            "target_unit_id": target_value,
+        },
+        {
+            "actionId": action_id,
+            "unitId": unit_value,
+            "targetUnitId": target_value,
+        },
+    ):
+        try:
+            return bar_ai.Action(**kwargs)
+        except TypeError:
+            pass
+
+    # Try positional construction with the target as the third argument.
+    try:
+        return bar_ai.Action(action_id, unit_value, target_value)
+    except TypeError:
+        pass
+
+    # Fall back to the original two-argument constructor.
+    try:
+        result = bar_ai.Action(action_id, unit_value)
+    except TypeError:
+        try:
+            result = bar_ai.Action()
+        except TypeError as exc:
+            raise TypeError(
+                "Could not construct bar_ai.Action with action, unit, "
+                "and target fields."
+            ) from exc
+
+    # Support both common naming conventions for bound fields.
+    field_options = (
+        (("action_id", "actionId"), action_id),
+        (("unit_id", "unitId"), unit_value),
+        (("target_unit_id", "targetUnitId"), target_value),
+    )
+
+    for names, value in field_options:
+        field = next(
+            (name for name in names if hasattr(result, name)),
+            None,
+        )
+        if field is None:
+            raise TypeError(
+                f"bar_ai.Action does not expose any of these fields: {names}."
+            )
+        try:
+            setattr(result, field, value)
+        except (AttributeError, TypeError) as exc:
+            raise TypeError(
+                f"Could not set bar_ai.Action field {field!r}."
+            ) from exc
+
     return result
+
 
 def _step_all_agents(
     env: Any,
@@ -64,9 +124,6 @@ def _step_all_agents(
             "Policy actions must have shape (num_agents, 2), got "
             f"{action_rows.shape}."
         )
-
-    if not isinstance(obs_raw, dict):
-        raise TypeError("Raw unit observations must be a dictionary.")
 
     own_ids, candidate_ids, _, candidate_mask = (
         build_r_mappo_action_context(
