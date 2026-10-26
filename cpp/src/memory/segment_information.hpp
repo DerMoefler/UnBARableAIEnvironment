@@ -140,6 +140,8 @@ public:
     /// \brief Getter for memory start.
     constexpr position_t getMemoryStart(void) const { return m_memoryStart; }
 
+    constexpr const SegmentHeader& getHeader(void) const { return m_header; }
+
 private:
     id_t m_id;
     bool m_isValid;

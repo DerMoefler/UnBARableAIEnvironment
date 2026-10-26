@@ -380,7 +380,7 @@ private:
     size_t m_size = 0;
 
     /// \brief Handles segments.
-    SegmentTable m_segmentTable = SegmentTable({});
+    SegmentTable m_segmentTable = SegmentTable();
 };
 
 };  // namespace memory

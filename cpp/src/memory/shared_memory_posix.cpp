@@ -149,39 +149,25 @@ bool SharedMemoryPosix::update(void) {
 
 id_t SharedMemoryPosix::createSegment(const std::size_t size) {
     SPDLOG_LOGGER_TRACE(logger, "Creation of segment with size {} request.", size);
-    // std::cout << "SharedMemoryPosix::createSegment: Requested size = " << size << std::endl;
     if (!size) {
-        throw std::length_error("Don't dare create an empty segment.");
+        constexpr std::string_view message = "Cannot create empty segment";
+        SPDLOG_LOGGER_ERROR(logger, message);
+        throw std::length_error(std::string(message));
     }
-    id_t newSegmentId = m_idAllocator.allocate();
-    if (newSegmentId >= m_segmentsInformation.capacity() - 1) {
+
+    if (m_segmentTable.isFull()) {
         extendSegmentTable();
     }
-    // std::cout << "Trying to create segment with id " << newSegmentId << std::endl;
-    // Initialize segment information
-    SegmentInformation& sInformation = m_segmentsInformation[newSegmentId];
-    sInformation = sInformation.initialize(m_head, size);
 
-    // extend shm if needed (an additional size_t is needed for the encoding of the valid length in
-    // the beginning)
-    const std::size_t segmentSize = sInformation.totalSize();
-    if ((m_head + segmentSize) > m_size) {
-        // Increase by n * c_size_increase to fit the data into memory.
-        const size_t sizeIncrease = (segmentSize / c_size_increase + 1) * c_size_increase;
-        increaseSize(sizeIncrease);
-    }
-    // TODO check if works and document somewhere
-    write(segmentSize, m_head + SegmentHeader::c_total_size_field_offset);
-    write(static_cast<position_t>(0), m_head + SegmentHeader::c_head_field_offset);
-    setSegmentTableLink(newSegmentId, m_head);
-    write(static_cast<id_t>(0x00), m_head + SegmentHeader::c_next_segment_field_offset);
+    assert(!m_segmentTable.isFull() && "Segment table extension did not work properly.");
 
-    // Move head to after the segment
-    m_head += segmentSize;
-    // std::cout << "SharedMemoryPosix::createSegment: Successfully created segment." << std::endl;
+    const SegmentInformation& newSegment = m_segmentTable.allocate(size);
+    increaseSizeIfNecessary();
+
+    write(newSegment.getHeader(), newSegment.getMemoryStart());
 
     SPDLOG_LOGGER_DEBUG(logger, "New segment with id={} created.", newSegmentId);
-    return newSegmentId;
+    return newSegment.getId();
 }
 
 void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
