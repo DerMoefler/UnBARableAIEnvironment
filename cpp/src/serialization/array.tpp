@@ -51,7 +51,7 @@ private:
     static constexpr Type deserializeImpl(
         const std::span<const std::byte, c_serialized_size> serialized,
         std::index_sequence<Is...>) {
-        return {TypeSI::deserialize(
+        return {serialization::deserialize<T>(
             serialized.template subspan<Is * c_element_size, c_element_size>())...};
     }
 };
