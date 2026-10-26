@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <vector>
 #include <utility>
@@ -100,11 +101,30 @@ private:
 
 }  // namespace detail
 
+/**
+ * \brief Handles the allocation and deallocation of new segments.
+ *
+ * This class is designed to hold the information about segments. The metadata (i.e. id and
+ * position) reside in one or multiple PartialSegmentTables. Instances of \ref SegmentInformation
+ * then store information about the actual segments, like their datasize etc. This class does not
+ * perform physical modifications, i.e. allocating a Segment here does require the SharedMemoryImpl
+ * class to then actually write the SegmentHeader. This class is information only.
+ */
 class SegmentTable {
 public:
-    SegmentTable(std::vector<PartialSegmentTable> tables);
+    /// \brief Construct an empty SegmentTable (no PartialSegmentTable, no SegmentInformation).
+    SegmentTable(void) = default;
 
-    id_t allocate(const std::size_t segmentDataSize);
+    // TODO implement
+    // SegmentTable(std::vector<PartialSegmentTable> tables);
+
+    /**
+     * \brief Allocates a new segment of the size \p segmentDataSize.
+     * \param segmentDataSize Number of data bytes for the new Segment.
+     * \returns Corresponding instance of SegmentInformation.
+     */
+    [[nodiscard("The new SegmentInformation's header must be written to the physical shm.")]]
+    const SegmentInformation& allocate(const std::size_t segmentDataSize);
 
     void release(const id_t segmentId);
 
@@ -122,7 +142,7 @@ public:
         return m_head;
     }
 
-    [[nodiscard("The new PartialSegmentTable has to be written.")]]
+    [[nodiscard]]
     const std::vector<PartialSegmentTable>& getPartialSegmentTables(void) const {
         return m_partialSegmentTables;
     }
@@ -136,13 +156,15 @@ private:
      * \param chunkSize Number of bytes for the chunk.
      * \returns position_t of the first byte.
      */
+    [[nodiscard]]
     position_t allocateChunk(const std::size_t chunkSize);
 
-    /// \brief Head of the shared memory.
+    /// \brief Head of the shared memory. Starts after the size of \ref ShmHeader.
     position_t m_head = static_cast<position_t>(
         serialization::getSerializableSize(std::type_identity<ShmHeader>{}));
 
-    std::vector<PartialSegmentTable> m_partialSegmentTables;
+    std::vector<PartialSegmentTable> m_partialSegmentTables = {};
+    std::vector<std::optional<SegmentInformation>> m_segments = {};
     id::IdAllocator m_idAllocator{};
 };
 

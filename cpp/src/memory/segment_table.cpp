@@ -75,9 +75,10 @@ id_t PartialSegmentTable::deserializeAtPosition(SerializedView serialized, posit
 
 }  // namespace detail
 
-SegmentTable::SegmentTable(std::vector<PartialSegmentTable> tables)
-    : m_partialSegmentTables(std::move(tables)) {
-    // TODO validation, m_idAllocator and free chunk building
+// SegmentTable::SegmentTable(std::vector<PartialSegmentTable> tables)
+//     : m_partialSegmentTables(std::move(tables)) {
+//     // TODO validation, m_idAllocator and free chunk building
+// }
 bool SegmentTable::isFull(void) const {
     for (const auto& table : m_partialSegmentTables) {
         if (!table.isFull()) {
@@ -91,6 +92,7 @@ const PartialSegmentTable& SegmentTable::extend(void) {
     const std::size_t index = m_partialSegmentTables.size();
     position_t offset = allocateChunk(c_partial_table_size);
     m_partialSegmentTables.push_back(PartialSegmentTable(offset, index));
+    m_segments.insert(m_segments.end(), PartialSegmentTable::c_segments_count, std::nullopt);
     return m_partialSegmentTables[index];
 }
 
