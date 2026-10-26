@@ -37,7 +37,7 @@ public:
      * \param link New link.
      * \returns New entry object.
      */
-    SegmentTableEntry updateLink(const std::optional<link_t> link) {
+    constexpr SegmentTableEntry updateLink(const std::optional<link_t> link) const {
         return SegmentTableEntry(m_id, link);
     }
 
@@ -51,8 +51,8 @@ public:
     constexpr std::optional<link_t> getLink(void) const { return m_link; }
 
 private:
-    const id_t m_id;
-    const std::optional<link_t> m_link;
+    id_t m_id;
+    std::optional<link_t> m_link;
 };
 
 }  // namespace memory

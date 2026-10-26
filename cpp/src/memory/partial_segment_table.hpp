@@ -57,6 +57,11 @@ public:
     constexpr PartialSegmentTable(const SegmentTableHeader header, Entries entries)
         : PartialSegmentTable(0, header, std::move(entries)) {}
 
+    constexpr void updateEntryLink(const id_t id, const std::optional<link_t> link) {
+        throwIfIdOutOfRange(id);
+        m_entries[id] = m_entries[id].updateLink(link);
+    }
+
     /**
      * \brief Check whether the table is full.
      * \returns Whether the table is full.
@@ -84,6 +89,12 @@ private:
     constexpr static Entries buildEmptyEntries(const std::size_t baseIndex,
                                                std::index_sequence<Is...>) {
         return {SegmentTableEntry(baseIndex + Is)...};
+    }
+
+    constexpr static void throwIfIdOutOfRange(const id_t id) {
+        if (id >= c_segments_count) {
+            throw std::out_of_range("Id is out of range");
+        }
     }
 
     position_t m_offset;
