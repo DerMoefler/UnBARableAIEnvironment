@@ -6,12 +6,14 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <stdexcept>
 
+#include "id/id_allocator.hpp"
+#include "memory/partial_segment_table.hpp"
 #include "serialization/serialize_information.h"
 #include "serialization/trivial_serializable.hpp"
 
 #include "serialization/array.tpp"
 
-static auto logger = spdlog::stdout_color_mt("PartialSegmentTable");
+static auto logger = spdlog::stdout_color_mt("SegmentTable");
 
 namespace UnBARableAINS {
 
@@ -20,69 +22,42 @@ namespace memory {
 template <serialization::Serializable S>
 using SI = serialization::SerializeInformation<S>;
 
-namespace detail {
-
-PartialSegmentTable::PartialSegmentTable(position_t offset, SerializedView serialized)
-    : PartialSegmentTable(offset, getIdAtIndex(serialized, 0)) {}
-
-bool PartialSegmentTable::updateLinks(SerializedView serialized) {
-    bool change = false;
-    for (std::size_t i = 0; i < c_segments_count; i++) {
-        auto& segment = m_segments[i];
-        const id_t readId = getIdAtIndex(serialized, i);
-        const id_t expectedId = segment.getId();
-        if (readId != expectedId) {
-            std::string errorMsg = std::format(
-                "Serialized data starts with id {}, but partial segment table starts with {}",
-                readId, expectedId);
-            SPDLOG_LOGGER_ERROR(logger, errorMsg);
-            throw std::invalid_argument(errorMsg);
-        }
-
-        const link_t link = getLinkAtIndex(serialized, i);
-        if (!link) {
-            SPDLOG_LOGGER_DEBUG(logger, "Segment with id {} is empty", expectedId);
-            if (segment.isValid()) {
-                SPDLOG_LOGGER_TRACE(logger, "Segment {} was deleted since last update.",
-                                    expectedId);
-                segment = segment.invalidate();
-                change = true;
-            }
-        }
-        else {
-            position_t newMemoryStart = static_cast<link_t>(link);
-            if (segment.isValid()) {
-                position_t oldMemoryStart = segment.getMemoryStart();
-                if (newMemoryStart == oldMemoryStart) {
-                    continue;
-                }
-                else {
-                    change = true;
-                    segment = SegmentInformation(expectedId, newMemoryStart, 0);
-                }
-            }
-            else {
-                change = true;
-                segment = SegmentInformation(expectedId, newMemoryStart, 0);
-            }
-        }
+SegmentTable::SegmentTable(std::vector<PartialSegmentTable> tables,
+                           std::vector<std::optional<SegmentHeader>> headers)
+    : m_partialSegmentTables(std::move(tables)) {
+    // TODO validation, m_idAllocator and free chunk building
+    const std::size_t expectedHeaderCount =
+        m_partialSegmentTables.size() * PartialSegmentTable::c_segments_count;
+    if (headers.size() != expectedHeaderCount) {
+        std::string message = std::format(
+            "Header's size must be tables.size() * PartialSegmentTable::c_segments_count, i.e. {} "
+            "* {}. However, received number of headers is {}",
+            m_partialSegmentTables.size(), PartialSegmentTable::c_segments_count, headers.size());
+        SPDLOG_LOGGER_ERROR(logger, message);
+        throw std::invalid_argument(message);
     }
 
-    return change;
+    m_segments.reserve(expectedHeaderCount);
+    for (id_t id = 0; id < expectedHeaderCount; id++) {
+        const auto& table = m_partialSegmentTables[getTableIndex(id)];
+        const auto& entry = table.getEntries()[getIntableIndex(id)];
+        const auto link = entry.getLink();
+        const auto& header = headers[id];
+
+        if (link.has_value() != header.has_value()) {
+            throw std::runtime_error(std::format("Mismatch between tables and headers."));
+        }
+
+        if (link.has_value()) {
+            m_segments.push_back(SegmentInformation{id, link.value(), header.value()});
+        }
+        else {
+            m_segments.emplace_back(std::nullopt);
+        }
+    }
+    updateHead();
+    updateIdAllocator();
 }
-
-id_t PartialSegmentTable::deserializeAtPosition(SerializedView serialized, position_t position) {
-    auto serializedId = std::span<const std::byte, sizeof(id_t)>{
-        serialized.data() + static_cast<std::size_t>(position), sizeof(id_t)};
-    return SI<id_t>::deserialize(serializedId);
-}
-
-}  // namespace detail
-
-// SegmentTable::SegmentTable(std::vector<PartialSegmentTable> tables)
-//     : m_partialSegmentTables(std::move(tables)) {
-//     // TODO validation, m_idAllocator and free chunk building
-// }
 
 const SegmentInformation& SegmentTable::allocate(const std::size_t segmentDataSize) {
     const std::size_t totalSegmentSize = SegmentInformation::c_header_size + segmentDataSize;
@@ -151,6 +126,44 @@ position_t SegmentTable::allocateChunk(const std::size_t chunkSize) {
     position_t position = m_head;
     m_head += chunkSize;
     return position;
+}
+
+bool SegmentTable::updateHead(void) {
+    // Minimum head position
+    const auto oldHead = m_head;
+    m_head = static_cast<position_t>(
+        serialization::getSerializableSize(std::type_identity<ShmHeader>{}));
+
+    for (const auto& table : m_partialSegmentTables) {
+        m_head =
+            std::max(m_head, static_cast<position_t>(table.getOffset() + c_partial_table_size));
+    }
+
+    for (const auto& segment : m_segments) {
+        if (!segment.has_value()) continue;
+        const position_t offset = segment.value().getMemoryStart();
+        const position_t segmentEnd = offset + static_cast<position_t>(segment.value().totalSize());
+        m_head = std::max(m_head, segmentEnd);
+    }
+
+    SPDLOG_LOGGER_DEBUG(logger, "Updated head. Old position: {}. New position: {}", oldHead,
+                        m_head);
+
+    return oldHead != m_head;
+}
+
+void SegmentTable::updateIdAllocator(void) {
+    std::set<id::id_t> ids;
+    for (std::size_t i = 0; i < m_segments.size(); i++) {
+        const auto& segment = m_segments[i];
+        if (segment.has_value()) {
+            assert(segment.value().getId() == i &&
+                   "Segment's id must match its index in m_segments");
+            ids.emplace(static_cast<id::id_t>(i));
+        }
+    }
+    m_idAllocator = id::IdAllocator();
+    m_idAllocator.setUsedIds(ids);
 }
 
 void SegmentTable::throwOnInvalidId(const id_t segmentId) const {
