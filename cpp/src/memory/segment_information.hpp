@@ -56,6 +56,18 @@ public:
         , m_header(SegmentHeader(dataSize)) {}
 
     /**
+     * \brief Constructor for a valid segment in memory but with header data.
+     * \param id Id assigned to the segment.
+     * \param memoryStart Start of the header in the shared memory.
+     * \param header Header of the segment.
+     */
+    constexpr SegmentInformation(const id_t id, const position_t memoryStart, SegmentHeader header)
+        : m_id(id)
+        , m_isValid(true)
+        , m_memoryStart(memoryStart)
+        , m_header(std::move(header)) {}
+
+    /**
      * \brief Create a valid segment from an invalid one.
      * \param memoryStart Start of the header in the shared memory.
      * \param dataSize Paylod size of the segment.

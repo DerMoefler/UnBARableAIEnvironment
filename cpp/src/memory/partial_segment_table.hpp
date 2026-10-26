@@ -80,6 +80,8 @@ public:
 
     constexpr position_t getOffset(void) const { return m_offset; }
 
+    constexpr void setOffset(position_t offset) { m_offset = offset; }
+
     constexpr const Entries& getEntries(void) const { return m_entries; }
 
     constexpr std::optional<position_t> nextPartialTablePosition(void) const {
