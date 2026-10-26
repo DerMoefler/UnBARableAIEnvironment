@@ -793,9 +793,6 @@ def main() -> None:
     )
     logging.info("device_description: %s", device_description)
 
-    #Choosing to resume another run or start a new one
-    #Resuming not inplemented as of now.
-
     model_directory = Path(f"src/train/experiments/{data["run_name"]}/models")
     run_directory = Path(f"src/train/experiments/{data["run_name"]}/run")
 
@@ -808,10 +805,15 @@ def main() -> None:
     total_inference_seconds = 0.0
     total_training_seconds = 0.0
     total_checkpoint_seconds = 0.0
-    
-    logging.info("Initializing new BAR Environment")
-    env = BAR_Environment()
-    logging.info("Initialized new BAR Environment")
+
+    environments = []
+
+    for i in range(data["number_of_environments"]):
+        logging.info("Initializing new BAR Environment, engine_id: %d port %d", i, 50051 + i)
+        env = BAR_Environment(engine_id = i, port = 50051+i)
+        environments.append(env)
+        logging.info("Initialized new BAR Environment, engine_id: %d, port %d", i, 50051 + i)
+
     success = False
 
     try:
@@ -890,7 +892,7 @@ def main() -> None:
             engine_step_seconds = 0.0
 
             logging.info("starting environment reset")
-            reset_result = env.reset()
+            reset_result = environments[0].reset()
             logging.info("reset complete")
 
 
@@ -974,7 +976,7 @@ def main() -> None:
 
                 environment_started_at = time.perf_counter()
                 step_result = _step_all_agents(
-                    env,
+                    environments[0],
                     env_actions,
                     obs_raw=obs_raw,
                         training_team_id=data["training_team_id"],
@@ -1220,9 +1222,9 @@ def main() -> None:
             raise
     
     finally:
-        if env is not None:
+        if environments[0] is not None:
             try:
-                env.close()
+                environments[0].close()
                 logging.debug("env.close() done")
             except Exception as close_err:
                 logging.warning("env.close() failed: %s", close_err)
