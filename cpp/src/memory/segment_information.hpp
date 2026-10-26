@@ -6,6 +6,9 @@
 
 #include "memory/shared_memory_types.h"
 #include "memory/segment_header.hpp"
+#include "serialization/trivial_serializable.hpp"
+
+#include "serialization/segment_header.tpp"
 
 namespace UnBARableAINS {
 
@@ -24,9 +27,8 @@ namespace memory {
 class SegmentInformation {
 public:
     /// \brief Constant size of the header.
-    inline static constexpr std::size_t c_header_size = SegmentHeader::c_size;
-
-    using HeaderView = SegmentHeader::HeaderView;
+    inline static constexpr std::size_t c_header_size =
+        serialization::getSerializableSize(std::type_identity<SegmentHeader>{});
 
     /**
      * \brief Constructor for an invalid segment, i.e. one that is not in use.
@@ -104,7 +106,7 @@ public:
      * \returns Position of the head if the segment was full.
      */
     constexpr position_t fullHeadPosition(void) const {
-        return m_memoryStart + static_cast<position_t>(m_header.getTotalSize());
+        return m_memoryStart + static_cast<position_t>(totalSize());
     }
 
     /**
@@ -124,7 +126,7 @@ public:
     constexpr void advanceHead(const std::size_t increment) { m_header.advanceHead(increment); }
 
     /// \brief Get total size the segment occupies in memory, i.e. including its header.
-    constexpr std::size_t totalSize(void) const { return m_header.getTotalSize(); }
+    constexpr std::size_t totalSize(void) const { return c_header_size + m_header.getDataSize(); }
 
     /**
      * \brief Checks if the segment is valid.

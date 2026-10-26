@@ -18,7 +18,7 @@ struct SerializeInformation<memory::SegmentHeader> {
 
     inline static constexpr bool c_serializable = Serializable<std::optional<memory::id_t>>;
 
-    struct F_TotalSize : detail::Field_t {
+    struct F_DataSize : detail::Field_t {
         using Type = std::size_t;
     };
 
@@ -30,10 +30,10 @@ struct SerializeInformation<memory::SegmentHeader> {
         using Type = std::optional<id_t>;
     };
 
-    using Fields = detail::Fields<F_TotalSize, F_Head, F_NextSegmentId>;
+    using Fields = detail::Fields<F_DataSize, F_Head, F_NextSegmentId>;
 
-    static constexpr std::size_t get(std::type_identity<F_TotalSize>, const Type& value) {
-        return value.getTotalSize();
+    static constexpr std::size_t get(std::type_identity<F_DataSize>, const Type& value) {
+        return value.getDataSize();
     }
 
     static constexpr memory::position_t get(std::type_identity<F_Head>, const Type& value) {
@@ -60,11 +60,11 @@ static_assert(TrivialSerializable<memory::SegmentHeader> &&
 static_assert(getSerializableSize(std::type_identity<memory::SegmentHeader>{}) == 17,
               "Incorrect size for SegmentHeader (or implemenation changed, in that case just "
               "change the comparison value).");
-static_assert(getFieldOffset(
-                  std::type_identity<memory::SegmentHeader>{},
-                  std::type_identity<SerializeInformation<memory::SegmentHeader>::F_TotalSize>{}) ==
-                  0,
-              "Wrong offset for F_TotalSize (or implementation changed).");
+static_assert(
+    getFieldOffset(std::type_identity<memory::SegmentHeader>{},
+                   std::type_identity<SerializeInformation<memory::SegmentHeader>::F_DataSize>{}) ==
+        0,
+    "Wrong offset for F_TotalSize (or implementation changed).");
 static_assert(
     getFieldOffset(std::type_identity<memory::SegmentHeader>{},
                    std::type_identity<SerializeInformation<memory::SegmentHeader>::F_Head>{}) == 8,

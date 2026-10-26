@@ -17,32 +17,20 @@ namespace memory {
  * \brief Representation for the deserialized segment header.
  *
  * A segment stores information about itself in the header. These information are
- * - total size of the segment, i.e. including the header.
+ * - data size of the segment, i.e. excluding the header.
  * - head position within the data part of the segment, i.e. how many bytes have actually been
  * written
  * - another segment id which this segment links to
+ *
+ * To get the size of the header, use the SerializeInformation specialization.
  */
 class SegmentHeader {
 public:
-    /// \brief Constant size of the header itself.
-    inline static constexpr std::size_t c_size =
-        sizeof(std::size_t) + sizeof(position_t) + sizeof(id_t);
-
-    inline static constexpr position_t c_total_size_field_offset = 0;
-    inline static constexpr position_t c_head_field_offset =
-        c_total_size_field_offset + sizeof(std::size_t);
-    inline static constexpr position_t c_next_segment_field_offset =
-        c_head_field_offset + sizeof(position_t);
-
-    /// \brief Alias for the view to the serialized data of a header.
-    using HeaderView = std::span<const std::byte, c_size>;
-
     /**
      * \brief Constructs a header for a segment that does not yet actually exist.
      */
     constexpr SegmentHeader(void)
-        : m_totalSize(0)
-        , m_dataSize(0)
+        : m_dataSize(0)
         , m_head(0)
         , m_nextSegmentId(std::nullopt) {}
 
@@ -51,26 +39,19 @@ public:
      * \param dataSize Size of the segment's data part.
      */
     constexpr SegmentHeader(const std::size_t dataSize)
-        : m_totalSize(dataSize + c_size)
-        , m_dataSize(dataSize)
+        : m_dataSize(dataSize)
         , m_head(0)
         , m_nextSegmentId(std::nullopt) {}
 
-    constexpr SegmentHeader(const std::size_t totalSize, const memory::position_t head,
+    constexpr SegmentHeader(const std::size_t dataSize, const memory::position_t head,
                             const std::optional<memory::id_t> nextSegmentId)
-        : m_totalSize(totalSize)
-        , m_dataSize(totalSize - c_size)
+        : m_dataSize(dataSize)
         , m_head(head)
         , m_nextSegmentId(nextSegmentId) {
         if (m_head > m_dataSize) {
             throw std::logic_error(
                 std::format("Head cannot be at position {} because the maximum data size is {}.",
                             m_head, m_dataSize));
-        }
-        if (m_totalSize < c_size) {
-            throw std::logic_error(std::format(
-                "Total size cannot be {} bytes because the header itself requires {} bytes.",
-                m_totalSize, c_size));
         }
     }
 
@@ -99,8 +80,8 @@ public:
         return m_dataSize - static_cast<std::size_t>(m_head);
     }
 
-    /// \brief Getter for total size.
-    constexpr std::size_t getTotalSize(void) const { return m_totalSize; }
+    /// \brief Getter for dataSize.
+    constexpr std::size_t getDataSize(void) const { return m_dataSize; }
 
     /// \brief Getter for head.
     constexpr position_t getHead(void) const { return m_head; }
@@ -108,7 +89,6 @@ public:
     constexpr std::optional<id_t> getNextSegmentId(void) const { return m_nextSegmentId; }
 
 private:
-    std::size_t m_totalSize;
     std::size_t m_dataSize;
     position_t m_head;
 
