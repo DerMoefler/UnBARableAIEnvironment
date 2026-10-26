@@ -10,7 +10,12 @@
 #include "memory/shared_memory_types.h"
 #include "memory/segment_table.hpp"
 #include "serialization/byte_container.h"
-#include "serialization/serialize_information.h"
+
+#include "serialization/array.tpp"
+#include "serialization/optional.tpp"
+#include "serialization/partial_segment_table.tpp"
+#include "serialization/segment_table_entry.tpp"
+#include "serialization/shm_header.tpp"
 
 namespace UnBARableAINS {
 
@@ -111,13 +116,14 @@ public:
      */
     id_t createSegment(const std::size_t size);
 
-    inline size_t getSegmentsCount(void) const { return m_segmentTable.validSegmentCount(); }
+    // TODO fix
+    inline size_t getSegmentsCount(void) const { return 0; }
 
     /**
      * \brief Get the segment information, i.e. its position and size in memory.
      */
     inline SegmentInformation getSegmentInformation(id_t segmentId) const {
-        return findSegmentInformation(segmentId);
+        return m_segmentTable.getSegmentInformation(segmentId);
     }
 
     /**
@@ -131,7 +137,7 @@ public:
      * written if the Segment's remaining capacity (total capcaity - head) is too small to fit the
      * entire data.
      */
-    void appendToSegment(const id_t id, DataView data);
+    void appendToSegment(const id_t segmentId, DataView data);
 
     /**
      * \brief Writes data into a Segment starting at the specified position.
@@ -155,7 +161,7 @@ public:
      * This method reads all the data bytes (i.e. excluding header and links between partial
      * segments) and copies them into an std::vector<std::byte> which is then returned.
      */
-    std::vector<std::byte> readSegment(id_t segmentId) const;
+    std::vector<std::byte> readSegment(const id_t segmentId) const;
 
     /**
      * \brief Increases the total capacity of the Segment.
@@ -226,22 +232,6 @@ private:
     /// \brief Trivial ctor.
     SharedMemoryPosix(std::string_view name);
 
-    /**
-     * \brief Finds a segmentInformation for the id or throws if it doesnt exist.
-     */
-    const SegmentInformation& findSegmentInformation(id_t segmentId) const;
-
-    /**
-     * \brief Finds a segmentInformation for the id or throws if it doesnt exist.
-     */
-    SegmentInformation& findSegmentInformation(id_t segmentId);
-
-    /**
-     * \brief Returns the associated SegmentInformation's index in m_segmentsInformation for the
-     * specified id, if present. Otherwise, returns std::nullopt.
-     */
-    std::optional<size_t> findSegmentInformationIndex(id_t segmentId) const;
-
     /// \brief Increase the size of the shared memory region by some amount.
     void increaseSize(const size_t size = c_size_increase);
 
@@ -253,9 +243,20 @@ private:
      * SegmentTable::allocate() it has to be checked that the head is not larger than the physical
      * memory.
      *
-     * This class increases the size by multiples of.
+     * This method increases the size by multiples of \ref c_size_increase.
      */
     void increaseSizeIfNecessary(void);
+
+    /**
+     * \brief Allocate a new segment with \p dataSize.
+     * \param dataSize Number of data bytes for the new segment.
+     *
+     * Allocates a new segment in the SegmentTable and then updates the link and increases the size
+     * if necessary.
+     *
+     * \see updateSegmentTableLink, increaseSizeIfNecessary.
+     */
+    const SegmentInformation& allocateNewSegment(const std::size_t dataSize);
 
     /// \brief Map the shared memory into the virtual address space using mmap().
     void map(void);
@@ -263,61 +264,27 @@ private:
     /// \brief Release acquired ressources.
     void release(void);
 
-    /**
-     * \brief Read the segments information from an shm.
-     * \returns Whether any segment information has changed.
-     * \ref isSegmentTableValid() == true
-     */
-    bool updateSegmentsInformation(void);
-
-    /**
-     * \brief Updates the head position.
-     *
-     * \pre m_segmentsInformation must have been initialized (see \ref
-     * initializeSegmentsInformation).
-     */
-    void updateHead(void);
-
-    /**
-     * \brief Initializes the id allocator according to the m_segmentsInformation.
-     *
-     * Overrides the current idAllocator completely.
-     */
-    void initializeIdAllocator(void);
-
     /// \brief Extend m_segmentTable and write the new PartialSegmentTable to memory.
     void extendSegmentTable(void);
 
-    /// \brief Update the \ref link_t in the segment table for the given id. \todo Possibly change
-    /// to use Segment.
-    void setSegmentTableLink(const id_t id, const link_t link);
+    /**
+     * \brief Updates the SegmentTable's link.
+     * \param segmentId Id of the segment.
+     * \param link Link for the segment.
+     *
+     * \note This method relies on the fact that SegmentTable::allocate only affects the link for
+     * the segment with id segmentId in the PartialSegmentTable, nothing else.
+     */
+    void updateSegmentTableLink(const id_t segmentId, const std::optional<link_t> link);
 
     /**
      * \brief Update the valid length as written in shm.
      * \param segmentId Id of the segment to update.
-     * \throws std::runtime_error if segment isnt found.
-     * \todo change error?
+     * \throws If segmentId is unknown / uninitialized.
+     * \note This method requires that only the head changed when SegmentTable::advanceHead is
+     * called. If this isnt ensured, the method breaks.
      */
-    void updateValidLength(id_t segmentId);
-
-    /**
-     * \brief Helper function to check if serialized data contains a value (at some position).
-     * \param serialized Serialized data to search in.
-     * \param value Value to check.
-     * \param start Start inside \p serialized.
-     *
-     * Checks if \p serialized, beginning at \p start, is the serialized version of \p value.
-     */
-    template <std::unsigned_integral T>
-    static bool isContainedAt(DataView serialized, T value, position_t start = 0) {
-        for (size_t i = 0; i < sizeof(T); i++) {
-            if (serialized[start + i] !=
-                static_cast<std::byte>((value >> ((sizeof(T) - 1 - i) * 8)) & 0xFF)) {
-                return false;
-            }
-        }
-        return true;
-    }
+    void updateValidLength(const id_t segmentId);
 
     /**
      * \brief Read raw data bytes.
@@ -343,22 +310,6 @@ private:
 
     /// \brief Checks that magic and version are valid at the start of the shm.
     bool isStartValid(void) const;
-
-    /**
-     * \brief Checks that the segment table is (structurally valid).
-     * \param start Start withing the shared memory.
-     * \param firstId FirstId within the partial table (do not specify, used internally for
-     * recursion).
-     *
-     * This method does check that the segment table is structurally intact, i.e. that it reads
-     * sequentially, each partial segment is \ref c_contiguous_segment_count elements big and links
-     * correctly within itself.
-     *
-     * However, it explicitly does NOT check whether the segment's offsets actually make sense. For
-     * all this function cares, they could point to somewhere inside the segment table (which would
-     * obviously not be a good thing, if that were the case).
-     */
-    bool isSegmentTableValid(position_t start = c_segment_table_start, id_t firstId = 0) const;
 
     // static_assert(
     //     c_segment_table_size < c_size_increase,

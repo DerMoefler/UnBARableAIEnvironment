@@ -23,9 +23,8 @@
 #include "memory/segment_header.hpp"
 #include "memory/shm_header.hpp"
 #include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
 #include "utility/unsigned_of_size.hpp"
-
-#include "serialization/shm_header.tpp"
 
 static auto logger = spdlog::stdout_color_mt("SharedMemoryPosix");
 
@@ -129,19 +128,18 @@ bool SharedMemoryPosix::update(void) {
     }
 
     if (!isStartValid()) throw std::runtime_error("Shared memory's start is invalid.");
-    if (!isSegmentTableValid())
-        throw std::runtime_error("Shared memory's segment table is invalid.");
+    // TODO implement
+    // if (!isSegmentTableValid())
+    //     throw std::runtime_error("Shared memory's segment table is invalid.");
 
-    const auto oldSegmentsInformation = m_segmentsInformation;
-    if (!initializeSegmentsInformation())
-        throw std::runtime_error("Initializing segments information failed");
+    // const auto oldSegmentsInformation = m_segmentsInformation;
+    // if (!initializeSegmentsInformation())
+    //     throw std::runtime_error("Initializing segments information failed");
 
-    if (oldSegmentsInformation != m_segmentsInformation) {
-        change = true;
-        initializeIdAllocator();
-    }
-
-    updateHead();
+    // if (oldSegmentsInformation != m_segmentsInformation) {
+    //     change = true;
+    //     initializeIdAllocator();
+    // }
 
     SPDLOG_LOGGER_DEBUG(logger, "Updated shared memory \"{}\"", m_name);
     return change;
@@ -161,27 +159,26 @@ id_t SharedMemoryPosix::createSegment(const std::size_t size) {
 
     assert(!m_segmentTable.isFull() && "Segment table extension did not work properly.");
 
-    const SegmentInformation& newSegment = m_segmentTable.allocate(size);
-    increaseSizeIfNecessary();
+    const SegmentInformation& newSegment = allocateNewSegment(size);
 
     write(newSegment.getHeader(), newSegment.getMemoryStart());
 
-    SPDLOG_LOGGER_DEBUG(logger, "New segment with id={} created.", newSegmentId);
+    SPDLOG_LOGGER_DEBUG(logger, "New segment with id={} created.", newSegment.getId());
     return newSegment.getId();
 }
 
-void SharedMemoryPosix::appendToSegment(const id_t id, DataView data) {
+void SharedMemoryPosix::appendToSegment(const id_t segmentId, DataView data) {
     // std::cout << "SharedMemoryPosix::apendToSegment" << std::endl;
-    SegmentInformation& segmentInformation = findSegmentInformation(id);
+    const SegmentInformation& segment = m_segmentTable.getSegmentInformation(segmentId);
     for (size_t i = 0; i < data.size(); i++) {
-        write(static_cast<uint8_t>(data[i]), segmentInformation.headPosition());
-        segmentInformation.advanceHead(1);
+        write(static_cast<uint8_t>(data[i]), segment.headPosition());
+        m_segmentTable.advanceSegmentInformationHead(segmentId, 1);
     }
-    updateValidLength(id);
+    updateValidLength(segmentId);
 }
 
-std::vector<std::byte> SharedMemoryPosix::readSegment(id_t segmentId) const {
-    const SegmentInformation& segmentInformation = findSegmentInformation(segmentId);
+std::vector<std::byte> SharedMemoryPosix::readSegment(const id_t segmentId) const {
+    const SegmentInformation& segmentInformation = m_segmentTable.getSegmentInformation(segmentId);
 
     const position_t dataStart = segmentInformation.dataStart();
     const std::size_t dataSize = segmentInformation.validLength();
@@ -204,14 +201,11 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
 }
 
 void SharedMemoryPosix::deleteSegment(id_t segmentId) {
-    auto& si = findSegmentInformation(segmentId);
-    si = si.invalidate();
-    m_idAllocator.release(segmentId);
-    updateHead();
+    // TODO implement
 }
 
 std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position_t offset) const {
-    const SegmentInformation& segmentInformation = findSegmentInformation(segmentId);
+    const SegmentInformation& segmentInformation = m_segmentTable.getSegmentInformation(segmentId);
     // Link cannot be valid if data hasnt even been written
     if (offset + sizeof(link_t) > segmentInformation.validLength()) {
         return std::nullopt;
@@ -222,7 +216,8 @@ std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position
     assert(serialized.size() == sizeof(link_t) && "Link's size must be sizeof(link_t) bytes");
     auto linkedSegmentId = SI<link_t>::deserialize(
         std::span<const std::byte, sizeof(link_t)>{serialized.data(), sizeof(link_t)});
-    const SegmentInformation& linkedSegmentInformation = findSegmentInformation(linkedSegmentId);
+    const SegmentInformation& linkedSegmentInformation =
+        m_segmentTable.getSegmentInformation(linkedSegmentId);
     if (linkedSegmentInformation.isValid()) {
         return linkedSegmentId;
     }
@@ -234,38 +229,6 @@ std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position
 SharedMemoryPosix::SharedMemoryPosix(std::string_view name)
     : m_name(name) {}
 
-// TODO refactor into unified implementation for mutable and immutable
-auto SharedMemoryPosix::findSegmentInformation(id_t segmentId) const -> const SegmentInformation& {
-    auto indexOpt = findSegmentInformationIndex(segmentId);
-    if (!indexOpt.has_value()) {
-        throw std::runtime_error("No segment with that id");
-    }
-    const SegmentInformation& segmentInformation = m_segmentsInformation[indexOpt.value()];
-    return segmentInformation;
-}
-
-auto SharedMemoryPosix::findSegmentInformation(id_t segmentId) -> SegmentInformation& {
-    auto indexOpt = findSegmentInformationIndex(segmentId);
-    if (!indexOpt.has_value()) {
-        throw std::runtime_error("No segment with that id");
-    }
-    SegmentInformation& segmentInformation = m_segmentsInformation[indexOpt.value()];
-    return segmentInformation;
-}
-
-std::optional<size_t> SharedMemoryPosix::findSegmentInformationIndex(id_t segmentId) const {
-    auto it = std::find_if(m_segmentsInformation.begin(), m_segmentsInformation.end(),
-                           [segmentId](const SegmentInformation& segInfo) -> bool {
-                               return (segInfo.getId() == segmentId) && segInfo.isValid();
-                           });
-    if (it == m_segmentsInformation.end()) {
-        return std::nullopt;
-    }
-    else {
-        return std::distance(m_segmentsInformation.begin(), it);
-    }
-}
-
 void SharedMemoryPosix::increaseSize(const size_t size) {
     ftruncate(m_id, m_size + size);
     m_size += size;
@@ -274,11 +237,19 @@ void SharedMemoryPosix::increaseSize(const size_t size) {
 
 void SharedMemoryPosix::increaseSizeIfNecessary(void) {
     position_t head = m_segmentTable.getHead();
-    if (m_head > m_size) {
-        const std::size_t requiredSize = m_head - static_cast<position_t>(m_size);
-        const std::size_t sizeIncrease = (requiresSize / c_size_increase) * (c_size_increase + 1);
+    if (head > m_size) {
+        const std::size_t requiredSize = head - static_cast<position_t>(m_size);
+        const std::size_t sizeIncrease = (requiredSize / c_size_increase) * (c_size_increase + 1);
         increaseSize(sizeIncrease);
+        SPDLOG_LOGGER_TRACE(logger, "Increased size by {}", sizeIncrease);
     }
+}
+
+const SegmentInformation& SharedMemoryPosix::allocateNewSegment(const std::size_t dataSize) {
+    const SegmentInformation& newSegment = m_segmentTable.allocate(dataSize);
+    increaseSizeIfNecessary();
+    updateSegmentTableLink(newSegment.getId(), static_cast<link_t>(newSegment.getMemoryStart()));
+    return newSegment;
 }
 
 void SharedMemoryPosix::map(void) {
@@ -298,130 +269,41 @@ void SharedMemoryPosix::release(void) {
         m_id = -1;
     }
 
-    m_idAllocator = id::IdAllocator();
     m_name = {};
     m_size = 0;
-    m_head = 0;
-    m_segmentsInformation = {};
-    m_segmentTableOffsets = {};
-}
-
-bool SharedMemoryPosix::updateSegmentsInformation(void) {
-    constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
-
-    std::size_t partialSegmentTableStart = c_segment_table_start;
-    std::size_t partialSegmentTableIndex = 0;
-
-    auto change = false;
-    auto run = true;
-
-    while (run) {
-    }
-
-    // Returns whether another partial segment table follows
-    auto initializePartialSegmentsInformation = [&]() -> bool {
-        // Add this to offsets
-        m_segmentTableOffsets.push_back(partialSegmentTableStart);
-
-        m_segmentsInformation.reserve(c_segment_table_start);
-        // Update head
-        m_head = std::max(m_head,
-                          static_cast<position_t>(partialSegmentTableStart + c_segment_table_size));
-
-        std::vector<std::byte> partialSegmentTable =
-            read(partialSegmentTableStart, c_segment_table_size);
-        assert(partialSegmentTable.size() == c_segment_table_size &&
-               "Segment table size must satisfy compile time definition");
-        std::size_t offset;
-        for (int i = 0; i < c_contiguous_segment_count; i++) {
-            offset = i * c_entry_size;
-            auto serializedId = std::span<const std::byte, sizeof(id_t)>{
-                partialSegmentTable.data() + offset, sizeof(id_t)};
-            auto serializedLink = std::span<const std::byte, sizeof(position_t)>{
-                partialSegmentTable.data() + offset + sizeof(id_t), sizeof(position_t)};
-            auto id = SI<id_t>::deserialize(serializedId);
-            auto link = SI<position_t>::deserialize(serializedLink);
-
-            if (!link) {
-                SPDLOG_LOGGER_TRACE(logger, "Segment with id {} is empty", id);
-                m_segmentsInformation.push_back(SegmentInformation(id));
-                continue;
-            }
-
-            auto segmentSize = detail::deserializeUnsigned<sizeof(std::size_t)>(
-                read(link + SegmentHeader::c_total_size_field_offset, sizeof(std::size_t)));
-            auto validLength = detail::deserializeUnsigned<sizeof(position_t)>(
-                read(link + SegmentHeader::c_head_field_offset, sizeof(position_t)));
-            SPDLOG_LOGGER_TRACE(logger,
-                                "Segment with id {} starts at position {}, has {} paylaod bytes. "
-                                "Total segment size is {} bytes",
-                                id, link, validLength, segmentSize);
-            // std::cout << "SharedMemoryPosix::initializeSegmentsInformation (Id: " << id
-            //           << ", Link:" << link << ", ValidLength: " << validLength << ")\n";
-            SegmentInformation si(id, link, segmentSize - SegmentHeader::c_size);
-            si.advanceHead(validLength);
-            m_segmentsInformation.push_back(std::move(si));
-        }
-        position_t continuation = SI<position_t>::deserialize(
-            std::span{partialSegmentTable}
-                .subspan<c_segment_table_size - sizeof(link_t), sizeof(link_t)>());
-        partialSegmentTableStart = continuation;
-        return continuation != 0;
-    };
-
-    auto run = true;
-    while (run) {
-        run = initializePartialSegmentsInformation();
-    }
-
-    return true;
-}
-
-void SharedMemoryPosix::updateHead(void) {
-    // Minimum head position
-    m_head = c_segment_table_start;
-
-    for (const auto tableOffset : m_segmentTableOffsets) {
-        m_head = std::max(m_head, static_cast<position_t>(tableOffset + c_segment_table_size));
-    }
-    for (const auto& si : m_segmentsInformation) {
-        if (!si.isValid()) continue;
-        m_head = std::max(m_head, si.fullHeadPosition());
-    }
-}
-
-void SharedMemoryPosix::initializeIdAllocator(void) {
-    m_idAllocator = id::IdAllocator();
-    std::set<id::id_t> usedIds{};
-    for (std::size_t i = 0; i < m_segmentsInformation.size(); i++) {
-        if (m_segmentsInformation[i].isValid()) {
-            usedIds.insert(static_cast<id::id_t>(i));
-        }
-    }
-    m_idAllocator.setUsedIds(usedIds);
+    m_segmentTable = SegmentTable();
 }
 
 void SharedMemoryPosix::extendSegmentTable(void) {
     auto newPartialTable = m_segmentTable.extend();
-    result.write(newPartialTable, newPartialTable.getOffset());
+    write(newPartialTable, newPartialTable.getOffset());
     increaseSizeIfNecessary();
+    SPDLOG_LOGGER_TRACE(logger, "Extended SegmentTable.");
 }
 
-void SharedMemoryPosix::setSegmentTableLink(const id_t id, const link_t position) {
-    size_t partialTableIdx = id / c_contiguous_segment_count;
-    id_t partialTableStart = m_segmentTableOffsets.at(partialTableIdx);
-    id_t writeOffset =
-        partialTableStart + (id % c_contiguous_segment_count) * 2 * sizeof(id_t) + sizeof(id_t);
-    write(position, writeOffset);
+void SharedMemoryPosix::updateSegmentTableLink(const id_t segmentId,
+                                               const std::optional<link_t> link) {
+    using F_Link = typename serialization::SerializeInformation<SegmentTableEntry>::F_Link;
+    constexpr std::size_t linkOffset = serialization::getFieldOffset(
+        std::type_identity<SegmentTableEntry>{}, std::type_identity<F_Link>{});
+
+    const position_t entryPosition = m_segmentTable.getSegmentEntryPosition(segmentId);
+    const position_t entryLinkPosition = entryPosition + static_cast<position_t>(linkOffset);
+
+    write(link, entryLinkPosition);
 }
 
-void SharedMemoryPosix::updateValidLength(id_t segmentId) {
-    const SegmentInformation& segmentInformation = findSegmentInformation(segmentId);
-    // TODO holy fucking ass code
-    std::size_t validLength = segmentInformation.validLength();
-    position_t validLengthPosition =
-        segmentInformation.getMemoryStart() + SegmentHeader::c_head_field_offset;
-    write(static_cast<position_t>(validLength), validLengthPosition);
+void SharedMemoryPosix::updateValidLength(const id_t segmentId) {
+    using F_Head = typename serialization::SerializeInformation<SegmentHeader>::F_Head;
+    static_assert(std::same_as<typename F_Head::Type, position_t>, "Implementation changed");
+    constexpr std::size_t headFieldOffset = serialization::getFieldOffset(
+        std::type_identity<SegmentHeader>{}, std::type_identity<F_Head>{});
+
+    const SegmentInformation& segmentInformation = m_segmentTable.getSegmentInformation(segmentId);
+
+    const std::size_t segmentHead = segmentInformation.validLength();
+    position_t segmentHeadPosition = segmentInformation.getMemoryStart() + headFieldOffset;
+    write(static_cast<position_t>(segmentHead), segmentHeadPosition);
 }
 
 std::vector<std::byte> SharedMemoryPosix::read(position_t position, size_t numBytes) const {
@@ -433,32 +315,18 @@ std::vector<std::byte> SharedMemoryPosix::read(position_t position, size_t numBy
 
 bool SharedMemoryPosix::isStartValid(void) const {
     // TODO refactor to use deserialize maybe
-    std::vector<std::byte> shmStart = read(0, 8);
-    return isContainedAt(shmStart, c_UnBARableAI_magic) && isContainedAt(shmStart, c_version, 4);
-}
-
-bool SharedMemoryPosix::isSegmentTableValid(position_t start, id_t firstId) const {
-    std::vector<std::byte> partialSegmentTable = read(start, c_segment_table_size);
-    // An entry consisting of (id) -> (link)
-    constexpr size_t c_entry_size = sizeof(id_t) + sizeof(link_t);
-    for (id_t i = 0; i < c_contiguous_segment_count; i++) {
-        if (!isContainedAt(partialSegmentTable, firstId + i, i * c_entry_size)) {
-            // TODO remove
-            // std::cout << dataViewToUnsigned<position_t>(
-            //    std::span{partialSegmentTable}.subspan(i * c_entry_size));
-            return false;
-        }
-    }
-    if (!isContainedAt(partialSegmentTable, c_partial_table_link_id,
-                       c_segment_table_size - c_entry_size)) {
+    constexpr std::size_t shmHeaderSize =
+        serialization::getSerializableSize(std::type_identity<ShmHeader>{});
+    std::vector<std::byte> serializedHeader = read(0, shmHeaderSize);
+    try {
+        serialization::deserialize<ShmHeader>(
+            std::span<const std::byte, shmHeaderSize>{serializedHeader.data(), shmHeaderSize});
+        return true;
+    } catch (const std::invalid_argument& exception) {
         return false;
     }
-    position_t continuation = SI<position_t>::deserialize(
-        std::span{partialSegmentTable}
-            .subspan<c_segment_table_size - sizeof(link_t), sizeof(link_t)>());
-    return continuation ? isSegmentTableValid(continuation, firstId + c_contiguous_segment_count)
-                        : true;
 }
 
 };  // namespace memory
+
 };  // namespace UnBARableAINS
