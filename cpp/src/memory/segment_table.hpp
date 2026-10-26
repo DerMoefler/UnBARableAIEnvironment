@@ -108,6 +108,13 @@ public:
 
     void release(const id_t segmentId);
 
+    /**
+     * \brief Check whether the table is full.
+     * \returns Whether the table is full.
+     */
+    bool isFull(void) const;
+
+    [[nodiscard("The new PartialSegmentTable must be written to the physical shm.")]]
     const PartialSegmentTable& extend(void);
 
     [[nodiscard]]

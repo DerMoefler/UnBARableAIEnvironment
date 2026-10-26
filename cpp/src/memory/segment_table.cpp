@@ -78,6 +78,13 @@ id_t PartialSegmentTable::deserializeAtPosition(SerializedView serialized, posit
 SegmentTable::SegmentTable(std::vector<PartialSegmentTable> tables)
     : m_partialSegmentTables(std::move(tables)) {
     // TODO validation, m_idAllocator and free chunk building
+bool SegmentTable::isFull(void) const {
+    for (const auto& table : m_partialSegmentTables) {
+        if (!table.isFull()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 const PartialSegmentTable& SegmentTable::extend(void) {

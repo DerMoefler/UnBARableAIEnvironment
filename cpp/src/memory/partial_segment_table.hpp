@@ -57,6 +57,19 @@ public:
     constexpr PartialSegmentTable(const SegmentTableHeader header, Entries entries)
         : PartialSegmentTable(0, header, std::move(entries)) {}
 
+    /**
+     * \brief Check whether the table is full.
+     * \returns Whether the table is full.
+     */
+    constexpr bool isFull(void) const {
+        for (const auto& entry : m_entries) {
+            if (entry.doesSegmentExist()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     constexpr position_t getOffset(void) const { return m_offset; }
 
     constexpr const Entries& getEntries(void) const { return m_entries; }
