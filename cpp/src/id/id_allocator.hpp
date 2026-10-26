@@ -13,6 +13,8 @@ namespace id {
  */
 class IdAllocator {
 public:
+    /// \brief Default comparison operator.
+    bool operator==(const IdAllocator& rhs) const = default;
     /**
      * \brief Get next id and allocate it in the buffer.
      */

@@ -126,6 +126,9 @@ public:
     [[nodiscard("The new SegmentInformation's header must be written to the physical shm.")]]
     const SegmentInformation& allocate(const std::size_t segmentDataSize);
 
+    /// \brief Default comparison operator
+    bool operator==(const SegmentTable& rhs) const = default;
+
     void release(const id_t segmentId);
 
     /**

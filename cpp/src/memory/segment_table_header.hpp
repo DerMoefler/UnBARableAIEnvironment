@@ -51,6 +51,9 @@ public:
         }
     }
 
+    /// \brief Default comparison operator.
+    constexpr bool operator==(const SegmentTableHeader& rhs) const = default;
+
     /**
      * \brief Create a new object with a different link.
      * \param link Link for the new object.

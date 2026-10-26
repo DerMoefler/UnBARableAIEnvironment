@@ -32,6 +32,9 @@ public:
         : m_id(id)
         , m_link(link) {}
 
+    /// \brief Defaulted comparison operator.
+    constexpr bool operator==(const SegmentTableEntry& rhs) const = default;
+
     /**
      * \brief Construct a new entry with the same id but new link.
      * \param link New link.

@@ -62,6 +62,9 @@ public:
         m_entries[id] = m_entries[id].updateLink(link);
     }
 
+    /// \brief Default comparison operator.
+    constexpr bool operator==(const PartialSegmentTable& rhs) const = default;
+
     /**
      * \brief Check whether the table is full.
      * \returns Whether the table is full.

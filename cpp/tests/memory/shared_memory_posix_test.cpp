@@ -13,7 +13,7 @@ protected:
                                    std::byte{0x1e}};
 };
 
-TEST_F(SharedMemoryPosixTest, Wrtie) {
+TEST_F(SharedMemoryPosixTest, Write) {
     SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-write");
 
     shm.writeSegment(data);
