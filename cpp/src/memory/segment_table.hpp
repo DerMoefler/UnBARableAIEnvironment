@@ -137,6 +137,33 @@ public:
     [[nodiscard("The new PartialSegmentTable must be written to the physical shm.")]]
     const PartialSegmentTable& extend(void);
 
+    /**
+     * \brief Advance the head of the segment with id \p segmentId.
+     * \param segmentId Id of the segment
+     * \param increment Number of bytes to move the head by.
+     * \throws \see getSegmentInformation.
+     */
+    void advanceSegmentInformationHead(const id_t segmentId, const std::size_t increment);
+
+    /**
+     * \brief Get the SegmentInformation for \p segmentId.
+     * \param segmentId Id of the requested segment.
+     * \returns SegmentInformation.
+     * \throws std::invalid_argument if m_segments[segmentId] == std::nullopt.
+     * \throws std::out_of_range if segmentId > m_segments.size()
+     */
+    [[nodiscard]]
+    const SegmentInformation& getSegmentInformation(const id_t segmentId) const;
+
+    /**
+     * \brief Get the position in memory of the SegmentEntry for the \p segmentId.
+     * \param segmentId Id of the segment.
+     * \throws std::out_of_range if segmentId > m_segments.size().
+     * \returns Position.
+     */
+    [[nodiscard]]
+    const position_t getSegmentEntryPosition(const id_t segmentId) const;
+
     [[nodiscard]]
     position_t getHead(void) const {
         return m_head;
@@ -158,6 +185,22 @@ private:
      */
     [[nodiscard]]
     position_t allocateChunk(const std::size_t chunkSize);
+
+    /**
+     * \brief Helper to throw if a segmentId is invalid.
+     * \param segmentId Id to check.
+     * \throws std::invalid_argument if m_segments[segmentId] == std::nullopt.
+     * \throws std::out_of_range if segmentId > m_segments.size()
+     */
+    void throwOnInvalidId(const id_t segmentId) const;
+
+    static constexpr std::size_t getTableIndex(const id_t id) {
+        return id / PartialSegmentTable::c_segments_count;
+    }
+
+    static constexpr std::size_t getIntableIndex(const id_t id) {
+        return id % PartialSegmentTable::c_segments_count;
+    }
 
     /// \brief Head of the shared memory. Starts after the size of \ref ShmHeader.
     position_t m_head = static_cast<position_t>(

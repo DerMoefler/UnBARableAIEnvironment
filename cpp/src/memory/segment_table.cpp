@@ -1,11 +1,15 @@
 #include "memory/segment_table.hpp"
 
+#include <cassert>
 #include <format>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <stdexcept>
 
 #include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
+
+#include "serialization/array.tpp"
 
 static auto logger = spdlog::stdout_color_mt("PartialSegmentTable");
 
@@ -87,8 +91,11 @@ const SegmentInformation& SegmentTable::allocate(const std::size_t segmentDataSi
     const auto id = static_cast<memory::id_t>(m_idAllocator.allocate());
     assert(m_segments[id] == std::nullopt && "SegmentInformation at id exists already");
     m_segments[id] = SegmentInformation{id, offset, segmentDataSize};
-    assert(m_segments[id].totalSize() == totalSegmentSize &&
+    assert(m_segments[id].value().totalSize() == totalSegmentSize &&
            "Wrong totalSegmentSize calculation used.");
+
+    m_partialSegmentTables[getTableIndex(id)].updateEntryLink(getIntableIndex(id),
+                                                              static_cast<link_t>(offset));
 
     return m_segments[id].value();
 }
@@ -110,11 +117,45 @@ const PartialSegmentTable& SegmentTable::extend(void) {
     return m_partialSegmentTables[index];
 }
 
+const SegmentInformation& SegmentTable::getSegmentInformation(const id_t segmentId) const {
+    throwOnInvalidId(segmentId);
+    return m_segments[segmentId].value();
+}
+
+const position_t SegmentTable::getSegmentEntryPosition(const id_t segmentId) const {
+    if (segmentId >= m_segments.size()) throw std::out_of_range("SegmentId out of range");
+
+    using F_Entries = typename serialization::SerializeInformation<PartialSegmentTable>::F_Entries;
+    using ArraySI = serialization::SerializeInformation<typename F_Entries::Type>;
+
+    constexpr std::size_t entriesFieldOffset = serialization::getFieldOffset(
+        std::type_identity<PartialSegmentTable>{}, std::type_identity<F_Entries>{});
+    constexpr std::size_t entrySize = ArraySI::c_element_size;
+
+    const position_t segmentTableOffset =
+        m_partialSegmentTables[getTableIndex(segmentId)].getOffset();
+    const std::size_t intableIndex = getIntableIndex(segmentId);
+
+    return segmentTableOffset +
+           static_cast<position_t>(entriesFieldOffset + entrySize * intableIndex);
+}
+
+void SegmentTable::advanceSegmentInformationHead(const id_t segmentId,
+                                                 const std::size_t increment) {
+    throwOnInvalidId(segmentId);
+    m_segments[segmentId].value().advanceHead(increment);
+}
+
 position_t SegmentTable::allocateChunk(const std::size_t chunkSize) {
     // TODO use free chunks here as well instead of default allocating from the head
     position_t position = m_head;
     m_head += chunkSize;
     return position;
+}
+
+void SegmentTable::throwOnInvalidId(const id_t segmentId) const {
+    if (segmentId >= m_segments.size()) throw std::out_of_range("SegmentId out of range");
+    if (!m_segments[segmentId].has_value()) throw std::invalid_argument("Segment uninitialized.");
 }
 
 }  // namespace memory
