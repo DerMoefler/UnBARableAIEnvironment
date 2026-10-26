@@ -29,8 +29,10 @@ class BAR_Environment:
         max_episode_steps: int = 512,
         max_episode_frames: Optional[int] = None,
         reward_calculator: Optional[RewardCalculator] = None,
+        port: int = 50051,
+        engine_id: int = 0
     ):
-        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0)
+        self.session_cfg = session_cfg or EngineSessionConfig(engine_id)
         self.session: Optional[EngineSession] = None
 
         # Episode tracking
@@ -57,6 +59,8 @@ class BAR_Environment:
         self.current_update_id = 0
         self.terminated = False
         self.truncated = False
+
+        self.port = port
         
 
         self.shared_memory_name = ""
@@ -81,7 +85,7 @@ class BAR_Environment:
 
     def reset(self) -> Tuple[Any, Dict[str, Any]]:
         if self.session == None:
-            self.session = EngineSession(self.session_cfg, self.end_of_session)
+            self.session = EngineSession(self.session_cfg, self.end_of_session, self.port)
             self.session.start()
             self.shared_memory_name = "/sm_proc_" + str(self.session.proc.pid)
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
