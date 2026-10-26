@@ -41,7 +41,8 @@ private:
     static constexpr std::array<std::byte, c_serialized_size> serializeImpl(
         const Type& value, std::index_sequence<Is...>) {
         std::array<std::byte, c_serialized_size> result{};
-        (std::ranges::copy(TypeSI::serialize(value[Is]), result.begin() + Is * c_element_size),
+        (std::ranges::copy(serialization::serialize(value[Is]),
+                           result.begin() + Is * c_element_size),
          ...);
         return result;
     }

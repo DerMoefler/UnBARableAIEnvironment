@@ -5,6 +5,7 @@
 #include "memory/partial_segment_table.hpp"
 #include "memory/segment_table_header.hpp"
 #include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
 
 #include "serialization/array.tpp"
 #include "serialization/segment_table_header.tpp"
@@ -46,6 +47,11 @@ struct SerializeInformation<memory::PartialSegmentTable> {
         return Type{header, entries};
     }
 };
+
+namespace test {
+static_assert(TrivialSerializable<memory::PartialSegmentTable>,
+              "PartialSegmentTable is not serializable.");
+}
 
 }  // namespace serialization
 
