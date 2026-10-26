@@ -4,6 +4,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "memory/partial_segment_table.hpp"
 
 #ifdef __APPLE__
 #define UNBAR_MMAP_FLAG MAP_SHARED
@@ -25,6 +26,8 @@
 #include "serialization/serialize_information.h"
 #include "serialization/trivial_serializable.hpp"
 #include "utility/unsigned_of_size.hpp"
+
+#include "serialization/partial_segment_table.tpp"
 
 static auto logger = spdlog::stdout_color_mt("SharedMemoryPosix");
 
@@ -128,20 +131,18 @@ bool SharedMemoryPosix::update(void) {
     }
 
     if (!isStartValid()) throw std::runtime_error("Shared memory's start is invalid.");
-    // TODO implement
-    // if (!isSegmentTableValid())
-    //     throw std::runtime_error("Shared memory's segment table is invalid.");
 
-    // const auto oldSegmentsInformation = m_segmentsInformation;
-    // if (!initializeSegmentsInformation())
-    //     throw std::runtime_error("Initializing segments information failed");
+    const auto oldTable = m_segmentTable;
+    const auto tables = readPartialSegmentTables();
+    const auto headers = readSegmentHeaders(tables);
+    m_segmentTable = SegmentTable{std::move(tables), std::move(headers)};
+    if (m_segmentTable.getHead() > m_size) {
+        throw std::runtime_error("Shared memory points to data outside its physical size");
+    }
 
-    // if (oldSegmentsInformation != m_segmentsInformation) {
-    //     change = true;
-    //     initializeIdAllocator();
-    // }
-
-    SPDLOG_LOGGER_DEBUG(logger, "Updated shared memory \"{}\"", m_name);
+    change |= oldTable == m_segmentTable;
+    SPDLOG_LOGGER_DEBUG(logger, "Updated shared memory \"{}\". Changes detected: {}", m_name,
+                        change);
     return change;
 }
 
@@ -325,6 +326,49 @@ bool SharedMemoryPosix::isStartValid(void) const {
     } catch (const std::invalid_argument& exception) {
         return false;
     }
+}
+
+std::vector<PartialSegmentTable> SharedMemoryPosix::readPartialSegmentTables(void) const {
+    constexpr position_t shmStart =
+        serialization::getSerializableSize(std::type_identity<ShmHeader>{});
+
+    std::vector<PartialSegmentTable> result;
+
+    std::optional<position_t> nextOffset = shmStart;
+
+    while (nextOffset.has_value()) {
+        auto table = read<PartialSegmentTable>(nextOffset.value());
+        table.setOffset(nextOffset.value());
+        nextOffset = table.nextPartialTablePosition();
+        result.push_back(std::move(table));
+    }
+
+    SPDLOG_LOGGER_DEBUG(logger, "Number of partial tables read: {}", result.size());
+
+    return result;
+}
+
+std::vector<std::optional<SegmentHeader>> SharedMemoryPosix::readSegmentHeaders(
+    const std::vector<PartialSegmentTable>& tables) const {
+    std::vector<std::optional<SegmentHeader>> result;
+
+    result.reserve(tables.size() * PartialSegmentTable::c_segments_count);
+
+    for (const auto& table : tables) {
+        for (const auto& entry : table.getEntries()) {
+            if (entry.doesSegmentExist()) {
+                const position_t offset = static_cast<position_t>(entry.getLink().value());
+                result.emplace_back(read<SegmentHeader>(offset));
+            }
+            else {
+                result.emplace_back(std::nullopt);
+            }
+        }
+    }
+    assert(result.size() == tables.size() * PartialSegmentTable::c_segments_count &&
+           "Mismatch between number of expected and number of read headers");
+    SPDLOG_LOGGER_TRACE(logger, "Read {} segment headers.", result.size());
+    return result;
 }
 
 };  // namespace memory

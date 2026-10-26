@@ -16,6 +16,7 @@
 #include "serialization/partial_segment_table.tpp"
 #include "serialization/segment_table_entry.tpp"
 #include "serialization/shm_header.tpp"
+#include "serialization/trivial_serializable.hpp"
 
 namespace UnBARableAINS {
 
@@ -294,6 +295,15 @@ private:
      */
     std::vector<std::byte> read(position_t position, size_t numBytes) const;
 
+    template <serialization::TrivialSerializable T>
+    [[nodiscard]]
+    T read(position_t position) const {
+        constexpr std::size_t size = serialization::getSerializableSize(std::type_identity<T>{});
+        auto serialized = read(position, size);
+        const std::span<const std::byte, size> view{serialized.data(), size};
+        return serialization::deserialize<T>(view);
+    }
+
     /**
      * \brief Helper method to write any trivial serializable into memory at \p position.
      * \tparam T Any TrivialSerializable.
@@ -310,6 +320,15 @@ private:
 
     /// \brief Checks that magic and version are valid at the start of the shm.
     bool isStartValid(void) const;
+
+    /**
+     * \brief Read all partial segment tables, starting after the \ref ShmHeader.
+     * \returns All PartialSegmentTables in the shm.
+     */
+    std::vector<PartialSegmentTable> readPartialSegmentTables(void) const;
+
+    std::vector<std::optional<SegmentHeader>> readSegmentHeaders(
+        const std::vector<PartialSegmentTable>& tables) const;
 
     // static_assert(
     //     c_segment_table_size < c_size_increase,
