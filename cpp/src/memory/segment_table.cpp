@@ -79,6 +79,20 @@ id_t PartialSegmentTable::deserializeAtPosition(SerializedView serialized, posit
 //     : m_partialSegmentTables(std::move(tables)) {
 //     // TODO validation, m_idAllocator and free chunk building
 // }
+
+const SegmentInformation& SegmentTable::allocate(const std::size_t segmentDataSize) {
+    const std::size_t totalSegmentSize = SegmentInformation::c_header_size + segmentDataSize;
+
+    const position_t offset = allocateChunk(totalSegmentSize);
+    const auto id = static_cast<memory::id_t>(m_idAllocator.allocate());
+    assert(m_segments[id] == std::nullopt && "SegmentInformation at id exists already");
+    m_segments[id] = SegmentInformation{id, offset, segmentDataSize};
+    assert(m_segments[id].totalSize() == totalSegmentSize &&
+           "Wrong totalSegmentSize calculation used.");
+
+    return m_segments[id].value();
+}
+
 bool SegmentTable::isFull(void) const {
     for (const auto& table : m_partialSegmentTables) {
         if (!table.isFull()) {
