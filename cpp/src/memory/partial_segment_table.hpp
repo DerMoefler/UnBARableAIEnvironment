@@ -63,7 +63,7 @@ public:
      */
     constexpr bool isFull(void) const {
         for (const auto& entry : m_entries) {
-            if (entry.doesSegmentExist()) {
+            if (!entry.doesSegmentExist()) {
                 return false;
             }
         }
