@@ -52,6 +52,7 @@ PYBIND11_MODULE(bar_ai, m) {
 
     py::class_<UnitData>(m, "UnitData")
         .def(py::init<>())
+        .def(py::init<const UnitData&>(), py::arg("other"))
 
         .def_readwrite("unit_id", &UnitData::unit_id)
         .def_readwrite("unit_def_id", &UnitData::unit_def_id)

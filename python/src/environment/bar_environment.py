@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.train.reward import RewardCalculator
 from typing import List
+from src.environment.unit_data_memory import UnitMemory
 
 import numpy as np
 import bar_ai
@@ -65,6 +66,10 @@ class BAR_Environment:
 
         self.shared_memory_name = ""
 
+        self.unit_memory = UnitMemory(
+            training_team_id=self.reward_calculator.config.training_team_id #TODO: auf richtige config ändern
+        )
+
     def _require_session(self) -> EngineSession:
         """
         If there is no EngineSession object assigned to the BAR_Environemnt and running, an error ist thrown, otherwise the running session is being returned.
@@ -110,8 +115,16 @@ class BAR_Environment:
         shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
         self.evaluate_engine_statuses(shared_memory)
 
+        units = shared_memory.read_all_units()
 
-        self.reward_calculator.reset(self._get_team_stats())
+        self.unit_memory.reset(
+            units,
+            step=self.episode_step,
+        )
+
+        stats = self._get_team_stats(units)
+        self.reward_calculator.reset(stats)
+
         info = {}
         # Zusätzliche Debug-Informationen zurückgeben
         info["episode_step"] = self.episode_step
@@ -152,6 +165,24 @@ class BAR_Environment:
 
         shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
         self.evaluate_engine_statuses(shared_memory)
+
+        units = shared_memory.read_all_units()
+
+        self.unit_memory.update(
+            units,
+            step=self.episode_step,
+        )
+
+        stats = self._get_team_stats(units)
+        reward = self.reward_calculator.calculate(stats)
+
+        own_alive = [
+                    unit for unit in units
+                    if int(unit.team_id) == self.reward_calculator.config.training_team_id #TODO: auf richtige config ändern
+                    and not unit.is_dead
+                    and float(unit.health) > 0.0
+                ]
+
         # Natural episode end:
         # z. B. alle Gegner tot oder alle eigenen Units tot.
         terminated = self.terminated
@@ -161,25 +192,19 @@ class BAR_Environment:
         # Wenn terminated True ist, soll truncated False bleiben.
         truncated = False if terminated else self.truncated
 
-        observation = None
+        observation = self.create_observation_dictionary(shared_memory)
         reward = 0.0
          
-        if not terminated and not truncated:
-            observation = self.create_observation_dictionary(shared_memory)
-            reward = self.reward_calculator.calculate(self._get_team_stats())
-        else:
+        if terminated or truncated:
             bar_ai.SharedMemory.remove(self.shared_memory_name)
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
             self.session.grpc_server.ack_update(self.current_update_id)
-
-        # Aktuelle Unit-Zahlen für Debugging
-        own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
 
         info = {
             "episode_step": self.episode_step,
             "episode_start_frame": self.episode_start_frame,
             "own_alive_count": len(own_alive),
-            "enemy_alive_count": len(enemy_alive),
+            "enemy_alive_count": UnitMemory.remembered_enemy_count,
             "terminated": terminated,
             "truncated": truncated,
             "reward": reward,
@@ -226,81 +251,46 @@ class BAR_Environment:
         except Exception:
             pass
 
-    def _get_own_and_enemy_alive_units(self):
-        """
-        Returns alive own and enemy units.
-
-        This function uses EngineSession.get_alive_units().
-        It therefore requires the shared memory reader to be configured.
-
-        Returns
-        -------
-        own_alive : list
-            Alive units of the configured training team.
-        enemy_alive : list
-            Alive units of all other teams.
-        """
-        try:
-            shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
-            units = shared_memory.read_all_units()
-        except Exception:
-            logging.exception("Could not read units from shared memory")
-            return [], []
-
-        training_team_id = self.reward_calculator.config.training_team_id
+    def _get_team_stats(
+        self,
+        current_units: List[bar_ai.UnitData],
+    ) -> Dict[str, Any]:
+        training_team_id = (
+            self.reward_calculator.config.training_team_id
+        )
 
         own_alive = [
-            unit for unit in units
+            unit
+            for unit in current_units
             if int(unit.team_id) == training_team_id
-            and not unit.is_dead
+            and not bool(unit.is_dead)
             and float(unit.health) > 0.0
         ]
 
-        enemy_alive = [
-            unit for unit in units
-            if int(unit.team_id) != training_team_id
-            and not unit.is_dead
-            and float(unit.health) > 0.0
-        ]
+        remembered_enemy_alive = self.unit_memory.get_alive_units()
 
-        return own_alive, enemy_alive
+        return {
+            "own_health_sum": float(sum(
+                max(0.0, float(unit.health))
+                for unit in own_alive
+            )),
+            "enemy_health_sum": float(sum(
+                max(0.0, float(unit.health))
+                for unit in remembered_enemy_alive
+            )),
+            "own_alive_count": len(own_alive),
+            "enemy_alive_count": len(remembered_enemy_alive),
 
-    def _get_team_stats(self):
-        """
-        Computes current team statistics used for reward calculation.
-
-        The reward is based on changes between the last stored state and the
-        current state:
-        - enemy health decrease means damage dealt
-        - own health decrease means damage taken
-        - enemy alive count decrease means enemy kill
-        - own alive count decrease means own death
-
-        Returns
-        -------
-        stats : dict
-            Dictionary containing current own/enemy health sums and alive counts.
-        """
-        own_alive, enemy_alive = self._get_own_and_enemy_alive_units()
-
-        own_health_sum = sum(
-            max(0.0, float(unit.health))
-            for unit in own_alive
-        )
-
-        enemy_health_sum = sum(
-            max(0.0, float(unit.health))
-            for unit in enemy_alive
-        )
-
-        stats = {
-            "own_health_sum": float(own_health_sum),
-            "enemy_health_sum": float(enemy_health_sum),
-            "own_alive_count": int(len(own_alive)),
-            "enemy_alive_count": int(len(enemy_alive)),
+            "enemy_visible_count": (
+                self.unit_memory.visible_enemy_count
+            ),
+            "enemy_hidden_count": (
+                self.unit_memory.hidden_enemy_count
+            ),
+            "enemy_remembered_count": (
+                self.unit_memory.remembered_enemy_count
+            ),
         }
-
-        return stats
 
     def end_of_session(self, return_code: int):
         """
