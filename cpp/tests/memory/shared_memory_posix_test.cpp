@@ -105,7 +105,7 @@ TEST_F(SharedMemoryPosixTest, Delete) {
     reader.update();
     EXPECT_EQ(reader.getSegmentsCount(), numSegments - 2);
 
-    writer.deleteSegment(numSegments);
+    writer.deleteSegment(numSegments - 3);
 
     reader.update();
     EXPECT_EQ(reader.getSegmentsCount(), numSegments - 3);
