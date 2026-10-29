@@ -193,7 +193,6 @@ class BAR_Environment:
         truncated = False if terminated else self.truncated
 
         observation = self.create_observation_dictionary(shared_memory)
-        reward = 0.0
          
         if terminated or truncated:
             bar_ai.SharedMemory.remove(self.shared_memory_name)
