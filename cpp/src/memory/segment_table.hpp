@@ -41,6 +41,9 @@ public:
     SegmentTable(std::vector<PartialSegmentTable> tables,
                  std::vector<std::optional<SegmentHeader>> headers);
 
+    /// \brief Default comparison operator
+    bool operator==(const SegmentTable& rhs) const = default;
+
     /**
      * \brief Allocates a new segment of the size \p segmentDataSize.
      * \param segmentDataSize Number of data bytes for the new Segment.
@@ -49,9 +52,11 @@ public:
     [[nodiscard("The new SegmentInformation's header must be written to the physical shm.")]]
     const SegmentInformation& allocate(const std::size_t segmentDataSize);
 
-    /// \brief Default comparison operator
-    bool operator==(const SegmentTable& rhs) const = default;
-
+    /**
+     * \brief Releases the segment with the id \p segmentId.
+     * \param segmentId Id of the segment.
+     * \throws See \ref getSegmentInformation.
+     */
     void release(const id_t segmentId);
 
     /**
@@ -67,7 +72,7 @@ public:
      * \brief Advance the head of the segment with id \p segmentId.
      * \param segmentId Id of the segment
      * \param increment Number of bytes to move the head by.
-     * \throws \see getSegmentInformation.
+     * \throws See \ref getSegmentInformation.
      */
     void advanceSegmentInformationHead(const id_t segmentId, const std::size_t increment);
 

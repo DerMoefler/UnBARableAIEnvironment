@@ -201,7 +201,7 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
     return segmentId;
 }
 
-void SharedMemoryPosix::deleteSegment(id_t segmentId) {
+void SharedMemoryPosix::deleteSegment(const id_t segmentId) {
     // TODO implement
 }
 

@@ -10,13 +10,13 @@
 #include "memory/shared_memory_types.h"
 #include "memory/segment_table.hpp"
 #include "serialization/byte_container.h"
+#include "serialization/trivial_serializable.hpp"
 
 #include "serialization/array.tpp"
 #include "serialization/optional.tpp"
 #include "serialization/partial_segment_table.tpp"
 #include "serialization/segment_table_entry.tpp"
 #include "serialization/shm_header.tpp"
-#include "serialization/trivial_serializable.hpp"
 
 namespace UnBARableAINS {
 
@@ -209,7 +209,7 @@ public:
      * \param segmentId The id the memory segment has been assigned (returned previously by the call
      * to \ref writeSegment).
      */
-    void deleteSegment(id_t segmentId);
+    void deleteSegment(const id_t segmentId);
 
     /**
      * \brief Get the id of a linked segment.
