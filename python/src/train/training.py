@@ -1084,7 +1084,14 @@ def main() -> None:
             buffer.reset()
             logging.info("buffer.reset() done")
 
-            logging.info("Episode %d of %d", episode, data["episodes"])
+            average_reward_per_step = (
+                episode_reward / step_count
+                if step_count > 0
+                else 0.0
+            )
+
+            logging.info("Episode %d of %d", episode + 1, start_episode + data["episodes"])
+            logging.info("Average Reward per Step: %.4f", average_reward_per_step)
             logging.info("Episode Reward: %.4f", episode_reward)
             logging.info("Steps: %d", step_count)
 
