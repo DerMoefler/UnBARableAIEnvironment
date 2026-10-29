@@ -3,25 +3,11 @@ from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.train.reward import RewardCalculator
 from typing import List
 from src.environment.unit_data_memory import UnitMemory
-
+from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
 import numpy as np
 import bar_ai
 
 import logging
-
-TERMINATED_STATUSES = {
-    bar_ai.EngineStatus.GAME_ENDED,
-    bar_ai.EngineStatus.TEAM_DIED,
-    bar_ai.EngineStatus.AI_KILLED,
-}
-
-TRUNCATED_STATUSES = {
-    bar_ai.EngineStatus.UNSPECIFIED_ERROR,
-    bar_ai.EngineStatus.AI_CRASHED,
-    bar_ai.EngineStatus.AI_FAILED_TO_INIT,
-    bar_ai.EngineStatus.CONNECTION_LOST,
-    bar_ai.EngineStatus.OTHER_REASON_ERROR,
-}
 
 class BAR_Environment:
     def __init__(
@@ -164,7 +150,7 @@ class BAR_Environment:
         self.episode_step += 1
 
         shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
-        self.evaluate_engine_statuses(shared_memory)
+        outcome = self.evaluate_engine_statuses(shared_memory)
 
         units = shared_memory.read_all_units()
 
@@ -174,7 +160,7 @@ class BAR_Environment:
         )
 
         stats = self._get_team_stats(units)
-        reward = self.reward_calculator.calculate(stats)
+
 
         own_alive = [
                     unit for unit in units
@@ -192,6 +178,13 @@ class BAR_Environment:
         # Wenn terminated True ist, soll truncated False bleiben.
         truncated = False if terminated else self.truncated
 
+        reward = self.reward_calculator.calculate(
+                    stats=stats,
+                    terminated=terminated,
+                    truncated=truncated,
+                    outcome=outcome,
+                )
+
         observation = self.create_observation_dictionary(shared_memory)
          
         if terminated or truncated:
@@ -206,6 +199,11 @@ class BAR_Environment:
             "enemy_alive_count": UnitMemory.remembered_enemy_count,
             "terminated": terminated,
             "truncated": truncated,
+            "episode_outcome": (
+                outcome.value
+                if outcome is not None
+                else None
+            ),
             "reward": reward,
             "reward_info": self.reward_calculator.last_info,
         }
@@ -324,7 +322,10 @@ class BAR_Environment:
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
-    def evaluate_engine_statuses(self, shared_memory: bar_ai.SharedMemory):
+    def evaluate_engine_statuses(
+        self,
+        shared_memory: bar_ai.SharedMemory,
+    ) -> Optional[EpisodeOutcome]:
         statuses = shared_memory.read_all_engine_statuses()
         status_set = set(statuses)
 
@@ -332,47 +333,71 @@ class BAR_Environment:
         self.truncated = False
 
         truncation_reasons = status_set & TRUNCATED_STATUSES
-        termination_reasons = status_set & TERMINATED_STATUSES
 
         # Technische Fehler haben Vorrang.
         if truncation_reasons:
             self.truncated = True
 
             logging.error(
-                "end_reason=%s engine_statuses=%s error_statuses=%s",
-                "ENGINE_ERROR",
+                "episode_outcome=%s engine_statuses=%s error_statuses=%s",
+                None,
                 [status.name for status in statuses],
                 [status.name for status in truncation_reasons],
             )
 
-        # Reguläres Episodenende.
-        elif termination_reasons:
+            return None
+
+        # GAME_ENDED wird für das Training als Sieg interpretiert.
+        if bar_ai.EngineStatus.GAME_ENDED in status_set:
             self.terminated = True
+            outcome = EpisodeOutcome.WON
 
             logging.info(
-                "end_reason=%s engine_statuses=%s termination_statuses=%s",
-                "GAME_TERMINATED",
+                "episode_outcome=%s engine_statuses=%s",
+                outcome.value,
                 [status.name for status in statuses],
-                [status.name for status in termination_reasons],
             )
 
+            return outcome
+
+        # TEAM_DIED wird als Niederlage interpretiert.
+        if ( bar_ai.EngineStatus.TEAM_DIED in status_set
+            or bar_ai.EngineStatus.AI_KILLED in status_set
+        ):
+            self.terminated = True
+            outcome = EpisodeOutcome.LOST
+
+            logging.info(
+                "episode_outcome=%s engine_statuses=%s",
+                outcome.value,
+                [status.name for status in statuses],
+            )
+
+            return outcome
+
         # Alle Engines laufen normal.
-        elif statuses and all(
+        if statuses and all(
             status == bar_ai.EngineStatus.RUNNING
             for status in statuses
         ):
             logging.debug(
-                "end_reason=%s engine_statuses=%s",
-                "RUNNING",
+                "episode_outcome=%s engine_statuses=%s",
+                None,
                 [status.name for status in statuses],
             )
 
-        # Leere Liste oder nicht klassifizierter Status.
-        else:
-            self.truncated = True
+            return None
 
-            logging.error(
-                "end_reason=%s engine_statuses=%s",
-                "UNKNOWN_ENGINE_STATUS",
-                [getattr(status, "name", str(status)) for status in statuses],
-            )
+        # Leere Liste oder nichts.
+        self.truncated = True
+
+        logging.error(
+            "episode_outcome=%s engine_statuses=%s",
+            None,
+            [
+                getattr(status, "name", str(status))
+                for status in statuses
+            ],
+        )
+
+        return None

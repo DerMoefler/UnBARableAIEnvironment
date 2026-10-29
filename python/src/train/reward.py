@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from src.environment.episode_outcome import EpisodeOutcome
 
 import numpy as np
 
@@ -41,7 +42,14 @@ class RewardCalculator:
         )
         self.last_info = self._make_info(stats, self.initialized)
 
-    def calculate(self, stats: Dict[str, Any]) -> float:
+    def calculate(
+        self,
+        stats: Dict[str, Any],
+        *,
+        terminated: bool = False,
+        truncated: bool = False,
+        outcome: Optional[EpisodeOutcome] = None,
+    ) -> float:
         """Calculate a clipped reward and retain its component diagnostics."""
         own_health_sum = stats["own_health_sum"]
         enemy_health_sum = stats["enemy_health_sum"]
