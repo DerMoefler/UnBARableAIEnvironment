@@ -118,7 +118,7 @@ public:
     id_t createSegment(const std::size_t size);
 
     // TODO fix
-    inline size_t getSegmentsCount(void) const { return 0; }
+    inline size_t getSegmentsCount(void) const { return m_segmentTable.validSegmentsCount(); }
 
     /**
      * \brief Get the segment information, i.e. its position and size in memory.
@@ -205,9 +205,9 @@ public:
 
     /**
      * \brief Deletes a segment of data from memory.
-     *
      * \param segmentId The id the memory segment has been assigned (returned previously by the call
      * to \ref writeSegment).
+     * \throws See \ref SegmentTable::getSegmentInformation.
      */
     void deleteSegment(const id_t segmentId);
 

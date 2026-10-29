@@ -92,6 +92,20 @@ const PartialSegmentTable& SegmentTable::extend(void) {
     return m_partialSegmentTables[index];
 }
 
+void SegmentTable::advanceSegmentInformationHead(const id_t segmentId,
+                                                 const std::size_t increment) {
+    throwOnInvalidId(segmentId);
+    m_segments[segmentId].value().advanceHead(increment);
+}
+
+std::size_t SegmentTable::validSegmentsCount(void) const {
+    std::size_t count {0};
+    for (const auto& table : m_partialSegmentTables) {
+        count += table.validSegmentsCount();
+    }
+    return count;
+}
+
 const SegmentInformation& SegmentTable::getSegmentInformation(const id_t segmentId) const {
     throwOnInvalidId(segmentId);
     return m_segments[segmentId].value();
@@ -113,12 +127,6 @@ const position_t SegmentTable::getSegmentEntryPosition(const id_t segmentId) con
 
     return segmentTableOffset +
            static_cast<position_t>(entriesFieldOffset + entrySize * intableIndex);
-}
-
-void SegmentTable::advanceSegmentInformationHead(const id_t segmentId,
-                                                 const std::size_t increment) {
-    throwOnInvalidId(segmentId);
-    m_segments[segmentId].value().advanceHead(increment);
 }
 
 position_t SegmentTable::allocateChunk(const std::size_t chunkSize) {

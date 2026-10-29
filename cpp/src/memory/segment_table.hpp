@@ -77,6 +77,13 @@ public:
     void advanceSegmentInformationHead(const id_t segmentId, const std::size_t increment);
 
     /**
+     * \brief Get the number of valid segments.
+     * \returns Number of valid segemnts.
+     */
+    [[nodiscard]]
+    std::size_t validSegmentsCount(void) const;
+
+    /**
      * \brief Get the SegmentInformation for \p segmentId.
      * \param segmentId Id of the requested segment.
      * \returns SegmentInformation.

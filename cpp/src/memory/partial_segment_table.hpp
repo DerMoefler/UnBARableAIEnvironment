@@ -78,6 +78,20 @@ public:
         return true;
     }
 
+    /**
+     * \brief Get the number of valid segments.
+     * \returns Number of valid segemnts.
+     */
+    constexpr std::size_t validSegmentsCount(void) const {
+        std::size_t count {c_segments_count};
+        for (const auto& entry : m_entries) {
+            if (!entry.doesSegmentExist()) {
+                count--;
+            }
+        }
+        return count;
+    }
+
     constexpr position_t getOffset(void) const { return m_offset; }
 
     constexpr void setOffset(position_t offset) { m_offset = offset; }
