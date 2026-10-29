@@ -745,17 +745,17 @@ def main() -> None:
     total_training_seconds = 0.0
     total_checkpoint_seconds = 0.0
 
-    environments = []
-
-    for i in range(data["number_of_environments"]):
-        logging.info("Initializing new BAR Environment, engine_id: %d port %d", i, 50051 + i)
-        env = BAR_Environment(engine_id = i, port = 50051+i)
-        environments.append(env)
-        logging.info("Initialized new BAR Environment, engine_id: %d, port %d", i, 50051 + i)
-
     success = False
 
     try:
+        environments = []
+
+        for i in range(data["number_of_environments"]):
+            logging.info("Initializing new BAR Environment, engine_id: %d port %d", i, 50051 + i)
+            env = BAR_Environment(engine_id = i, port = 50051+i)
+            environments.append(env)
+            logging.info("Initialized new BAR Environment, engine_id: %d, port %d", i, 50051 + i)
+
         obs_dim = OBS_DIM
         action_dim = data["action_dimension"]
 
@@ -1168,12 +1168,13 @@ def main() -> None:
             raise
     
     finally:
-        if environments[0] is not None:
-            try:
-                environments[0].close()
-                logging.debug("env.close() done")
-            except Exception as close_err:
-                logging.warning("env.close() failed: %s", close_err)
+        for i in range(data["number_of_environments"]):
+            if environments[i] is not None:
+                try:
+                    environments[i].close()
+                    logging.debug("env.close() done")
+                except Exception as close_err:
+                    logging.warning("env.close(), env: %d failed: %s", i, close_err)
 
         if success:
             print("Simulated 3v3 pawn training complete!", flush=True)
