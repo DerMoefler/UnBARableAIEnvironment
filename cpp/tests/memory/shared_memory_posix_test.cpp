@@ -114,4 +114,3 @@ TEST_F(SharedMemoryPosixTest, Delete) {
 }
 
 }  // namespace UnBARableAINS
->>>>>>> c72de93 (WIP: Changed SegmentInformation.)
