@@ -20,9 +20,10 @@ from src.train.mappo.obs_r_mappo import (
     build_r_mappo_action_context,
     _prepare_obs,
     _prepare_share_obs,
+    _prepare_reward,
+    _prepare_available_actions,
 )
 from src.train.mappo.trainerargs import TrainerArgs
-from src.train.reward import _prepare_reward
 
 
 # ---------------------------------------------------------------------------
@@ -178,68 +179,6 @@ def _step_all_agents(
         )
 
     return result
-
-
-def _prepare_available_actions(
-    available_actions: Any,
-    num_agents: int,
-    action_dim: int,
-) -> np.ndarray:
-    """
-    Converts raw legal-action data to a fixed per-agent mask array.
-
-    Parameters
-    ----------
-    available_actions : Any
-        Raw legal-action mask data returned by the environment.
-    num_agents : int
-        Number of agents represented in the result.
-    action_dim : int
-        Number of discrete actions.
-
-    Returns
-    -------
-    action_mask : np.ndarray
-        Array with shape `(num_agents, action_dim)` and dtype float32.
-
-    Examples
-    --------
-    >>> _prepare_available_actions(None, 2, 3).shape
-    (2, 3)
-    """
-    if available_actions is None:
-        return np.ones((num_agents, action_dim), dtype=np.float32)
-
-    arr = np.asarray(available_actions, dtype=np.float32)
-
-    if arr.ndim == 1:
-        if arr.size == action_dim:
-            arr = np.tile(arr[None, :], (num_agents, 1))
-        elif arr.size == num_agents * action_dim:
-            arr = arr.reshape(num_agents, action_dim)
-        else:
-            fixed = np.ones((num_agents * action_dim,), dtype=np.float32)
-            n = min(fixed.size, arr.size)
-            fixed[:n] = arr.reshape(-1)[:n]
-            arr = fixed.reshape(num_agents, action_dim)
-
-    elif arr.ndim >= 2:
-        if arr.shape[0] != num_agents:
-            flat = arr.reshape(-1)
-            fixed = np.ones((num_agents * action_dim,), dtype=np.float32)
-            n = min(fixed.size, flat.size)
-            fixed[:n] = flat[:n]
-            arr = fixed.reshape(num_agents, action_dim)
-        else:
-            arr = arr.reshape(num_agents, -1)
-
-            if arr.shape[1] != action_dim:
-                fixed = np.ones((num_agents, action_dim), dtype=np.float32)
-                n = min(action_dim, arr.shape[1])
-                fixed[:, :n] = arr[:, :n]
-                arr = fixed
-
-    return arr.astype(np.float32)
 
 def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
     """

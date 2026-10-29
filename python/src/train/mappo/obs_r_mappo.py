@@ -217,6 +217,113 @@ def _prepare_obs(
 
     return arr.astype(np.float32)
 
+def _prepare_reward(reward: Any, num_agents: int) -> np.ndarray:
+    """
+    Converts raw rewards to one scalar float32 reward per agent.
+
+    Parameters
+    ----------
+    reward : Any
+        Scalar or array-like reward data returned by the environment.
+    num_agents : int
+        Number of agents represented in the result.
+
+    Returns
+    -------
+    rewards : np.ndarray
+        Array with shape `(num_agents, 1)` and dtype float32.
+
+    Examples
+    --------
+    >>> _prepare_reward(1.0, 2).shape
+    (2, 1)
+    """
+    if reward is None:
+        return np.zeros((num_agents, 1), dtype=np.float32)
+
+    arr = np.asarray(reward, dtype=np.float32)
+
+    if arr.ndim == 0:
+        arr = np.full((num_agents, 1), float(arr), dtype=np.float32)
+
+    elif arr.ndim == 1:
+        if arr.size == 1:
+            arr = np.full((num_agents, 1), float(arr[0]), dtype=np.float32)
+        elif arr.size == num_agents:
+            arr = arr.reshape(num_agents, 1)
+        else:
+            fixed = np.zeros((num_agents,), dtype=np.float32)
+            n = min(num_agents, arr.size)
+            fixed[:n] = arr[:n]
+            arr = fixed.reshape(num_agents, 1)
+
+    else:
+        arr = arr.reshape(num_agents, -1)
+        arr = arr[:, :1]
+
+    return arr.astype(np.float32)
+
+def _prepare_available_actions(
+    available_actions: Any,
+    num_agents: int,
+    action_dim: int,
+) -> np.ndarray:
+    """
+    Converts raw legal-action data to a fixed per-agent mask array.
+
+    Parameters
+    ----------
+    available_actions : Any
+        Raw legal-action mask data returned by the environment.
+    num_agents : int
+        Number of agents represented in the result.
+    action_dim : int
+        Number of discrete actions.
+
+    Returns
+    -------
+    action_mask : np.ndarray
+        Array with shape `(num_agents, action_dim)` and dtype float32.
+
+    Examples
+    --------
+    >>> _prepare_available_actions(None, 2, 3).shape
+    (2, 3)
+    """
+    if available_actions is None:
+        return np.ones((num_agents, action_dim), dtype=np.float32)
+
+    arr = np.asarray(available_actions, dtype=np.float32)
+
+    if arr.ndim == 1:
+        if arr.size == action_dim:
+            arr = np.tile(arr[None, :], (num_agents, 1))
+        elif arr.size == num_agents * action_dim:
+            arr = arr.reshape(num_agents, action_dim)
+        else:
+            fixed = np.ones((num_agents * action_dim,), dtype=np.float32)
+            n = min(fixed.size, arr.size)
+            fixed[:n] = arr.reshape(-1)[:n]
+            arr = fixed.reshape(num_agents, action_dim)
+
+    elif arr.ndim >= 2:
+        if arr.shape[0] != num_agents:
+            flat = arr.reshape(-1)
+            fixed = np.ones((num_agents * action_dim,), dtype=np.float32)
+            n = min(fixed.size, flat.size)
+            fixed[:n] = flat[:n]
+            arr = fixed.reshape(num_agents, action_dim)
+        else:
+            arr = arr.reshape(num_agents, -1)
+
+            if arr.shape[1] != action_dim:
+                fixed = np.ones((num_agents, action_dim), dtype=np.float32)
+                n = min(action_dim, arr.shape[1])
+                fixed[:, :n] = arr[:, :n]
+                arr = fixed
+
+    return arr.astype(np.float32)
+
 def _prepare_share_obs(
     share_obs: Any,
     obs: np.ndarray,
