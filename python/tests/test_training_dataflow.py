@@ -96,7 +96,7 @@ def test_training_dataflow_one_mappo_update():
     expected_enemy_ids = {4, 5, 6}
 
     class SimulatedBAREnvironment:
-        def __init__(self):
+        def __init__(self, engine_id=0, port=50051):
             self.observations = _bar_observation_dict(
             enemy_count=enemy_count
             )
@@ -207,6 +207,7 @@ def test_training_dataflow_one_mappo_update():
             "run_name": "dataflow_test",
             "device": "cpu",
             "number_of_agents": 3,
+            "number_of_environments": 1,
             "buffer_size": 1,
             "mini_batch": 1,
             "episodes": 1,
