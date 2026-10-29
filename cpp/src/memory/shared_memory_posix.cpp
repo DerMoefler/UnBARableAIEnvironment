@@ -202,7 +202,15 @@ id_t SharedMemoryPosix::writeSegment(DataView data) {
 }
 
 void SharedMemoryPosix::deleteSegment(const id_t segmentId) {
-    // TODO implement
+    SPDLOG_LOGGER_TRACE(logger, "Deletion of segment {} requested.", segmentId);
+    try {
+        m_segmentTable.release(segmentId);
+        updateSegmentTableLink(segmentId, std::nullopt);
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_ERROR(logger, "Deletion of segment {} failed. Reason: {}", segmentId, e.what());
+        throw;
+    }
+    SPDLOG_LOGGER_DEBUG(logger, "Deleted segment {}", segmentId);
 }
 
 std::optional<id_t> SharedMemoryPosix::getLinkedSegment(id_t segmentId, position_t offset) const {

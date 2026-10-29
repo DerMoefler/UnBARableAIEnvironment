@@ -75,6 +75,18 @@ const SegmentInformation& SegmentTable::allocate(const std::size_t segmentDataSi
     return m_segments[id].value();
 }
 
+void SegmentTable::release(const id_t segmentId) {
+    // TODO simple implementation, need head update and free chunk building etc.
+    throwOnInvalidId(segmentId);
+
+    assert(m_segments[segmentId].value().getId() == segmentId &&
+           "Class invariant: Index into m_segments must be equal to segment.getId() at that index");
+
+    m_segments[segmentId] = std::nullopt;
+    m_partialSegmentTables[getTableIndex(segmentId)].updateEntryLink(getIntableIndex(segmentId),
+                                                                     std::nullopt);
+}
+
 bool SegmentTable::isFull(void) const {
     for (const auto& table : m_partialSegmentTables) {
         if (!table.isFull()) {
