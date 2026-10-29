@@ -10,7 +10,7 @@
 #include "serialization/byte_container.h"
 #include "serialization/serialize_information.h"
 #include "shared_memory_types.h"
-#include "segment_information.h"
+#include "segment_information.hpp"
 #include "id/id_allocator.hpp"
 
 namespace UnBARableAINS {
@@ -132,7 +132,7 @@ public:
      * Segment::head is moved to the first data byte's location (after valid length and partial
      * length).
      */
-    id_t createSegment(const size_t size);
+    id_t createSegment(const std::size_t size);
 
     // TODO refactor once deleting is implemented
     inline size_t getSegmentsCount(void) const { return m_segmentsInformation.size(); }
