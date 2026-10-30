@@ -1,7 +1,6 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.reward import RewardCalculator
-from typing import List
 from src.environment.unit_data_memory import UnitMemory
 from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
 import numpy as np
@@ -9,12 +8,18 @@ import bar_ai
 
 import logging
 
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class EngineSnapshot:
+    units: List[bar_ai.UnitData]
+    status: bar_ai.EngineStatus
+
 class BAR_Environment:
     def __init__(
         self,
         session_cfg: Optional[EngineSessionConfig] = None,
         max_episode_steps: int = 512,
-        max_episode_frames: Optional[int] = None,
         reward_calculator: Optional[RewardCalculator] = None,
         port: int = 50051,
         engine_id: int = 0
@@ -27,17 +32,9 @@ class BAR_Environment:
         # Wird dieses Limit erreicht, ist die Episode truncated.
         self.max_episode_steps = max_episode_steps
 
-        # Optionales Frame-Limit.
-        # Wenn None, wird nur max_episode_steps genutzt.
-        # Beispiel für 3 Minuten bei 30 FPS: 30 * 60 * 3 = 5400
-        self.max_episode_frames = max_episode_frames
-
         # Zähler für aktuelle Episode
         self.episode_step = 0
 
-        # Engine-Frame, bei dem die Episode gestartet wurde.
-        # Wird in reset() gesetzt.
-        self.episode_start_frame = -1
 
         self.reward_calculator = (
             reward_calculator if reward_calculator is not None else RewardCalculator()
@@ -56,41 +53,27 @@ class BAR_Environment:
             training_team_id=self.reward_calculator.config.training_team_id #TODO: auf richtige config ändern
         )
 
-    def _require_session(self) -> EngineSession:
-        """
-        If there is no EngineSession object assigned to the BAR_Environemnt and running, an error ist thrown, otherwise the running session is being returned.
-
-        Parameters
-        ----------
-        self : BAR_Environment
-            the env itself
-
-        Returns
-        -------
-        self.session : EngineSession
-            the currently running engine session
-        """
-        if self.session is None or not self.session.is_running():
-            raise RuntimeError("Engine session is not running. Call reset() first.")
-        return self.session
 
     def reset(self) -> Tuple[Any, Dict[str, Any]]:
+        self.terminated = False
+        self.truncated = False
         if self.session == None:
             self.session = EngineSession(self.session_cfg, self.end_of_session, self.port)
             self.session.start()
             self.shared_memory_name = "/sm_proc_" + str(self.session.proc.pid)
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
+            self.current_update_id = 0
         
         logging.info("Engine session started. Waiting for first handleEventUpdate...")
 
-        status, update_id = self.session.grpc_server.wait_for_next_update(
+        wait_status, update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
             timeout=600.0,
         )
-        if status == "timeout":
+        if wait_status == "timeout":
             raise TimeoutError("Kein erstes handleEventUpdate nach reset(). Timeout.")
 
-        if status == "stopped":
+        if wait_status == "stopped":
             raise RuntimeError("gRPC server stopped unexpectedly after reset().")
 
         self.current_update_id = update_id
@@ -98,34 +81,32 @@ class BAR_Environment:
         # Episode-Zähler zurücksetzen
         self.episode_step = 0
 
-        shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
-        self.evaluate_engine_statuses(shared_memory)
+        snapshot = self._read_engine_snapshot()
+                
+        self.evaluate_engine_status(snapshot.status)
 
-        units = shared_memory.read_all_units()
+        
 
         self.unit_memory.reset(
-            units,
+            snapshot.units,
             step=self.episode_step,
         )
 
-        stats = self._get_team_stats(units)
+        stats = self._get_team_stats(snapshot.units)
         self.reward_calculator.reset(stats)
 
         info = {}
         # Zusätzliche Debug-Informationen zurückgeben
         info["episode_step"] = self.episode_step
-        info["episode_start_frame"] = self.episode_start_frame
         info["max_episode_steps"] = self.max_episode_steps
-        info["max_episode_frames"] = self.max_episode_frames
         info["reward_state_initialized"] = self.reward_calculator.initialized
 
-        observation = self.create_observation_dictionary(shared_memory)
+        observation = self.create_observation_dictionary(snapshot.units)
         bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, info
 
     def step(self, actions: List[bar_ai.Action]):
-        session = self._require_session()
 
         shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
 
@@ -136,12 +117,14 @@ class BAR_Environment:
         self.session.grpc_server.ack_update(self.current_update_id)
 
         # 2) auf das nächste Update warten
-        status, next_update_id = self.session.grpc_server.wait_for_next_update(
+        wait_status, next_update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
             timeout=60.0,
         )
-        if status == "timeout":
+        if wait_status == "timeout":
             raise TimeoutError("Kein neues handleEventUpdate nach step().")
+        if wait_status == "stopped":
+            raise RuntimeError("gRPC server stopped unexpectedly after reset().")
 
         self.current_update_id = next_update_id
 
@@ -149,33 +132,20 @@ class BAR_Environment:
         # Ein RL-Step wurde ausgeführt
         self.episode_step += 1
 
-        shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
-        units = shared_memory.read_all_units()
-        statuses = shared_memory.read_all_engine_statuses()
+        snapshot = self._read_engine_snapshot()
 
-        if len(statuses) != 1:
-            logging.error("engine_statuses=%s", 
-                          statuses)
-            raise RuntimeError("Not exactly one Engine Status in shared Memory")
+        outcome = self.evaluate_engine_status(snapshot.status)
 
-        outcome = self.evaluate_engine_statuses(shared_memory)
-
-        
+        if not self.terminated and self.episode_step >= self.max_episode_steps:
+            self.truncated = True
 
         self.unit_memory.update(
-            units,
+            snapshot.units,
             step=self.episode_step,
         )
 
-        stats = self._get_team_stats(units)
+        stats = self._get_team_stats(snapshot.units)
 
-
-        own_alive = [
-                    unit for unit in units
-                    if int(unit.team_id) == self.reward_calculator.config.training_team_id #TODO: auf richtige config ändern
-                    and not unit.is_dead
-                    and float(unit.health) > 0.0
-                ]
 
         # Natural episode end:
         # z. B. alle Gegner tot oder alle eigenen Units tot.
@@ -193,7 +163,7 @@ class BAR_Environment:
                     outcome=outcome,
                 )
 
-        observation = self.create_observation_dictionary(shared_memory)
+        observation = self.create_observation_dictionary(snapshot.units)
          
         if terminated or truncated:
             bar_ai.SharedMemory.remove(self.shared_memory_name)
@@ -202,8 +172,7 @@ class BAR_Environment:
 
         info = {
             "episode_step": self.episode_step,
-            "episode_start_frame": self.episode_start_frame,
-            "own_alive_count": len(own_alive),
+            "own_alive_count": stats["own_alive_count"],
             "enemy_alive_count": UnitMemory.remembered_enemy_count,
             "terminated": terminated,
             "truncated": truncated,
@@ -311,100 +280,115 @@ class BAR_Environment:
         else:
             self.truncated = True
 
-    def create_observation_dictionary(self, shared_memory: bar_ai.SharedMemory):
+    def create_observation_dictionary(self, unit_list: List[bar_ai.UnitData]):
         """
         A dictionary with numpy arraays with all info is being created. The np arrays 
 
         Parameters
         ----------
-        shared_memory : bar_ai.SharedMemory
-            the created shared Memory instance
+        unit_list: List[bar_ai.UnitData]
+            the units in read from the shared memory
         
         Return
         ------
         dictionary : dict
             a dict where every agent is a key and the data is a numpy array with the infos from the UniData
         """
-        unit_list = shared_memory.read_all_units()
         logging.debug(unit_list)
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
-    def evaluate_engine_statuses(
+    def _read_engine_snapshot(self) -> EngineSnapshot:
+        shared_memory = bar_ai.SharedMemory.open(
+            self.shared_memory_name
+        )
+
+        units = shared_memory.read_all_units()
+        statuses = shared_memory.read_all_engine_statuses()
+
+        if len(statuses) != 1:
+            status_names = [
+                getattr(status, "name", str(status))
+                for status in statuses
+            ]
+
+            logging.error(
+                "Expected exactly one engine status, "
+                "but received %d: %s",
+                len(statuses),
+                status_names,
+            )
+
+            raise RuntimeError(
+                "Expected exactly one engine status in shared memory, "
+                f"but received {len(statuses)}: {status_names}"
+            )
+
+        return EngineSnapshot(
+            units=units,
+            status=statuses[0],
+        )
+
+    def evaluate_engine_status(
         self,
         status: bar_ai.EngineStatus,
     ) -> Optional[EpisodeOutcome]:
-        
+        """Evaluate one engine status and update the episode state."""
 
-        self.terminated = False
-        self.truncated = False
 
-        truncation_reasons = status_set & TRUNCATED_STATUSES
-
-        # Technische Fehler haben Vorrang.
-        if truncation_reasons:
+        if status in TRUNCATED_STATUSES:
             self.truncated = True
 
             logging.error(
-                "episode_outcome=%s engine_statuses=%s error_statuses=%s",
+                "episode_outcome=%s engine_status=%s",
                 None,
-                [status.name for status in statuses],
-                [status.name for status in truncation_reasons],
+                getattr(status, "name", str(status)),
             )
 
             return None
 
-        # GAME_ENDED wird für das Training als Sieg interpretiert.
-        if bar_ai.EngineStatus.GAME_ENDED in status_set:
+        if status == bar_ai.EngineStatus.GAME_ENDED:
             self.terminated = True
             outcome = EpisodeOutcome.WON
 
             logging.info(
-                "episode_outcome=%s engine_statuses=%s",
+                "episode_outcome=%s engine_status=%s",
                 outcome.value,
-                [status.name for status in statuses],
+                status.name,
             )
 
             return outcome
 
-        # TEAM_DIED wird als Niederlage interpretiert.
-        if ( bar_ai.EngineStatus.TEAM_DIED in status_set
-            or bar_ai.EngineStatus.AI_KILLED in status_set
-        ):
+        if status in {
+            bar_ai.EngineStatus.TEAM_DIED,
+            bar_ai.EngineStatus.AI_KILLED,
+        }:
             self.terminated = True
             outcome = EpisodeOutcome.LOST
 
             logging.info(
-                "episode_outcome=%s engine_statuses=%s",
+                "episode_outcome=%s engine_status=%s",
                 outcome.value,
-                [status.name for status in statuses],
+                status.name,
             )
 
             return outcome
 
-        # Alle Engines laufen normal.
-        if statuses and all(
-            status == bar_ai.EngineStatus.RUNNING
-            for status in statuses
-        ):
+        if status == bar_ai.EngineStatus.RUNNING:
             logging.debug(
-                "episode_outcome=%s engine_statuses=%s",
+                "episode_outcome=%s engine_status=%s",
                 None,
-                [status.name for status in statuses],
+                status.name,
             )
 
             return None
 
-        # Leere Liste oder nichts.
         self.truncated = True
 
         logging.error(
-            "episode_outcome=%s engine_statuses=%s",
+            "episode_outcome=%s engine_status=%s reason=unhandled_status",
             None,
-            [
-                getattr(status, "name", str(status))
-                for status in statuses
-            ],
+            getattr(status, "name", str(status)),
         )
 
-        return None
+        return 
