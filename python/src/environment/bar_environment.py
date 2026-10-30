@@ -150,9 +150,17 @@ class BAR_Environment:
         self.episode_step += 1
 
         shared_memory = bar_ai.SharedMemory.open(self.shared_memory_name)
+        units = shared_memory.read_all_units()
+        statuses = shared_memory.read_all_engine_statuses()
+
+        if len(statuses) != 1:
+            logging.error("engine_statuses=%s", 
+                          statuses)
+            raise RuntimeError("Not exactly one Engine Status in shared Memory")
+
         outcome = self.evaluate_engine_statuses(shared_memory)
 
-        units = shared_memory.read_all_units()
+        
 
         self.unit_memory.update(
             units,
@@ -324,10 +332,9 @@ class BAR_Environment:
 
     def evaluate_engine_statuses(
         self,
-        shared_memory: bar_ai.SharedMemory,
+        status: bar_ai.EngineStatus,
     ) -> Optional[EpisodeOutcome]:
-        statuses = shared_memory.read_all_engine_statuses()
-        status_set = set(statuses)
+        
 
         self.terminated = False
         self.truncated = False
