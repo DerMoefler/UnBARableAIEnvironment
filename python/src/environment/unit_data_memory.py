@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set
 
+import logging
 import bar_ai
 
 
@@ -80,6 +81,14 @@ class UnitMemory:
         for unit_id, entry in self._enemies.items():
             if unit_id not in visible_enemy_ids:
                 entry.visible = False
+
+        logging.debug(
+            "UnitMemory step=%d: visible=%d, hidden=%d, remembered=%d",
+            self._current_step,
+            self.visible_enemy_count,
+            self.hidden_enemy_count,
+            self.remembered_enemy_count,
+        )
 
     def get_visible_entries(self) -> List[UnitMemoryEntry]:
         return [

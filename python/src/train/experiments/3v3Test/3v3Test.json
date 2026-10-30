@@ -14,5 +14,16 @@
     "run_name"              : "3v3Test",
     "resume"                : false,
     "save_every_x_episode"  : 1,
-    "training_team_id"      : 0
+    "training_team_id"      : 0,
+
+    "logging": {
+        "level": "INFO",
+        "modules": {
+            "src.environment.bar_environment": "INFO",
+            "src.environment.unit_data_memory": "DEBUG",
+            "src.environment.reward": "INFO",
+            "src.environment.engine_session": "WARNING"
+        }
+    }
+
 }
