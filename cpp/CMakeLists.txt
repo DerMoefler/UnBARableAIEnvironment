@@ -204,6 +204,11 @@ target_link_libraries(unbarableai_core
         spdlog::spdlog
 )
 
+target_compile_options(unbarableai_core
+    PRIVATE
+        $<$<CXX_COMPILER_ID:GNU>:-fconcepts-diagnostics-depth=10>
+)
+
 target_compile_definitions(unbarableai_core
     PRIVATE
         $<$<CONFIG:Debug>:SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE>
