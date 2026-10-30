@@ -1,7 +1,5 @@
 #pragma once
 #include <cassert>
-#include <iostream>  // TODO remove
-#include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
@@ -11,12 +9,12 @@
 
 #include "id/id_types.hpp"
 #include "id/id_allocator.hpp"
+#include "memory/shared_memory_impl.h"
 #include "memory/shared_memory_types.h"
 #include "memory/shm_layout_update_context.hpp"
 #include "memory/shm_read_context.hpp"
 #include "serialization/serialize_information.h"
 #include "serialization/layout.h"
-#include "shared_memory_impl.h"
 #include "utility/always_false.h"
 #include "utility/type_index.hpp"
 #include "utility/typelist.h"
@@ -47,20 +45,52 @@ public:
     inline static constexpr std::size_t c_type_index =
         TypeIndex_MF<S, SupportedTypes...>::index + 1;
 
+    /**
+     * \brief Creates a new shared-memory region using the implementation \ref T.
+     * \param name Name of the shared-memory region (should start with a '/' per convention).
+     * \return A SharedMemory object.
+     */
     inline static SharedMemory<T, SupportedTypes...> create(std::string_view name) {
         SharedMemory<T, SupportedTypes...> shm(T::create(name));
         shm.createLayoutTable();
         return shm;
     }
 
+    /**
+     * \brief Opens an existing shared-memory region.
+     * \param name Name of the shared-memory region to open.
+     * \return An initialized SharedMemory object.
+     * \throws std::system_error if the shared-memory region cannot be opened
+     *
+     * This method does an update() internally, meaning the Layouts are initialized according to the
+     * current state of the shm.
+     */
     inline static SharedMemory<T, SupportedTypes...> open(std::string_view name) {
         SharedMemory<T, SupportedTypes...> shm(T::open(name));
         shm.initializeLayouts();
         return shm;
     }
 
+    /**
+     * \brief Remove a shared-memory region.
+     * \param name Name of the shared-memory to remove.
+     * \throws std::system_error if the shared-memory region cannot be opened
+     */
     inline static void remove(const std::string& name) { T::remove(name); }
 
+    /**
+     * \ref Update the information about the shared-memory region.
+     * \returns Whether or not any layout changes have been detected.
+     * \note Value changed are not reported, only changes in size.
+     */
+    // bool update(void) { bool change = m_sharedMemoryImpl.update(); }
+
+    /**
+     * \brief Create and write a new Serializable to the shared-memory region.
+     * \tparam S A Serializable contained in \ref SupportedTypes.
+     * \param value A value of Type \ref S.
+     * \returns The serializableId assigned to the written \p value.
+     */
     template <serialization::Serializable S>
     id::id_t write(const S& value) {
         if (m_idAllocator.size() == c_layout_table_size_increase) {
@@ -76,73 +106,30 @@ public:
         id::id_t serializableId = m_idAllocator.allocate();
         createLayoutTableEntry<S>(serializableId, layout.getSegmentId().value());
         m_layouts.push_back(std::move(layout));
-        //std::cout << "SharedMemory<Impl, SupportedTypes...>::write: Finished successfully" << std::endl;
+        // std::cout << "SharedMemory<Impl, SupportedTypes...>::write: Finished successfully" <<
+        // std::endl;
         return serializableId;
     }
 
+    /**
+     * \brief Read an existing Serializable.
+     * \param serializableId Id of the Serializable, assigned previously by \ref write.
+     * \returns A \ref ValueVariant containing the read value.
+     * \throws std::out_of_range if serializableId is outside of the range.
+     */
     ValueVariant read(id::id_t serializableId) const {
-        //std::cout << "SharedMemory::read\n";
+        // std::cout << "SharedMemory::read\n";
         const LayoutVariant& layout = getLayoutVariant(serializableId);
 
         return std::visit([&](auto&& layout) -> ValueVariant { return readImpl(&layout); }, layout);
     }
 
-    template <serialization::Serializable S>
-    S readImpl(const serialization::Layout<S>* layout) const {
-        using Layout = serialization::Layout<S>;
-        using SI = typename Layout::SI;
-        using ValueType = typename SI::Type;
-        using Context = ShmReadContext<ValueType, T>;
-
-        if constexpr (Context::c_is_fully_deserializable) {
-            // std::cout << "SharedMemory::readImpl: Fully deserializable\n";
-            Context context{layout, m_sharedMemoryImpl, {}};
-            return context.deserialize();
-        }
-        else {
-            // std::cout << "SharedMemory::readImpl: Not fully deserializable (recursing)\n";
-            using ConstructibleFields = typename Context::ConstructibleFields;
-            using ConstructibleValueTypes = typename Context::ConstructibleValueTypes;
-            using ConstructiblesTuple = typename Context::ConstructiblesTuple;
-
-            auto constructedValues =
-                [&]<std::size_t... Is>(std::index_sequence<Is...>) -> ConstructiblesTuple {
-                return ConstructiblesTuple{
-                    [&]() -> typename Typelist::TypeAtIndex_MF<ConstructibleValueTypes, Is>::Type {
-                        using Field =
-                            typename Typelist::TypeAtIndex_MF<ConstructibleFields, Is>::Type;
-                        using ConstructibleValueType =
-                            typename Typelist::TypeAtIndex_MF<ConstructibleValueTypes, Is>::Type;
-                        const auto& node = layout->get(std::type_identity<Field>{});
-                        if constexpr (serialization::detail::MultiField<Field>) {
-                            ConstructibleValueType multiFieldValues;
-                            static_assert(std::same_as<typename ConstructibleValueType::value_type,
-                                                       typename serialization::detail::
-                                                           GetFieldlikeValueType_MF<Field>::Type>,
-                                          "Error");
-                            multiFieldValues.reserve(node.count);
-                            const auto& children = node.children;
-                            for (const auto& child : children) {
-                                assert(child && "Child canot be nullptr");
-                                multiFieldValues.push_back(readImpl(child.get()));
-                            }
-                            return multiFieldValues;
-                        }
-                        else if constexpr (serialization::detail::Field<Field>) {
-                            assert(node.child && "Child cannot be nullptr");
-                            return readImpl(node.child.get());
-                        }
-                        else {
-                            static_assert(AlwaysFalse_MF<Field>::value, "Unsupported FieldType.");
-                        }
-                    }()...};
-            }(std::make_index_sequence<std::tuple_size_v<ConstructiblesTuple>>{});
-
-            Context context{layout, m_sharedMemoryImpl, constructedValues};
-            return context.deserialize();
-        }
-    }
-
+    /**
+     * \brief Get the Layout for an existing Serializable.
+     * \param serializableId Id of the Serializable, assigned previously by \ref write.
+     * \returns A \ref LayoutVariant containing the Layout.
+     * \throws std::out_of_range if serializableId is outside of the range.
+     */
     LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
 
 private:
@@ -245,7 +232,7 @@ private:
     }
 
     template <serialization::Serializable S>
-        requires (not serialization::detail::FundamentalSerializable<S>)
+        requires(not serialization::detail::FundamentalSerializable<S>)
     void writeOnCreation(const S& value, serialization::Layout<S>* layout) {
         // std::cout << "SharedMemory<...>::writeOnCreation\n";
         size_t segmentId = layout->getSegmentId().value();
@@ -305,6 +292,62 @@ private:
         };
 
         layout->visitNodesByInlining(funcBase, funcRecursive);
+    }
+
+    template <serialization::Serializable S>
+    S readImpl(const serialization::Layout<S>* layout) const {
+        using Layout = serialization::Layout<S>;
+        using SI = typename Layout::SI;
+        using ValueType = typename SI::Type;
+        using Context = ShmReadContext<ValueType, T>;
+
+        if constexpr (Context::c_is_fully_deserializable) {
+            // std::cout << "SharedMemory::readImpl: Fully deserializable\n";
+            Context context{layout, m_sharedMemoryImpl, {}};
+            return context.deserialize();
+        }
+        else {
+            // std::cout << "SharedMemory::readImpl: Not fully deserializable (recursing)\n";
+            using ConstructibleFields = typename Context::ConstructibleFields;
+            using ConstructibleValueTypes = typename Context::ConstructibleValueTypes;
+            using ConstructiblesTuple = typename Context::ConstructiblesTuple;
+
+            auto constructedValues =
+                [&]<std::size_t... Is>(std::index_sequence<Is...>) -> ConstructiblesTuple {
+                return ConstructiblesTuple{
+                    [&]() -> typename Typelist::TypeAtIndex_MF<ConstructibleValueTypes, Is>::Type {
+                        using Field =
+                            typename Typelist::TypeAtIndex_MF<ConstructibleFields, Is>::Type;
+                        using ConstructibleValueType =
+                            typename Typelist::TypeAtIndex_MF<ConstructibleValueTypes, Is>::Type;
+                        const auto& node = layout->get(std::type_identity<Field>{});
+                        if constexpr (serialization::detail::MultiField<Field>) {
+                            ConstructibleValueType multiFieldValues;
+                            static_assert(std::same_as<typename ConstructibleValueType::value_type,
+                                                       typename serialization::detail::
+                                                           GetFieldlikeValueType_MF<Field>::Type>,
+                                          "Error");
+                            multiFieldValues.reserve(node.count);
+                            const auto& children = node.children;
+                            for (const auto& child : children) {
+                                assert(child && "Child canot be nullptr");
+                                multiFieldValues.push_back(readImpl(child.get()));
+                            }
+                            return multiFieldValues;
+                        }
+                        else if constexpr (serialization::detail::Field<Field>) {
+                            assert(node.child && "Child cannot be nullptr");
+                            return readImpl(node.child.get());
+                        }
+                        else {
+                            static_assert(AlwaysFalse_MF<Field>::value, "Unsupported FieldType.");
+                        }
+                    }()...};
+            }(std::make_index_sequence<std::tuple_size_v<ConstructiblesTuple>>{});
+
+            Context context{layout, m_sharedMemoryImpl, constructedValues};
+            return context.deserialize();
+        }
     }
 
     const LayoutVariant& getLayoutVariant(id::id_t serializableId) const {
