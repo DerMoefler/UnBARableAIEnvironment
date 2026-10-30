@@ -13,7 +13,7 @@ protected:
                                    std::byte{0x1e}};
 };
 
-TEST_F(SharedMemoryPosixTest, Wrtie) {
+TEST_F(SharedMemoryPosixTest, Write) {
     SharedMemoryPosix shm = SharedMemoryPosix::create("/shm-posix-test-write");
 
     shm.writeSegment(data);
@@ -66,10 +66,9 @@ TEST_F(SharedMemoryPosixTest, OpenRead) {
     auto siOpen = shmOpen.getSegmentInformation(id);
     EXPECT_EQ(siCreate.getId(), siOpen.getId());
     EXPECT_EQ(siCreate.isValid(), siOpen.isValid());
-    EXPECT_EQ(siCreate.getHead(), siOpen.getHead());
+    EXPECT_EQ(siCreate.headPosition(), siOpen.headPosition());
     EXPECT_EQ(siCreate.getMemoryStart(), siOpen.getMemoryStart());
-    EXPECT_EQ(siCreate.getCapacity(), siOpen.getCapacity());
-    EXPECT_EQ(siCreate.getSize(), siOpen.getSize());
+    EXPECT_EQ(siCreate.totalSize(), siOpen.totalSize());
 
     // Test using default operator==
     EXPECT_EQ(shm.getSegmentInformation(id), shmOpen.getSegmentInformation(id));
@@ -106,8 +105,7 @@ TEST_F(SharedMemoryPosixTest, Delete) {
     reader.update();
     EXPECT_EQ(reader.getSegmentsCount(), numSegments - 2);
 
-
-    writer.deleteSegment(numSegments);
+    writer.deleteSegment(numSegments - 3);
 
     reader.update();
     EXPECT_EQ(reader.getSegmentsCount(), numSegments - 3);

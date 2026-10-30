@@ -47,7 +47,7 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
     using SI = serialization::SerializeInformation<ComplexB>;
     constexpr std::string_view name = "/shm-test-write";
 
-    SharedMemoryType shm = SharedMemoryType::create(name);
+    SharedMemoryType shm = SharedMemoryType::create(name, 8);
     id::id_t serializableId = shm.write(data);
 
     SharedMemoryPosix shmPosix = SharedMemoryPosix::open(name);
@@ -77,7 +77,7 @@ TEST_F(SharedMemoryTest, OpenComplexB) {
     using SI = serialization::SerializeInformation<ComplexB>;
     constexpr std::string_view name = "/shm-test-open-complexb";
 
-    SharedMemoryType shm = SharedMemoryType::create(name);
+    SharedMemoryType shm = SharedMemoryType::create(name, 8);
     id::id_t serializableId = shm.write(data);
 
     EXPECT_NO_THROW({
@@ -89,8 +89,8 @@ TEST_F(SharedMemoryTest, OpenComplexB) {
             std::get<serialization::Layout<ComplexB>>(shmOpen.getLayout(serializableId));
 
         EXPECT_EQ(writtenLayout, openedLayout);
-        serialization::debug::dumpLayout(std::cout, writtenLayout, 0);
-        serialization::debug::dumpLayout(std::cout, openedLayout, 0);
+        // serialization::debug::dumpLayout(std::cout, writtenLayout, 0);
+        // serialization::debug::dumpLayout(std::cout, openedLayout, 0);
     });
 
     if (::testing::Test::HasFailure()) {
@@ -110,7 +110,7 @@ TEST_F(SharedMemoryTest, ReadComplexB) {
     using SI = serialization::SerializeInformation<ComplexB>;
     constexpr std::string_view name = "/shm-test-open-complexb";
 
-    SharedMemoryType shm = SharedMemoryType::create(name);
+    SharedMemoryType shm = SharedMemoryType::create(name, 8);
     id::id_t serializableId = shm.write(data);
 
     SharedMemoryType shmOpen = SharedMemoryType::open(name);
@@ -137,17 +137,9 @@ TEST_F(SharedMemoryTest, Integrals) {
 
     constexpr std::string_view name = "/shm-test-integrals";
 
-    Shm shm = Shm::create(name);
+    Shm shm = Shm::create(name, 8);
     id::id_t testActionId = shm.write(TestAction::ValueC);
     id::id_t testEnumId = shm.write(TestEnum::ValueB);
-
-    std::ifstream file(std::string("/dev/shm/" + std::string(name)), std::ios::binary);
-    if (!file) {
-        std::cout << "Cannot open shm?!?";
-    }
-    else {
-        memory::debug::hexdump(std::cout, file);
-    }
 
     auto testAction = shm.read(testActionId);
     auto testEnum = shm.read(testEnumId);

@@ -11,7 +11,7 @@ BarSharedMemory::BarSharedMemory(Impl impl)
     : m_sharedMemory(std::move(impl)) {}
 
 BarSharedMemory BarSharedMemory::create(std::string_view name) {
-    return BarSharedMemory{Impl::create(name)};
+    return BarSharedMemory{Impl::create(name, 50)};
 }
 
 BarSharedMemory BarSharedMemory::open(std::string_view name) {
@@ -51,8 +51,7 @@ int BarSharedMemory::resolveOwnTeamId() {
      * keine UnitData geschrieben. Daher wird die erste gespeicherte
      * UnitData gelesen.
      */
-    std::vector<BarSharedMemory::UnitData> units =
-        readAll<BarSharedMemory::UnitData>();
+    std::vector<BarSharedMemory::UnitData> units = readAll<BarSharedMemory::UnitData>();
 
     if (units.empty()) {
         throw std::runtime_error(
