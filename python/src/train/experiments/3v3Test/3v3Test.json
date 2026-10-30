@@ -6,7 +6,7 @@
     "device"                : "auto",
     "gamma"                 : 0.99,
     "learning_rate"         : 1e-4,
-    "maximum_steps"         : 128,
+    "maximum_steps"         : 500,
     "mini_batch"            : 4,
     "model_root"            : 1,
     "number_of_agents"      : 3,

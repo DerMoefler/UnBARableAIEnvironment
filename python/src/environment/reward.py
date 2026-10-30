@@ -6,7 +6,6 @@ import numpy as np
 
 @dataclass
 class RewardConfig:
-    training_team_id: int = 0 #TODO: auf richtige config ändern
     damage_enemy_coef: float = 0.02
     damage_own_coef: float = 0.02
     enemy_kill: float = 2.0

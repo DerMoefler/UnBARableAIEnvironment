@@ -752,7 +752,7 @@ def main() -> None:
 
         for i in range(data["number_of_environments"]):
             logging.info("Initializing new BAR Environment, engine_id: %d port %d", i, 50051 + i)
-            env = BAR_Environment(engine_id = i, port = 50051+i)
+            env = BAR_Environment(training_team_id=int(data["training_team_id"]), max_episode_steps=int(data["maximum_steps"]), engine_id = i, port = 50051+i)
             environments.append(env)
             logging.info("Initialized new BAR Environment, engine_id: %d, port %d", i, 50051 + i)
 

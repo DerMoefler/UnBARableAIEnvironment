@@ -18,6 +18,8 @@ class EngineSnapshot:
 class BAR_Environment:
     def __init__(
         self,
+        *,
+        training_team_id: int,
         session_cfg: Optional[EngineSessionConfig] = None,
         max_episode_steps: int = 512,
         reward_calculator: Optional[RewardCalculator] = None,
@@ -35,6 +37,8 @@ class BAR_Environment:
         # Zähler für aktuelle Episode
         self.episode_step = 0
 
+        self.training_team_id = training_team_id
+
 
         self.reward_calculator = (
             reward_calculator if reward_calculator is not None else RewardCalculator()
@@ -50,7 +54,7 @@ class BAR_Environment:
         self.shared_memory_name = ""
 
         self.unit_memory = UnitMemory(
-            training_team_id=self.reward_calculator.config.training_team_id #TODO: auf richtige config ändern
+            self.training_team_id
         )
 
 
@@ -229,14 +233,11 @@ class BAR_Environment:
         self,
         current_units: List[bar_ai.UnitData],
     ) -> Dict[str, Any]:
-        training_team_id = (
-            self.reward_calculator.config.training_team_id
-        )
 
         own_alive = [
             unit
             for unit in current_units
-            if int(unit.team_id) == training_team_id
+            if int(unit.team_id) == self.training_team_id
             and not bool(unit.is_dead)
             and float(unit.health) > 0.0
         ]
