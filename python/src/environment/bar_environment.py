@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional, Tuple
 from src.environment.engine_session import EngineSession, EngineSessionConfig
-from src.train.reward import RewardCalculator
+from src.environment.reward import RewardCalculator
 from typing import List
 from src.environment.unit_data_memory import UnitMemory
 from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
