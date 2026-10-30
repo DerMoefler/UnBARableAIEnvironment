@@ -477,7 +477,7 @@ private:
     }
 
     /// \todo This currently cannot change because the segment cant grow, fix it.
-    const std::size_t m_serializableTableSize;
+    std::size_t m_serializableTableSize;
     std::vector<LayoutVariant> m_layouts;
     id::IdAllocator m_idAllocator;
 
