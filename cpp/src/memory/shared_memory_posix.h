@@ -117,8 +117,10 @@ public:
      */
     id_t createSegment(const std::size_t size);
 
-    // TODO fix
-    inline size_t getSegmentsCount(void) const { return m_segmentTable.validSegmentsCount(); }
+    /**
+     * \brief Get the number of segments present in the shared-memory.
+     */
+    inline std::size_t getSegmentsCount(void) const { return m_segmentTable.validSegmentsCount(); }
 
     /**
      * \brief Get the segment information, i.e. its position and size in memory.
@@ -154,13 +156,13 @@ public:
     // void writeToSegmentAt(id_t id, position_t position, DataView data);
 
     /**
-     * \brief Read a segment.
+     * \brief Read all the valid data bytes of a segment.
      * \param segmentId Id of the segment to read.
      * \returns Raw data bytes of the segment.
      * \throw std::runtime_error if the segment's id doesnt exist.
      *
-     * This method reads all the data bytes (i.e. excluding header and links between partial
-     * segments) and copies them into an std::vector<std::byte> which is then returned.
+     * This method reads all the valid data bytes, i.e. excludes header and only actually written
+     * data bytes, and copies them into an std::vector<std::byte> which is then returned.
      */
     std::vector<std::byte> readSegment(const id_t segmentId) const;
 
