@@ -24,9 +24,9 @@ class EngineSessionConfig:
     isolation_dir: Path = Path("~/bar-data/").expanduser()
     write_dir: Path = field(init=False)
 
-    engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring-headless"
+    engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring"
     config_file: Path = engine_root / "config" / "test_fast.cfg"
-    startscript: Path = engine_root / "startscripts" / "3vs3PawnsNew.txt"
+    startscript: Path = engine_root / "startscripts" / "3vs3HumanVsUnBARableAI.txt"
 
     default_stdout: int | str | Path = Path("~/bar-data/engine_stdout.log").expanduser()
     default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
@@ -45,7 +45,7 @@ class EngineSessionConfig:
         if not self.engine_exe.is_file():
             raise ValueError(f"Engine executable does not exist: {self.engine_exe}")
         if not os.access(self.engine_exe, os.X_OK):
-            raise PermissionError(f"spring-headless is not executable: {self.engine_exe}")
+            raise PermissionError(f"Engine is not executable: {self.engine_exe}")
 
     def ensure_write_dir(self) -> None:
         """
