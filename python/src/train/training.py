@@ -1,5 +1,4 @@
 import json
-import logging
 import time
 import traceback
 from datetime import datetime
@@ -11,6 +10,8 @@ import torch
 import bar_ai
 
 from src.environment.bar_environment import BAR_Environment
+from src.environment.environmentpool import EnvironmentPool
+from src.utils.logger_factory import get_file_logger
 from src.train.mappo.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.mappo.r_mappo import R_MAPPO
@@ -589,78 +590,6 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
         next_available_actions_raw,
     )
 
-def configure_logging(
-    config: dict[str, Any],
-    timestamp: str,
-) -> None:
-    logging_config = config.get("logging", {})
-
-    level_name = str(
-        logging_config.get("level", "INFO")
-    ).upper()
-
-    level = getattr(logging, level_name, None)
-
-    if not isinstance(level, int):
-        raise ValueError(
-            f"Invalid logging level: {level_name!r}"
-        )
-
-    log_directory = (
-        Path("src/train/experiments")
-        / config["run_name"]
-    )
-
-    log_directory.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    log_path = log_directory / (
-        f"{config['run_name']}_{timestamp}.log"
-    )
-
-    logging.basicConfig(
-        filename=log_path,
-        filemode="w",
-        format=(
-            "%(asctime)s - %(levelname)s - "
-            "%(name)s - %(filename)s:%(lineno)d - "
-            "%(funcName)s - %(message)s"
-        ),
-        level=level,
-        force=True,
-    )
-
-    module_levels = logging_config.get("modules", {})
-
-    if not isinstance(module_levels, dict):
-        raise ValueError(
-            "'logging.modules' must be a JSON object."
-        )
-
-    for module_name, module_level_name in module_levels.items():
-        normalized_level_name = str(
-            module_level_name
-        ).upper()
-
-        module_level = getattr(
-            logging,
-            normalized_level_name,
-            None,
-        )
-
-        if not isinstance(module_level, int):
-            raise ValueError(
-                f"Invalid logging level "
-                f"{module_level_name!r} for module "
-                f"{module_name!r}."
-            )
-
-        logging.getLogger(module_name).setLevel(
-            module_level
-        )
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -773,40 +702,37 @@ def main() -> None:
     #import Json configfile
     data = load_training_config()
 
-    #start logging and configure log 
+    #start logger and configure log 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    configure_logging(
-        config=data,
-        timestamp=timestamp,
-    )
+    logger = get_file_logger("training", Path(f"src/train/experiments/{data["run_name"]}/{data["run_name"]}training{timestamp}.log"))
 
-    logging.info("Starting log")
+    logger.info("Starting log")
 
     #Selecting Cuda
     if data["device"] == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if torch.cuda.is_available():
-            logging.info("auto selection: cuda")
+            logger.info("auto selection: cuda")
         else:
-            logging.info("auto selection: CPU")
+            logger.info("auto selection: CPU")
     else:
         device = torch.device(data["device"])
-        logging.info("using configured device: %s", device)
+        logger.info("using configured device: %s", device)
     if device.type == "cuda" and not torch.cuda.is_available():
-        logging.warning("cuda was selected, but cuda is unable to use")
+        logger.warning("cuda was selected, but cuda is unable to use")
     device_description = (
         torch.cuda.get_device_name(device)
         if device.type == "cuda" else "CPU"
     )
-    logging.info("device_description: %s", device_description)
+    logger.info("device_description: %s", device_description)
 
     model_directory = Path(f"src/train/experiments/{data["run_name"]}/models")
     run_directory = Path(f"src/train/experiments/{data["run_name"]}/run")
 
     #Starting new run
-    logging.info("run_name: %s", data["run_name"])
-    logging.info("model_directory: %s", model_directory)
+    logger.info("run_name: %s", data["run_name"])
+    logger.info("model_directory: %s", model_directory)
     run_started_at = time.perf_counter()
     total_engine_start_seconds = 0.0
     total_engine_step_seconds = 0.0
@@ -817,13 +743,9 @@ def main() -> None:
     success = False
 
     try:
-        environments = []
-
-        for i in range(data["number_of_environments"]):
-            logging.info("Initializing new BAR Environment, engine_id: %d port %d", i, 50051 + i)
-            env = BAR_Environment(training_team_id=int(data["training_team_id"]), max_episode_steps=int(data["maximum_steps"]), engine_id = i, port = 50051+i)
-            environments.append(env)
-            logging.info("Initialized new BAR Environment, engine_id: %d, port %d", i, 50051 + i)
+        logger.info("Initializing new BAR Environment")
+        environment = BAR_Environment(training_team_id= data["training_team_id"], environment_id = 0, config_path = Path("src/train/experiments/3v3Test/3v3Test.json"))
+        logger.info("Initialized new BAR Environment")
 
         obs_dim = OBS_DIM
         action_dim = data["action_dimension"]
@@ -835,7 +757,7 @@ def main() -> None:
             lr=data["learning_rate"],
             target_feature_dim=UNIT_SLOT_FEATURE_DIM,
         )
-        logging.info("created R MAPPO policy")
+        logger.info("created R MAPPO policy")
 
         if "continue_training" not in data:
             raise ValueError(
@@ -862,7 +784,7 @@ def main() -> None:
                 device,
                 checkpoint_path,
             )
-            logging.info(
+            logger.info(
                 "Resumed training from %s at episode %d",
                 checkpoint_path,
                 start_episode,
@@ -878,7 +800,7 @@ def main() -> None:
             action_dim=action_dim,
         )
 
-        logging.info("created shared replay buffer")
+        logger.info("created shared replay buffer")
 
         trainer_args = TrainerArgs()
         trainer_args.num_mini_batch = data["mini_batch"]
@@ -889,25 +811,24 @@ def main() -> None:
             device=device,
         )
 
-
         recurrent_n = 1
         hidden_size = 1
     
-
-
         for episode in range(start_episode, start_episode + data["episodes"]):
-            logging.debug("starting episode %d", episode + 1)
+            logger.debug("starting episode %d", episode + 1)
             engine_step_seconds = 0.0
 
-            logging.info("starting environment reset")
-            reset_result = environments[0].reset()
-            logging.info("reset complete")
-
-
-            obs_raw, share_obs_raw, available_actions_raw = _parse_reset_result(
-                reset_result
+            rnn_states, rnn_states_critic = _make_rnn_state_arrays(
+                data["number_of_agents"],
+                recurrent_n=recurrent_n,
+                hidden_size=hidden_size,
             )
 
+
+            logger.info("starting environment reset")
+            reset_result = environment.reset()
+            logger.info("reset complete, env")
+            obs_raw, share_obs_raw, available_actions_raw = _parse_reset_result(reset_result)
             obs = _prepare_obs(
                 obs_raw,
                 data["number_of_agents"],
@@ -941,8 +862,8 @@ def main() -> None:
             final_enemy_alive = None
             enemy_damage_done = 0.0
             own_damage_taken = 0.0
-            last_info_keys: list[str] = []
-            final_step_info: Any = None
+            last_info_keys = []
+            final_step_info = None
 
             rnn_states, rnn_states_critic = _make_rnn_state_arrays(
                 data["number_of_agents"],
@@ -972,7 +893,7 @@ def main() -> None:
 
                 env_actions = actions
 
-                #Logging taken actions
+                #logger taken actions
                 env_action_types = [int(a) for a in env_actions[:, 0]]
                 action_trace.append(env_action_types)
 
@@ -980,14 +901,14 @@ def main() -> None:
                     if 0 <= a < data["action_dimension"]:
                         action_counts[a] += 1
                     else:
-                        logging.warning("sampled invalid action %s expected range %s", a, [0, data["action_dimension"] - 1])
+                        logger.warning("sampled invalid action %s expected range %s", a, [0, data["action_dimension"] - 1])
 
                 environment_started_at = time.perf_counter()
                 step_result = _step_all_agents(
-                    environments[0],
+                    environment,
                     env_actions,
                     obs_raw=obs_raw,
-                        training_team_id=data["training_team_id"],
+                    training_team_id=data["training_team_id"],
                     policy=policy,
                 )
                 engine_step_elapsed = time.perf_counter() - environment_started_at
@@ -1148,10 +1069,10 @@ def main() -> None:
             total_training_seconds += training_seconds
 
 
-            logging.info("trainer.training() done")
+            logger.info("trainer.training() done")
 
             buffer.reset()
-            logging.info("buffer.reset() done")
+            logger.info("buffer.reset() done")
 
             average_reward_per_step = (
                 episode_reward / step_count
@@ -1159,32 +1080,32 @@ def main() -> None:
                 else 0.0
             )
 
-            logging.info("Episode %d of %d", episode + 1, start_episode + data["episodes"])
-            logging.info("Average Reward per Step: %.4f", average_reward_per_step)
-            logging.info("Episode Reward: %.4f", episode_reward)
-            logging.info("Steps: %d", step_count)
+            logger.info("Episode %d of %d", episode + 1, start_episode + data["episodes"])
+            logger.info("Average Reward per Step: %.4f", average_reward_per_step)
+            logger.info("Episode Reward: %.4f", episode_reward)
+            logger.info("Steps: %d", step_count)
 
-            logging.info("Won: %s", episode_won)
-            logging.info("Lost: %s", episode_lost)
-            logging.info("Final Ally Alive: %s",final_ally_alive)
-            logging.info("Final Enemy Alive: %s",final_enemy_alive)
-            logging.info("Enemy Damage Done: %.4f",enemy_damage_done)
-            logging.info("Own Damage Taken: %.4f",own_damage_taken)
+            logger.info("Won: %s", episode_won)
+            logger.info("Lost: %s", episode_lost)
+            logger.info("Final Ally Alive: %s",final_ally_alive)
+            logger.info("Final Enemy Alive: %s",final_enemy_alive)
+            logger.info("Enemy Damage Done: %.4f",enemy_damage_done)
+            logger.info("Own Damage Taken: %.4f",own_damage_taken)
 
-            logging.info("Action Counts: %s", action_counts.tolist())
-            logging.info("Action Trace: %s",action_trace)
+            logger.info("Action Counts: %s", action_counts.tolist())
+            logger.info("Action Trace: %s",action_trace)
 
             if last_info_keys:
-                logging.info("Last Info Keys: %s", last_info_keys)
+                logger.info("Last Info Keys: %s", last_info_keys)
             else:
-                logging.info("Last Info Keys: []")
+                logger.info("Last Info Keys: []")
 
             if final_step_info is not None:
-                logging.info("Final Step Info: %s", final_step_info)
+                logger.info("Final Step Info: %s", final_step_info)
 
-            logging.info("Value Loss: %.6f", train_info.get('value_loss', 0))
-            logging.info("Policy Loss: %.6f", train_info.get('policy_loss', 0))
-            logging.info("Entropy: %.6f", train_info.get('dist_entropy', 0))
+            logger.info("Value Loss: %.6f", train_info.get('value_loss', 0))
+            logger.info("Policy Loss: %.6f", train_info.get('policy_loss', 0))
+            logger.info("Entropy: %.6f", train_info.get('dist_entropy', 0))
 
             if data["save_every_x_episode"] > 0 and (episode + 1) % data["save_every_x_episode"] == 0:
                 checkpoint_started_at = time.perf_counter()
@@ -1192,7 +1113,7 @@ def main() -> None:
                     policy, data, episode + 1, run_directory
                 )
                 total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
-                logging.info("Saved checkpoint: %s", checkpoint_path)
+                logger.info("Saved checkpoint: %s", checkpoint_path)
 
         # Always save the final state, even when save_every is disabled or the
         # final episode is not an exact multiple of it.
@@ -1201,8 +1122,8 @@ def main() -> None:
             policy, data, start_episode + data["episodes"], run_directory
         )
         total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
-        logging.info("Final model saved to: %s", final_checkpoint)
-        logging.info("Latest model saved to: %s", run_directory / 'r_mappo_latest.pt')
+        logger.info("Final model saved to: %s", final_checkpoint)
+        logger.info("Latest model saved to: %s", run_directory / 'r_mappo_latest.pt')
 
         total_runtime = time.perf_counter() - run_started_at
         measured_runtime = (
@@ -1217,33 +1138,32 @@ def main() -> None:
         def percentage(seconds: float) -> float:
             return 100.0 * seconds / total_runtime if total_runtime > 0.0 else 0.0
 
-        logging.info("Overall timing summary")
-        logging.info("Total runtime: %s (100.00%%)", _format_duration(total_runtime))
-        logging.info("Engine start/reset: %s , %6.2f", _format_duration(total_engine_start_seconds), percentage(total_engine_start_seconds))
-        logging.info("Engine steps/waiting: %s , %6.2f", _format_duration(total_engine_step_seconds), percentage(total_engine_step_seconds))
-        logging.info("Policy inference: %s , %6.2f", _format_duration(total_inference_seconds), percentage(total_inference_seconds))
-        logging.info("PPO updates: %s , %6.2f", _format_duration(total_training_seconds), percentage(total_training_seconds))
-        logging.info("Checkpoint writing: %s , %6.2f", _format_duration(total_checkpoint_seconds), percentage(total_checkpoint_seconds))
-        logging.info("Other Python/logging: %s , %6.2f",  _format_duration(other_seconds), percentage(other_seconds))
+        logger.info("Overall timing summary")
+        logger.info("Total runtime: %s (100.00%%)", _format_duration(total_runtime))
+        logger.info("Engine start/reset: %s , %6.2f", _format_duration(total_engine_start_seconds), percentage(total_engine_start_seconds))
+        logger.info("Engine steps/waiting: %s , %6.2f", _format_duration(total_engine_step_seconds), percentage(total_engine_step_seconds))
+        logger.info("Policy inference: %s , %6.2f", _format_duration(total_inference_seconds), percentage(total_inference_seconds))
+        logger.info("PPO updates: %s , %6.2f", _format_duration(total_training_seconds), percentage(total_training_seconds))
+        logger.info("Checkpoint writing: %s , %6.2f", _format_duration(total_checkpoint_seconds), percentage(total_checkpoint_seconds))
+        logger.info("Other Python/logger: %s , %6.2f",  _format_duration(other_seconds), percentage(other_seconds))
 
         success = True
         
     except Exception as e:
-            logging.error("Exception occurred during simulated 3v3 training!")
-            logging.error("TYPE: %s",type(e).__name__)
-            logging.error("MSG : %s",e)
-            logging.warning("TRACEBACK:")
-            logging.warning(traceback.print_exc)
+            logger.error("Exception occurred during simulated 3v3 training!")
+            logger.error("TYPE: %s",type(e).__name__)
+            logger.error("MSG : %s",e)
+            logger.warning("TRACEBACK:")
+            logger.warning(traceback.print_exc)
             raise
     
     finally:
-        for i in range(data["number_of_environments"]):
-            if environments[i] is not None:
-                try:
-                    environments[i].close()
-                    logging.debug("env.close() done")
-                except Exception as close_err:
-                    logging.warning("env.close(), env: %d failed: %s", i, close_err)
+        if environment is not None:
+            try:
+                environment.close()
+                logger.debug("env.close() done")
+            except Exception as close_err:
+                logger.warning("env.close(), env: %d failed: %s", i, close_err)
 
         if success:
             print("Simulated 3v3 pawn training complete!", flush=True)
