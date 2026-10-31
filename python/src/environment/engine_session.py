@@ -9,6 +9,8 @@ import subprocess
 import threading
 from typing import Optional, Dict, Any, List, Union, Callable
 
+logger = logging.getLogger(__name__)
+
 @dataclass(frozen=True)
 class EngineSessionConfig:
     """
@@ -118,7 +120,7 @@ class EngineSession:
 
         self._monitor_thread.start()
 
-        logging.info("Engine process started: %s", pformat(self.info()))
+        logger.info("Engine process started: %s", pformat(self.info()))
         return self.info()
 
     def stop(self) -> None:
@@ -132,7 +134,7 @@ class EngineSession:
 
             if self.proc.poll() is not None:
                 self.proc.wait()
-                logging.info("Engine process already exited ")
+                logger.info("Engine process already exited ")
                 return
 
             try:
@@ -142,9 +144,9 @@ class EngineSession:
 
             try:
                 self.proc.wait(timeout=5)
-                logging.info("Engine process terminated gracefully (in EngineSession.stop())")
+                logger.info("Engine process terminated gracefully (in EngineSession.stop())")
             except subprocess.TimeoutExpired:
-                logging.warning("Engine process did not terminate gracefully, forcing termination...")
+                logger.warning("Engine process did not terminate gracefully, forcing termination...")
                 try:
                     os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
                 except ProcessLookupError:
@@ -156,7 +158,7 @@ class EngineSession:
             self.proc = None
             self._close_streams()
             self.grpc_server.stop()
-            logging.info("Engine Session stop called, process terminated and streams closed.")
+            logger.info("Engine Session stop called, process terminated and streams closed.")
 
     def is_running(self) -> bool:
         """
@@ -221,7 +223,7 @@ class EngineSession:
         """
         return_code = proc.wait()
 
-        logging.info("Engine process exited with return code: %s" " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)", return_code)
+        logger.info("Engine process exited with return code: %s" " (0 = regular exit, -15 = SIGTERM, -9 = SIGKILL)", return_code)
 
         if self.on_exit is not None:
             self.on_exit(return_code)

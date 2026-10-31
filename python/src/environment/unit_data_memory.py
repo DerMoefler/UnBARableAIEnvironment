@@ -4,6 +4,7 @@ from typing import Dict, Iterable, List, Optional, Set
 import logging
 import bar_ai
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class UnitMemoryEntry:
@@ -82,7 +83,7 @@ class UnitMemory:
             if unit_id not in visible_enemy_ids:
                 entry.visible = False
 
-        logging.debug(
+        logger.debug(
             "UnitMemory step=%d: visible=%d, hidden=%d, remembered=%d",
             self._current_step,
             self.visible_enemy_count,

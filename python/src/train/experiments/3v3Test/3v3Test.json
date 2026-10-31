@@ -20,9 +20,8 @@
         "level": "INFO",
         "modules": {
             "src.environment.bar_environment": "INFO",
-            "src.environment.unit_data_memory": "DEBUG",
-            "src.environment.reward": "INFO",
-            "src.environment.engine_session": "WARNING"
+            "src.environment.unit_data_memory": "INFO",
+            "src.environment.engine_session": "INFO"
         }
     }
 

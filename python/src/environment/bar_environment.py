@@ -10,6 +10,8 @@ import logging
 
 from dataclasses import dataclass
 
+logger = logging.getLogger(__name__)
+
 @dataclass(frozen=True)
 class EngineSnapshot:
     units: List[bar_ai.UnitData]
@@ -68,7 +70,7 @@ class BAR_Environment:
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
             self.current_update_id = 0
         
-        logging.info("Engine session started. Waiting for first handleEventUpdate...")
+        logger.info("Engine session started. Waiting for first handleEventUpdate...")
 
         wait_status, update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
@@ -177,7 +179,7 @@ class BAR_Environment:
         info = {
             "episode_step": self.episode_step,
             "own_alive_count": stats["own_alive_count"],
-            "enemy_alive_count": UnitMemory.remembered_enemy_count,
+            "enemy_alive_count": len(self.unit_memory.get_alive_units()),
             "terminated": terminated,
             "truncated": truncated,
             "episode_outcome": (
@@ -295,7 +297,7 @@ class BAR_Environment:
         dictionary : dict
             a dict where every agent is a key and the data is a numpy array with the infos from the UniData
         """
-        logging.debug(unit_list)
+        logger.debug(unit_list)
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
@@ -313,7 +315,7 @@ class BAR_Environment:
                 for status in statuses
             ]
 
-            logging.error(
+            logger.error(
                 "Expected exactly one engine status, "
                 "but received %d: %s",
                 len(statuses),
@@ -340,7 +342,7 @@ class BAR_Environment:
         if status in TRUNCATED_STATUSES:
             self.truncated = True
 
-            logging.error(
+            logger.error(
                 "episode_outcome=%s engine_status=%s",
                 None,
                 getattr(status, "name", str(status)),
@@ -352,7 +354,7 @@ class BAR_Environment:
             self.terminated = True
             outcome = EpisodeOutcome.WON
 
-            logging.info(
+            logger.info(
                 "episode_outcome=%s engine_status=%s",
                 outcome.value,
                 status.name,
@@ -367,7 +369,7 @@ class BAR_Environment:
             self.terminated = True
             outcome = EpisodeOutcome.LOST
 
-            logging.info(
+            logger.info(
                 "episode_outcome=%s engine_status=%s",
                 outcome.value,
                 status.name,
@@ -376,7 +378,7 @@ class BAR_Environment:
             return outcome
 
         if status == bar_ai.EngineStatus.RUNNING:
-            logging.debug(
+            logger.debug(
                 "episode_outcome=%s engine_status=%s",
                 None,
                 status.name,
@@ -386,7 +388,7 @@ class BAR_Environment:
 
         self.truncated = True
 
-        logging.error(
+        logger.error(
             "episode_outcome=%s engine_status=%s reason=unhandled_status",
             None,
             getattr(status, "name", str(status)),

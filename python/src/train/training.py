@@ -589,6 +589,77 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
         next_available_actions_raw,
     )
 
+def configure_logging(
+    config: dict[str, Any],
+    timestamp: str,
+) -> None:
+    logging_config = config.get("logging", {})
+
+    level_name = str(
+        logging_config.get("level", "INFO")
+    ).upper()
+
+    level = getattr(logging, level_name, None)
+
+    if not isinstance(level, int):
+        raise ValueError(
+            f"Invalid logging level: {level_name!r}"
+        )
+
+    log_directory = (
+        Path("src/train/experiments")
+        / config["run_name"]
+    )
+
+    log_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    log_path = log_directory / (
+        f"{config['run_name']}_{timestamp}.log"
+    )
+
+    logging.basicConfig(
+        filename=log_path,
+        filemode="w",
+        format=(
+            "%(asctime)s - %(levelname)s - "
+            "%(name)s - %(filename)s:%(lineno)d - "
+            "%(funcName)s - %(message)s"
+        ),
+        level=level,
+        force=True,
+    )
+
+    module_levels = logging_config.get("modules", {})
+
+    if not isinstance(module_levels, dict):
+        raise ValueError(
+            "'logging.modules' must be a JSON object."
+        )
+
+    for module_name, module_level_name in module_levels.items():
+        normalized_level_name = str(
+            module_level_name
+        ).upper()
+
+        module_level = getattr(
+            logging,
+            normalized_level_name,
+            None,
+        )
+
+        if not isinstance(module_level, int):
+            raise ValueError(
+                f"Invalid logging level "
+                f"{module_level_name!r} for module "
+                f"{module_name!r}."
+            )
+
+        logging.getLogger(module_name).setLevel(
+            module_level
+        )
 
 # ---------------------------------------------------------------------------
 # Main
@@ -705,11 +776,9 @@ def main() -> None:
     #start logging and configure log 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    logging.basicConfig(
-        filename=f"src/train/experiments/{data["run_name"]}/{data["run_name"]}_{timestamp}.log",
-        filemode="w",
-        format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s",
-        level=logging.INFO,
+    configure_logging(
+        config=data,
+        timestamp=timestamp,
     )
 
     logging.info("Starting log")
