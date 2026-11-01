@@ -11,6 +11,7 @@
 #include "engine_status.h"
 #include "grpc_connection.hpp"
 #include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
 #include "unit_data.h"
 
 #include <memory/shared_memory.h>
@@ -58,6 +59,11 @@ public:
 
     /// \brief Alias for the optional Action type used by this shared-memory interface.
     using ActionOpt = std::optional<Action>;
+
+    static_assert(serialization::TrivialSerializable<UnitDataOpt> &&
+                      serialization::TrivialSerializable<ActionOpt>,
+                  "Both UnitDataOpt and ActionOpt rely on SharedMemory::update which requires its "
+                  "types to be TrivialSerializables (at least currently).");
 
     /**
      * \brief Concrete shared-memory implementation used internally.
@@ -204,7 +210,10 @@ public:
      * \brief Update the engine status in the shared-memory.
      * \param status Current status of the game engine
      */
-    // void updateEngineStatus(EngineStatus status);
+    void updateEngineStatus(const EngineStatus status);
+
+    /// \brief Getter for EngineStatus.
+    EngineStatus getEngineStatus(void) const;
 
     /**
      * \brief Reads all stored values of the requested type.

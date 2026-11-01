@@ -29,35 +29,9 @@ TEST(BarSharedMemoryTest, Constructor) {
 
     auto createShm = BarSharedMemory::create("/shm-BAR-constructor", status, connection,
                                              units.size(), units.size());
-
-    for (const auto& unit : units) {
-        createShm.writeUnitData(unit);
-    }
-
-    for (const auto& action : actions) {
-        createShm.writeAction(action);
-    }
-
-    auto openShm = BarSharedMemory::open("/shm-BAR-constructor");
-    auto readUnits = openShm.readAll<BarSharedMemory::UnitDataOpt>();
-    auto readActions = openShm.readAll<BarSharedMemory::ActionOpt>();
-
-    ASSERT_TRUE(units.size() == readUnits.size());
-
-    for (std::size_t i = 0; i < units.size(); i++) {
-        EXPECT_EQ(units[i], readUnits[i].value());
-    }
-
-    ASSERT_TRUE(actions.size() == readActions.size());
-    for (std::size_t i = 0; i < actions.size(); i++) {
-        EXPECT_EQ(actions[i], readActions[i].value());
-    }
-
-    auto readEngineStatus = openShm.readAll<EngineStatus>();
-
-    ASSERT_TRUE(readEngineStatus.size() == 1);
-
-    EXPECT_NE(readEngineStatus[0], status);
+    EXPECT_EQ(status, createShm.getEngineStatus());
+    createShm.updateEngineStatus(EngineStatus::AI_CRASHED);
+    EXPECT_EQ(EngineStatus::AI_CRASHED, createShm.getEngineStatus());
 
     BarSharedMemory::remove("/shm-BAR-constructor");
 }

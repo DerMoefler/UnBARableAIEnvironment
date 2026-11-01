@@ -89,7 +89,13 @@ BarSharedMemory::SerializableId BarSharedMemory::writeUnitData(const UnitData& u
     return m_sharedMemory.write<UnitDataOpt>(unitData);
 }
 
-// void BarSharedMemory::updateEngineStatus(EngineStatus status) { m_sharedMemory.write(status); }
+void BarSharedMemory::updateEngineStatus(const EngineStatus status) {
+    m_sharedMemory.updateSerializable(c_engine_status_id, status);
+}
+
+EngineStatus BarSharedMemory::getEngineStatus(void) const {
+    return std::get<EngineStatus>(m_sharedMemory.read(c_engine_status_id));
+}
 
 int BarSharedMemory::getOwnTeamId() { return resolveOwnTeamId(); }
 
