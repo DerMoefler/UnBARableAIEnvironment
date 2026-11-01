@@ -15,8 +15,9 @@
 #include "memory/shared_memory_types.h"
 #include "memory/shm_layout_update_context.hpp"
 #include "memory/shm_read_context.hpp"
-#include "serialization/serialize_information.h"
 #include "serialization/layout.h"
+#include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
 #include "utility/always_false.h"
 #include "utility/type_index.hpp"
 #include "utility/typelist.h"
@@ -163,6 +164,29 @@ public:
         const LayoutVariant& layout = getLayoutVariant(serializableId);
 
         return std::visit([&](auto&& layout) -> ValueVariant { return readImpl(&layout); }, layout);
+    }
+
+    /**
+     * \brief Quick and dirty method for updating TrivialSerializables.
+     * \tparam S A supported TrivialSerializable.
+     * \param serializableId Id of the Serializable to update.
+     * \param value New value for the Serializable.
+     * \throws If the SerializableId does not exist.
+     */
+    template <serialization::TrivialSerializable S>
+    void updateSerializable(const id::id_t serializableId, const S& value) {
+        const LayoutVariant& layout = getLayoutVariant(serializableId);
+        assert(layout == LayoutVariant{serialization::Layout<S>{value}} &&
+               "Layouts must be equal here");
+
+        const auto segmentId = std::visit(
+            [](auto&& layout) -> memory::id_t {
+                assert(layout.getSegmentId().has_value() && "SegmentId must be available here");
+                return layout.getSegmentId().value();
+            },
+            layout);
+        const auto serialized = serialization::serialize(value);
+        m_sharedMemoryImpl.writeToSegmentAt(segmentId, 0, serialized);
     }
 
     /**
