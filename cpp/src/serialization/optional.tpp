@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
 
 namespace UnBARableAINS {
 
@@ -26,18 +27,18 @@ namespace serialization {
 \endverbatim
 where value is all zeros if has_value = false.
  */
-template <Serializable T>
-    requires detail::ConstSize<T>
+template <TrivialSerializable T>
 struct SerializeInformation<std::optional<T>> {
     using Type = std::optional<T>;
     using BoolSI = SerializeInformation<bool>;
-    using TypeSI = SerializeInformation<T>;
 
     using Fields = detail::Fields<>;
 
-    inline static constexpr bool c_serializable = Serializable<T>;
-    inline static constexpr std::size_t c_serialized_size =
-        BoolSI::c_serialized_size + TypeSI::c_serialized_size;
+    static constexpr bool c_serializable = Serializable<T>;
+    static constexpr std::size_t c_type_serialized_size =
+        getSerializableSize(std::type_identity<T>{});
+    static constexpr std::size_t c_serialized_size =
+        BoolSI::c_serialized_size + c_type_serialized_size;
 
     static constexpr std::array<std::byte, c_serialized_size> serialize(const Type& value) {
         std::array<std::byte, c_serialized_size> result{};
@@ -48,8 +49,8 @@ struct SerializeInformation<std::optional<T>> {
         std::ranges::copy(serializedHasValue, result.begin());
 
         if (hasValue) {
-            const std::array<std::byte, TypeSI::c_serialized_size> serializedType =
-                TypeSI::serialize(value.value());
+            const std::array<std::byte, c_type_serialized_size> serializedType =
+                serialization::serialize(value.value());
             std::ranges::copy(serializedType, result.begin() + BoolSI::c_serialized_size);
         }
 
@@ -66,8 +67,8 @@ struct SerializeInformation<std::optional<T>> {
         }
 
         const auto valueView =
-            serialized.template subspan<BoolSI::c_serialized_size, TypeSI::c_serialized_size>();
-        return TypeSI::deserialize(valueView);
+            serialized.template subspan<BoolSI::c_serialized_size, c_type_serialized_size>();
+        return serialization::deserialize<T>(valueView);
     }
 };
 
