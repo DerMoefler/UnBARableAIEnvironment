@@ -171,6 +171,14 @@ id_t SharedMemoryPosix::createSegment(const std::size_t size) {
 void SharedMemoryPosix::appendToSegment(const id_t segmentId, DataView data) {
     // std::cout << "SharedMemoryPosix::apendToSegment" << std::endl;
     const SegmentInformation& segment = m_segmentTable.getSegmentInformation(segmentId);
+    if (data.size() > segment.remainingSize()) {
+        const std::string message = std::format(
+            "Cannot append the data to the segment because its {} bytes exceed the remaining size "
+            "of {} bytes.",
+            data.size(), segment.remainingSize());
+        SPDLOG_LOGGER_ERROR(logger, message);
+        throw std::length_error(message);
+    }
     for (size_t i = 0; i < data.size(); i++) {
         write(static_cast<uint8_t>(data[i]), segment.headPosition());
         m_segmentTable.advanceSegmentInformationHead(segmentId, 1);
@@ -178,11 +186,52 @@ void SharedMemoryPosix::appendToSegment(const id_t segmentId, DataView data) {
     updateValidLength(segmentId);
 }
 
-std::vector<std::byte> SharedMemoryPosix::readSegment(const id_t segmentId) const {
-    const SegmentInformation& segmentInformation = m_segmentTable.getSegmentInformation(segmentId);
+void SharedMemoryPosix::writeToSegmentAt(const id_t segmentId, const position_t position,
+                                         DataView data) {
+    const SegmentInformation& segment = m_segmentTable.getSegmentInformation(segmentId);
 
-    const position_t dataStart = segmentInformation.dataStart();
-    const std::size_t dataSize = segmentInformation.validLength();
+    const std::size_t capacity = segment.dataSize();
+    const std::size_t dataSize = data.size();
+
+    if (position >= capacity) {
+        const std::string message = std::format(
+            "Position {} is equal to or larger than segment's size of {}.", position, capacity);
+        SPDLOG_LOGGER_ERROR(logger, message);
+        throw std::out_of_range(message);
+    }
+
+    if (capacity - position < dataSize) {
+        const std::string message = std::format(
+            "Cannot write data to positon {} because it would exceed segment's remaining (i.e. "
+            "starting at position) capacity of {}.",
+            position, capacity - position);
+        SPDLOG_LOGGER_ERROR(logger, message);
+        throw std::length_error(message);
+    }
+
+    const position_t currentHead = segment.validLength();
+    const position_t dataStart = segment.dataStart();
+    const position_t writeEnd = position + dataSize;
+
+    // Fill gap between currentHead and position with zeros.
+    if (position > currentHead) {
+        std::memset(m_memoryStart + dataStart + currentHead, 0, position - currentHead);
+    }
+
+    std::byte* writePosition = m_memoryStart + dataStart + position;
+    std::memcpy(writePosition, data.data(), data.size());
+
+    // Advance head if necessary
+    if (writeEnd > currentHead) {
+        m_segmentTable.advanceSegmentInformationHead(segmentId, writeEnd - currentHead);
+    }
+}
+
+std::vector<std::byte> SharedMemoryPosix::readSegment(const id_t segmentId) const {
+    const SegmentInformation& segment = m_segmentTable.getSegmentInformation(segmentId);
+
+    const position_t dataStart = segment.dataStart();
+    const std::size_t dataSize = segment.validLength();
 
     if (!dataSize) {
         return std::vector<std::byte>{};
@@ -207,7 +256,8 @@ void SharedMemoryPosix::deleteSegment(const id_t segmentId) {
         m_segmentTable.release(segmentId);
         updateSegmentTableLink(segmentId, std::nullopt);
     } catch (const std::exception& e) {
-        SPDLOG_LOGGER_ERROR(logger, "Deletion of segment {} failed. Reason: {}", segmentId, e.what());
+        SPDLOG_LOGGER_ERROR(logger, "Deletion of segment {} failed. Reason: {}", segmentId,
+                            e.what());
         throw;
     }
     SPDLOG_LOGGER_DEBUG(logger, "Deleted segment {}", segmentId);

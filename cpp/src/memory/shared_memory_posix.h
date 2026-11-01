@@ -125,7 +125,7 @@ public:
     /**
      * \brief Get the segment information, i.e. its position and size in memory.
      */
-    inline SegmentInformation getSegmentInformation(id_t segmentId) const {
+    inline SegmentInformation getSegmentInformation(const id_t segmentId) const {
         return m_segmentTable.getSegmentInformation(segmentId);
     }
 
@@ -135,6 +135,7 @@ public:
      * \param id The id of the Segment, returned by e.g. \ref createSegment.
      * \param data A view of the data to be written.
      * \throws std::length_error If appending the data would exceed the Segment's capacity.
+     * \throws If the segment doesnt exist, see \ref SegmentTable::getSegmentInformation.
      *
      * This method writes data to the Segment and moves the head along with it. No data will be
      * written if the Segment's remaining capacity (total capcaity - head) is too small to fit the
@@ -145,21 +146,25 @@ public:
     /**
      * \brief Writes data into a Segment starting at the specified position.
      *
-     * \param id The id of the Segment, returned by e.g. \ref createSegment.
-     * \param position The position within the segment.
+     * \param segmentId The id of the Segment, returned by e.g. \ref createSegment.
+     * \param position The position within the segment to start the write from.
      * \param data A view of the data to be written.
-     * \throws std::length_error If appending the data would exceed the Segment's capacity.
+     * \throws std::out_of_range if \p position is equal to or larger than the segment's total size.
+     * \throws std::length_error if appending the data would exceed the Segment's capacity.
+     * \throws If the segment doesnt exist, see \ref SegmentTable::getSegmentInformation.
      *
      * No data will be written if the Segment's remaining capacity (total capcaity - head) is too
-     * small to fit the entire data.
+     * small to fit the entire data, i.e. in the described error case. However, the head of the
+     * segment will be increased if additional data is written. If the head is smaller than
+     * \p position, the data between head and \p positon will be all zeros.
      */
-    // void writeToSegmentAt(id_t id, position_t position, DataView data);
+    void writeToSegmentAt(const id_t segmentId, const position_t position, DataView data);
 
     /**
      * \brief Read all the valid data bytes of a segment.
      * \param segmentId Id of the segment to read.
      * \returns Raw data bytes of the segment.
-     * \throw std::runtime_error if the segment's id doesnt exist.
+     * \throws If the segment doesnt exist, see \ref SegmentTable::getSegmentInformation.
      *
      * This method reads all the valid data bytes, i.e. excludes header and only actually written
      * data bytes, and copies them into an std::vector<std::byte> which is then returned.
@@ -209,7 +214,7 @@ public:
      * \brief Deletes a segment of data from memory.
      * \param segmentId The id the memory segment has been assigned (returned previously by the call
      * to \ref writeSegment).
-     * \throws See \ref SegmentTable::getSegmentInformation.
+     * \throws If the segment doesnt exist, see \ref SegmentTable::getSegmentInformation.
      */
     void deleteSegment(const id_t segmentId);
 
@@ -218,7 +223,7 @@ public:
      * \param segmentId Id of the segment, which links to the wanted segment.
      * \offset Positional offset within in the segment with \p segmentId.
      * \returns Id of the wanted segment or std::nullopt if it couldnt be found.
-     * \throws If \p segmentId doesnt even exist.
+     * \throws If the segment doesnt exist, see \ref SegmentTable::getSegmentInformation.
      *
      * This method returns the id of a segment, that the segment which is passed to the function
      * links to. Starting at the \p offset, the next sizeof(link_t) bytes in the segment (with \p
