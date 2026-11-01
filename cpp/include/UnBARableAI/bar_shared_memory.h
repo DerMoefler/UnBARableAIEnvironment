@@ -1,31 +1,35 @@
 #pragma once
 
-#include "action.h"
-#include "engine_status.h"
-#include "unit_data.h"
-
 #include <optional>
 #include <string_view>
-#include <vector>
-#include <concepts>
 #include <stdexcept>
-#include <utility>
 #include <variant>
+#include <vector>
+#include <utility>
 
 #include "action.h"
-#include "unit_data.h"
 #include "engine_status.h"
-
-#include <serialization/enum.tpp>
-#include <serialization/floating_point.tpp>
-#include <serialization/unit_data.tpp>
-#include <serialization/action.tpp>
+#include "grpc_connection.hpp"
+#include "serialization/serialize_information.h"
+#include "unit_data.h"
 
 #include <memory/shared_memory.h>
 #include <memory/shared_memory_types.h>
 #include <memory/shared_memory_posix.h>
 
+#include <serialization/action.tpp>
+#include <serialization/enum.tpp>
+#include <serialization/floating_point.tpp>
+#include <serialization/grpc_connection.tpp>
+#include <serialization/optional.tpp>
+#include <serialization/unit_data.tpp>
+// The optional include must be after UnitData and
+
 #include <utility/typelist.h>
+
+static_assert(
+    UnBARableAINS::serialization::Serializable<std::optional<UnBARableAINS::GrpcConnection>>,
+    "Doesnt work");
 
 namespace UnBARableAINS::memory {
 
@@ -34,25 +38,25 @@ namespace UnBARableAINS::memory {
  *
  * The expected order of UnitData objects in shared memory is:
  *
- * 1. All units belonging to the own team.
- * 2. All currently visible enemy units.
+ * 0. EngineStatus
+ * 1. gRpcConnection
+ * 2. All units belonging to the own team.
+ * 3. All currently visible enemy units.
+ * 4. Actions for ally units.
  *
  * The team_id of the first stored UnitData object is interpreted as
  * the own team ID.
+ * \todo Could also just write team id to the memory tbh.
  */
 class BarSharedMemory {
 public:
-    /**
-     * \brief Alias for the UnitData type used by this shared-memory interface.
-     */
     using UnitData = UnBARableAINS::unit::UnitData;
 
-    /**
-     * \brief Alias for the Action type used by this shared-memory interface.
-     */
-    using Action = UnBARableAINS::Action;
+    /// \brief Alias for the UnitData type used by this shared-memory interface.
+    using UnitDataOpt = std::optional<UnitData>;
 
-    using EngineStatus = UnBARableAINS::EngineStatus;
+    /// \brief Alias for the Action type used by this shared-memory interface.
+    using ActionOpt = std::optional<Action>;
 
     /**
      * \brief Concrete shared-memory implementation used internally.
@@ -60,7 +64,8 @@ public:
      * The implementation uses POSIX shared memory and supports serialization
      * of UnitData and Action objects.
      */
-    using Impl = SharedMemory<SharedMemoryPosix, UnitData, Action, EngineStatus>;
+    using Impl =
+        SharedMemory<SharedMemoryPosix, EngineStatus, GrpcConnection, UnitDataOpt, ActionOpt>;
 
     /// \brief Type alias for the ValueVariant of the implementation, i.e.
     /// std::variant<SupportedTypes...>
@@ -71,10 +76,26 @@ public:
      */
     using SerializableId = memory::id_t;
 
+    /// \brief SerializableId for the EngineStatus.
+    static constexpr SerializableId c_engine_status_id = 0;
+
+    /// \brief SerializableId for the gRpcConnection.
+    static constexpr SerializableId c_grpc_connection_id = 1;
+
     /**
-     * \brief Creates a new POSIX shared-memory region.
-     * \param name name of the shared-memory region
+     * \brief Creates a new POSIX shared-memory region with EngineStatus, GrpcConnection and empty
+     * units / actions.
+     * \param name Name of the shared-memory region
+     * \param status Initial engine status.
+     * \param connection GrpcConnection, i.e. configuration like port number.
+     * \param initialNumAllyUnits Number of initial ally units.
+     * \param initialNumEnemyUnits Number of initial enemy units.
      * \return BarSharedMemory object connected to the newly created region
+     *
+     * This constructor writes the \p status and \p connection into their respective Serializables
+     * (see c_engine_status_id and c_grpc_connection_id). It also creates "slots", i.e.
+     * std::optionals, for UnitDatas as well as Actions. These are initialized to std::nullopt to
+     * begin with, but the entire memory is allocated for those.
      *
      * The name must not already refer to an existing POSIX shared-memory
      * region. POSIX shared-memory names should start with a forward slash,
@@ -82,7 +103,10 @@ public:
      *
      * \throws std::system_error if the shared-memory region cannot be created
      */
-    static BarSharedMemory create(std::string_view name);
+    static BarSharedMemory create(std::string_view name, const EngineStatus status,
+                                  const GrpcConnection& connection,
+                                  const std::size_t initialNumAllyUnits,
+                                  const std::size_t initialNumEnemyUnits);
 
     /**
      * \brief Opens an existing POSIX shared-memory region.
@@ -157,7 +181,7 @@ public:
      * The returned serializable ID identifies the object inside the generic
      * shared-memory system.
      */
-    SerializableId writeAction(const Action& action);
+    SerializableId writeAction(const ActionOpt& action);
 
     /**
      * \brief Writes a UnitData object to shared memory.
@@ -168,7 +192,7 @@ public:
      * is stored as the own team ID.
      *
      */
-    SerializableId writeUnitData(const UnitData& unitData);
+    SerializableId writeUnitData(const UnitDataOpt& unitData);
 
     /**
      * \brief Writes an engine status to shared memory.
@@ -199,7 +223,7 @@ public:
                 auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
 
                 const bool containsRequestedType =
-                    std::holds_alternative<serialization::Layout<T> >(layoutVariant);
+                    std::holds_alternative<serialization::Layout<T>>(layoutVariant);
 
                 if (containsRequestedType) {
                     auto valueVariant = m_sharedMemory.read(serializableId);
