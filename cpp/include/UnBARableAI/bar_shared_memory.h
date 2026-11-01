@@ -50,19 +50,21 @@ namespace UnBARableAINS::memory {
  */
 class BarSharedMemory {
 public:
+    /// \brief Alias for the UnitData type.
     using UnitData = UnBARableAINS::unit::UnitData;
 
-    /// \brief Alias for the UnitData type used by this shared-memory interface.
+    /// \brief Alias for the optional UnitData type used by this shared-memory interface.
     using UnitDataOpt = std::optional<UnitData>;
 
-    /// \brief Alias for the Action type used by this shared-memory interface.
+    /// \brief Alias for the optional Action type used by this shared-memory interface.
     using ActionOpt = std::optional<Action>;
 
     /**
      * \brief Concrete shared-memory implementation used internally.
      *
      * The implementation uses POSIX shared memory and supports serialization
-     * of UnitData and Action objects.
+     * of the named types.
+     * \note We use std::optional UnitDatas and Actions rather than the plain types.
      */
     using Impl =
         SharedMemory<SharedMemoryPosix, EngineStatus, GrpcConnection, UnitDataOpt, ActionOpt>;
@@ -101,9 +103,11 @@ public:
      * region. POSIX shared-memory names should start with a forward slash,
      * for example "/bar_shared_memory".
      *
-     * \throws std::system_error if the shared-memory region cannot be created
+     * \throws std::system_error if the shared-memory region cannot be created, std::runtime_error
+     * if assigned ids for \p status or \p connection do not match \ref c_engine_status_id or \ref
+     * c_grpc_connection_id respectively.
      */
-    static BarSharedMemory create(std::string_view name, const EngineStatus status,
+    static BarSharedMemory create(const std::string_view name, const EngineStatus status,
                                   const GrpcConnection& connection,
                                   const std::size_t initialNumAllyUnits,
                                   const std::size_t initialNumEnemyUnits);
@@ -116,9 +120,11 @@ public:
      * The shared-memory region must already have been created by another
      * process or by an earlier call to create().
      *
-     * \throws std::system_error if the shared-memory region cannot be opened
+     * \throws std::system_error if the shared-memory region cannot be opened, std::runtime_error if
+     * there is not exactly one instance of EngineStatus/GrpcConnection or the ids do not match \ref
+     * c_engine_status_id or \ref c_grpc_connection_id respectively.
      */
-    static BarSharedMemory open(std::string_view name);
+    static BarSharedMemory open(const std::string_view name);
 
     /**
      * \brief Removes the name of a POSIX shared-memory region.
@@ -181,7 +187,7 @@ public:
      * The returned serializable ID identifies the object inside the generic
      * shared-memory system.
      */
-    SerializableId writeAction(const ActionOpt& action);
+    SerializableId writeAction(const Action& action);
 
     /**
      * \brief Writes a UnitData object to shared memory.
@@ -192,18 +198,19 @@ public:
      * is stored as the own team ID.
      *
      */
-    SerializableId writeUnitData(const UnitDataOpt& unitData);
+    SerializableId writeUnitData(const UnitData& unitData);
 
     /**
-     * \brief Writes an engine status to shared memory.
-     * \param status current status of the game engine
-     * \return serializable ID assigned to the stored engine status
+     * \brief Update the engine status in the shared-memory.
+     * \param status Current status of the game engine
      */
-    SerializableId writeEngineStatus(EngineStatus status);
+    // void updateEngineStatus(EngineStatus status);
 
     /**
      * \brief Reads all stored values of the requested type.
      * \tparam T supported serializable value type
+     * \param[out] ids Optional output parameter containing the ids of the read Serializables. Must
+     * be empty on call.
      * \return values of type T in serializable-ID order
      *
      * Entries containing other supported types are skipped.
@@ -213,7 +220,11 @@ public:
      */
     template <typename T>
         requires(Typelist::Contains_MF<typename Impl::SupportedTypelist, T>::value)
-    std::vector<T> readAll() {
+    std::vector<T> readAll(std::vector<SerializableId>* ids = nullptr) {
+        if (ids) {
+            assert(ids->empty() && "Input parameter ids must be empty");
+        }
+
         std::vector<T> values;
 
         SerializableId serializableId = 0;
@@ -239,6 +250,9 @@ public:
                     }
 
                     values.push_back(std::get<T>(std::move(valueVariant)));
+                    if (ids) {
+                        ids->push_back(serializableId);
+                    }
                 }
             } catch (const std::out_of_range&) {
                 /*
@@ -273,6 +287,16 @@ private:
      * constructed through create() or open().
      */
     explicit BarSharedMemory(Impl impl);
+
+    /**
+     * \brief Helper method to throw (and log an error) for invalid ids.
+     * \param expectedId The id that was expected for the Serializable.
+     * \param actualid The id that Serializable was actually assigned.
+     * \param name Name of the Serializable to put into the message, e.g "EngineStatus".
+     * \throws std::runtime_error if expetectedId != actualId.
+     */
+    static void throwOnInvalidId(const SerializableId expectedId, const SerializableId actualId,
+                                 const std::string_view nane);
 
     /**
      * \brief Resolves and caches the own team ID.

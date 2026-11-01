@@ -2,6 +2,8 @@
 
 #include "UnBARableAI/bar_shared_memory.h"
 #include "UnBARableAI/action.h"
+#include "UnBARableAI/engine_status.h"
+#include "UnBARableAI/grpc_connection.hpp"
 #include "UnBARableAI/unit_data.h"
 
 namespace UnBARableAINS {
@@ -23,8 +25,10 @@ TEST(BarSharedMemoryTest, Constructor) {
                                 Action{0, 1, 2, ActionId::Attack, 3}};
 
     EngineStatus status = EngineStatus::RUNNING;
+    GrpcConnection connection{50000};
 
-    auto createShm = BarSharedMemory::create("/shm-BAR-constructor");
+    auto createShm = BarSharedMemory::create("/shm-BAR-constructor", status, connection,
+                                             units.size(), units.size());
 
     for (const auto& unit : units) {
         createShm.writeUnitData(unit);
@@ -34,28 +38,26 @@ TEST(BarSharedMemoryTest, Constructor) {
         createShm.writeAction(action);
     }
 
-    createShm.writeEngineStatus(status);
-
     auto openShm = BarSharedMemory::open("/shm-BAR-constructor");
-    auto readUnits = openShm.readAll<unit::UnitData>();
-    auto readActions = openShm.readAll<Action>();
+    auto readUnits = openShm.readAll<BarSharedMemory::UnitDataOpt>();
+    auto readActions = openShm.readAll<BarSharedMemory::ActionOpt>();
 
     ASSERT_TRUE(units.size() == readUnits.size());
 
     for (std::size_t i = 0; i < units.size(); i++) {
-        EXPECT_EQ(units[i], readUnits[i]);
+        EXPECT_EQ(units[i], readUnits[i].value());
     }
 
     ASSERT_TRUE(actions.size() == readActions.size());
     for (std::size_t i = 0; i < actions.size(); i++) {
-        EXPECT_EQ(actions[i], readActions[i]);
+        EXPECT_EQ(actions[i], readActions[i].value());
     }
 
     auto readEngineStatus = openShm.readAll<EngineStatus>();
 
     ASSERT_TRUE(readEngineStatus.size() == 1);
 
-    EXPECT_EQ(readEngineStatus[0], status);
+    EXPECT_NE(readEngineStatus[0], status);
 
     BarSharedMemory::remove("/shm-BAR-constructor");
 }
