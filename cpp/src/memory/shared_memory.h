@@ -112,7 +112,7 @@ public:
     /**
      * \ref Update the information about the shared-memory region.
      * \returns Whether or not any layout changes have been detected.
-     * \note Value changed are not reported, only changes in size.
+     * \note Value changes are not reported, only changes in size.
      */
     bool update(void) {
         bool change = m_sharedMemoryImpl.update();
@@ -212,7 +212,7 @@ public:
      */
     template <serialization::Serializable S>
         requires(Typelist::Contains_MF<SupportedTypelist, S>::value)
-    bool containsType(std::type_identity<S>, const id::id_t serializableId) {
+    bool containsType(std::type_identity<S>, const id::id_t serializableId) const {
         const LayoutVariant& layout = getLayoutVariant(serializableId);
 
         return std::holds_alternative<serialization::Layout<S>>(layout);
@@ -224,7 +224,9 @@ public:
      * \returns A \ref LayoutVariant containing the Layout.
      * \throws std::out_of_range if serializableId is outside of the range.
      */
-    LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
+    const LayoutVariant& getLayout(id::id_t serializableId) const {
+        return getLayoutVariant(serializableId);
+    }
 
 private:
     /// \brief Constant id for the SerializableTable.

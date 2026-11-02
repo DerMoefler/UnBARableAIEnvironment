@@ -52,7 +52,7 @@ TEST_F(SharedMemoryTest, WriteComplexB) {
 
     SharedMemoryPosix shmPosix = SharedMemoryPosix::open(name);
 
-    serialization::Layout<ComplexB>& mainLayout =
+    const serialization::Layout<ComplexB>& mainLayout =
         std::get<serialization::Layout<ComplexB>>(shm.getLayout(serializableId));
 
     auto mainSegmentId = mainLayout.getSegmentId();

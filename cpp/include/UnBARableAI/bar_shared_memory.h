@@ -187,11 +187,19 @@ public:
     ~BarSharedMemory() = default;
 
     /**
+     * \ref Update the information about the shared-memory region.
+     * \returns Whether or not any changes have been detected.
+     * \note Value changes are not reported, only changes in size.
+     */
+    inline bool update(void) { return m_sharedMemory.update(); }
+
+    /**
      * \brief Updates (i.e. overrides) an Action object already existing in the shared-memory.
      * \param actionId Id of the action to update.
      * \param action ActionOpt that should be serialized and stored.
      * \throws std::out_of_range if the \p actionId is out of range.
-     * \throws std::runtime_error if the Serializable at \p actionId is not actually an ActionOpt.
+     * \throws std::runtime_error if the Serializable at \p actionId is not actually an
+     * ActionOpt.
      */
     void updateAction(const SerializableId actionId, const ActionOpt& action);
 
@@ -231,7 +239,7 @@ public:
      */
     template <typename T>
         requires(Typelist::Contains_MF<typename Impl::SupportedTypelist, T>::value)
-    std::vector<T> readAll(std::vector<SerializableId>* ids = nullptr) {
+    std::vector<T> readAll(std::vector<SerializableId>* ids = nullptr) const {
         if (ids) {
             assert(ids->empty() && "Input parameter ids must be empty");
         }
@@ -277,6 +285,23 @@ public:
         }
 
         return values;
+    }
+
+    template <serialization::Serializable S>
+        requires(Typelist::Contains_MF<typename Impl::SupportedTypelist, S>::value)
+    std::vector<SerializableId> getIdsForType(std::type_identity<S> typeId) const {
+        const auto serializablesCount = m_sharedMemory.serializablesCount();
+
+        std::vector<SerializableId> ids;
+        ids.reserve(serializablesCount);
+        for (std::size_t i = 0; i < serializablesCount; i++) {
+            if (m_sharedMemory.containsType(typeId, i)) {
+                ids.push_back(i);
+            }
+        }
+
+        ids.shrink_to_fit();
+        return ids;
     }
 
     /**
