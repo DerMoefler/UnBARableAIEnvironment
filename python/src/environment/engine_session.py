@@ -18,6 +18,7 @@ class EngineSessionConfig:
     stdout is output stream for the engine's output, can be None (Terminal output), a file path, or subprocess.PIPE
     stderr is output stream for the engine's error output, can be None (Terminal output), a file path, or subprocess.PIPE
     """
+    engine_id: int
     repo_root: Path = Path(__file__).resolve().parents[3]
     engine_root: Path = repo_root / "RecoilEngine"
     isolation_dir: Path = Path("~/bar-data/").expanduser()

@@ -2,13 +2,10 @@ from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.reward import RewardCalculator
 from src.environment.unit_data_memory import UnitMemory
-<<<<<<< HEAD
 from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
-=======
 from src.utils.logger_factory import get_file_logger
 
 import json
->>>>>>> 2f71007 (reverted old approch to parallel envs, changed logging system into severeal files, added a pool outline)
 import numpy as np
 import bar_ai
 
@@ -16,8 +13,6 @@ from pathlib import Path
 from datetime import datetime
 
 from dataclasses import dataclass
-
-logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class EngineSnapshot:
@@ -35,7 +30,7 @@ class BAR_Environment:
         config_path: Optional[Path] = None,
         environment_id: Optional[int] = 0
     ):
-        self.session_cfg = session_cfg or EngineSessionConfig()
+        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0)
         self.session: Optional[EngineSession] = None
         if config_path is not None:
             with open(config_path,"r") as config_data:
@@ -82,11 +77,8 @@ class BAR_Environment:
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
             self.current_update_id = 0
         
-<<<<<<< HEAD
-        logger.info("Engine session started. Waiting for first handleEventUpdate...")
-=======
+
         self.logger.info("Engine session started. Waiting for first handleEventUpdate...")
->>>>>>> 2f71007 (reverted old approch to parallel envs, changed logging system into severeal files, added a pool outline)
 
         wait_status, update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
@@ -301,7 +293,7 @@ class BAR_Environment:
 
     def create_observation_dictionary(self, unit_list: List[bar_ai.UnitData]):
         """
-        A dictionary with numpy arraays with all info is being created. The np arrays 
+        A dictionary with numpy arrays with all info is being created. The np arrays 
 
         Parameters
         ----------
@@ -313,12 +305,8 @@ class BAR_Environment:
         dictionary : dict
             a dict where every agent is a key and the data is a numpy array with the infos from the UniData
         """
-<<<<<<< HEAD
-        logger.debug(unit_list)
-=======
-        unit_list = shared_memory.read_all_units()
         self.logger.debug(unit_list)
->>>>>>> 2f71007 (reverted old approch to parallel envs, changed logging system into severeal files, added a pool outline)
+
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
@@ -336,26 +324,11 @@ class BAR_Environment:
                 for status in statuses
             ]
 
-<<<<<<< HEAD
-            logger.error(
+            self.logger.error(
                 "Expected exactly one engine status, "
                 "but received %d: %s",
                 len(statuses),
                 status_names,
-=======
-        truncation_reasons = status_set & TRUNCATED_STATUSES
-        termination_reasons = status_set & TERMINATED_STATUSES
-
-        # Technische Fehler haben Vorrang.
-        if truncation_reasons:
-            self.truncated = True
-
-            self.logger.error(
-                "end_reason=%s engine_statuses=%s error_statuses=%s",
-                "ENGINE_ERROR",
-                [status.name for status in statuses],
-                [status.name for status in truncation_reasons],
->>>>>>> 2f71007 (reverted old approch to parallel envs, changed logging system into severeal files, added a pool outline)
             )
 
             raise RuntimeError(
@@ -378,7 +351,7 @@ class BAR_Environment:
         if status in TRUNCATED_STATUSES:
             self.truncated = True
 
-            logger.error(
+            self.logger.error(
                 "episode_outcome=%s engine_status=%s",
                 None,
                 getattr(status, "name", str(status)),
@@ -390,8 +363,7 @@ class BAR_Environment:
             self.terminated = True
             outcome = EpisodeOutcome.WON
 
-<<<<<<< HEAD
-            logger.info(
+            self.logger.info(
                 "episode_outcome=%s engine_status=%s",
                 outcome.value,
                 status.name,
@@ -406,51 +378,26 @@ class BAR_Environment:
             self.terminated = True
             outcome = EpisodeOutcome.LOST
 
-            logger.info(
+            self.logger.info(
                 "episode_outcome=%s engine_status=%s",
                 outcome.value,
                 status.name,
-=======
-            self.logger.info(
-                "end_reason=%s engine_statuses=%s termination_statuses=%s",
-                "GAME_TERMINATED",
-                [status.name for status in statuses],
-                [status.name for status in termination_reasons],
-            )
-
-        # Alle Engines laufen normal.
-        elif statuses and all(
-            status == bar_ai.EngineStatus.RUNNING
-            for status in statuses
-        ):
-            self.logger.debug(
-                "end_reason=%s engine_statuses=%s",
-                "RUNNING",
-                [status.name for status in statuses],
->>>>>>> 2f71007 (reverted old approch to parallel envs, changed logging system into severeal files, added a pool outline)
             )
 
             return outcome
 
-<<<<<<< HEAD
         if status == bar_ai.EngineStatus.RUNNING:
-            logger.debug(
+            self.logger.debug(
                 "episode_outcome=%s engine_status=%s",
                 None,
                 status.name,
-=======
-            self.logger.error(
-                "end_reason=%s engine_statuses=%s",
-                "UNKNOWN_ENGINE_STATUS",
-                [getattr(status, "name", str(status)) for status in statuses],
->>>>>>> 2f71007 (reverted old approch to parallel envs, changed logging system into severeal files, added a pool outline)
             )
 
             return None
 
         self.truncated = True
 
-        logger.error(
+        self.logger.error(
             "episode_outcome=%s engine_status=%s reason=unhandled_status",
             None,
             getattr(status, "name", str(status)),

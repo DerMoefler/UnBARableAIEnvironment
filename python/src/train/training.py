@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 import traceback
 from datetime import datetime
@@ -11,7 +12,6 @@ import bar_ai
 
 from src.environment.bar_environment import BAR_Environment
 from src.environment.environmentpool import EnvironmentPool
-from src.utils.logger_factory import get_file_logger
 from src.train.mappo.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.mappo.r_mappo import R_MAPPO
@@ -702,10 +702,24 @@ def main() -> None:
     #import Json configfile
     data = load_training_config()
 
-    #start logger and configure log 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    logger = get_file_logger("training", Path(f"src/train/experiments/{data["run_name"]}/{data["run_name"]}training{timestamp}.log"))
+    log_path = Path(
+        f"src/train/experiments/{data['run_name']}/"
+        f"{data['run_name']}training"
+        f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        filename=log_path,
+        filemode="w",
+        encoding="utf-8",
+        format=(
+            "%(asctime)s - %(levelname)s - %(name)s - "
+            "%(filename)s:%(lineno)d - %(funcName)s - %(message)s"
+        ),
+        level=logging.DEBUG,
+        force=True,
+    )
+    logger = logging.getLogger(__name__)
 
     logger.info("Starting log")
 
@@ -742,10 +756,11 @@ def main() -> None:
 
     success = False
 
+    logger.info("Initializing new BAR Environment")
+    environment = BAR_Environment(training_team_id= data["training_team_id"], environment_id = 0, config_path = Path("src/train/experiments/3v3Test/3v3Test.json"))
+    logger.info("Initialized new BAR Environment")
+
     try:
-        logger.info("Initializing new BAR Environment")
-        environment = BAR_Environment(training_team_id= data["training_team_id"], environment_id = 0, config_path = Path("src/train/experiments/3v3Test/3v3Test.json"))
-        logger.info("Initialized new BAR Environment")
 
         obs_dim = OBS_DIM
         action_dim = data["action_dimension"]
@@ -1163,7 +1178,7 @@ def main() -> None:
                 environment.close()
                 logger.debug("env.close() done")
             except Exception as close_err:
-                logger.warning("env.close(), env: %d failed: %s", i, close_err)
+                logger.warning("env.close(), error: %s", close_err)
 
         if success:
             print("Simulated 3v3 pawn training complete!", flush=True)
