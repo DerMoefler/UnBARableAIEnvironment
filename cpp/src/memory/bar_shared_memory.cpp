@@ -74,19 +74,16 @@ BarSharedMemory BarSharedMemory::open(const std::string_view name) {
 
 void BarSharedMemory::remove(std::string_view name) { Impl::remove(std::string{name}); }
 
-BarSharedMemory::SerializableId BarSharedMemory::writeAction(const Action& action) {
-    return m_sharedMemory.write<ActionOpt>(action);
+void BarSharedMemory::updateAction(const SerializableId actionId, const ActionOpt& action) {
+    m_sharedMemory.updateSerializable(actionId, action);
 }
 
-BarSharedMemory::SerializableId BarSharedMemory::writeUnitData(const UnitData& unitData) {
-    /*
-     * Die erste über diesen Wrapper geschriebene UnitData bestimmt
-     * die eigene Team-ID.
-     */
-    if (!m_ownTeamId.has_value()) {
-        m_ownTeamId = unitData.team_id;
+void BarSharedMemory::updateUnitData(const SerializableId unitId, const UnitDataOpt& unitData) {
+    if (!m_ownTeamId.has_value() && unitData.has_value()) {
+        m_ownTeamId = unitData.value().team_id;
     }
-    return m_sharedMemory.write<UnitDataOpt>(unitData);
+
+    m_sharedMemory.updateSerializable(unitId, unitData);
 }
 
 void BarSharedMemory::updateEngineStatus(const EngineStatus status) {

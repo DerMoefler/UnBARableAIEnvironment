@@ -10,7 +10,7 @@ namespace UnBARableAINS {
 
 using namespace memory;
 
-TEST(BarSharedMemoryTest, Constructor) {
+TEST(BarSharedMemoryTest, UpdateEngineSession) {
     std::vector<unit::UnitData> units{
         unit::UnitData{1, 2, 3, 4, 100.0f, 120.0f, 0.0f, 0.0f, 0.0f, 75.0f, 5.0f, false, false,
                        100.0f, 0.0f, 0.0f},
@@ -24,14 +24,14 @@ TEST(BarSharedMemoryTest, Constructor) {
                                 Action{0, 1, 2, ActionId::MoveDown, 3},
                                 Action{0, 1, 2, ActionId::Attack, 3}};
 
-    EngineStatus status = EngineStatus::RUNNING;
+    EngineStatus status = EngineStatus::GAME_ENDED;
     GrpcConnection connection{50000};
 
     auto createShm = BarSharedMemory::create("/shm-BAR-constructor", status, connection,
                                              units.size(), units.size());
     EXPECT_EQ(status, createShm.getEngineStatus());
-    createShm.updateEngineStatus(EngineStatus::AI_CRASHED);
-    EXPECT_EQ(EngineStatus::AI_CRASHED, createShm.getEngineStatus());
+    createShm.updateEngineStatus(EngineStatus::RUNNING);
+    EXPECT_EQ(EngineStatus::RUNNING, createShm.getEngineStatus());
 
     BarSharedMemory::remove("/shm-BAR-constructor");
 }

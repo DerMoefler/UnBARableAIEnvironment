@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <random>
 #include <string_view>
 #include <stdexcept>
 #include <variant>
@@ -186,25 +187,25 @@ public:
     ~BarSharedMemory() = default;
 
     /**
-     * \brief Writes an Action object to shared memory.
-     * \param action action that should be serialized and stored
-     * \return serializable ID assigned to the stored Action object
-     *
-     * The returned serializable ID identifies the object inside the generic
-     * shared-memory system.
+     * \brief Updates (i.e. overrides) an Action object already existing in the shared-memory.
+     * \param actionId Id of the action to update.
+     * \param action ActionOpt that should be serialized and stored.
+     * \throws std::out_of_range if the \p actionId is out of range.
+     * \throws std::runtime_error if the Serializable at \p actionId is not actually an ActionOpt.
      */
-    SerializableId writeAction(const Action& action);
+    void updateAction(const SerializableId actionId, const ActionOpt& action);
 
     /**
-     * \brief Writes a UnitData object to shared memory.
-     * \param unitData unit data that should be serialized and stored
-     * \return serializable ID assigned to the stored UnitData object
+     * \brief Updates (i.e. overrides) a UnitData object already existing in the shared-memory.
+     * \param unitId Id of the unit to update.
+     * \param unitData UnitDataOpt that should be serialized and stored
+     * \throws std::out_of_range if the \p unitId is out of range.
+     * \throws std::runtime_error if the Serializable at \p unitId is not actually a UnitDataOpt.
      *
      * The team_id of the first UnitData object written through this wrapper
      * is stored as the own team ID.
-     *
      */
-    SerializableId writeUnitData(const UnitData& unitData);
+    void updateUnitData(const SerializableId unitId, const UnitDataOpt& unitData);
 
     /**
      * \brief Update the engine status in the shared-memory.
@@ -226,6 +227,7 @@ public:
      *
      * The current implementation assumes that serializable IDs begin
      * at zero, are contiguous and cannot be deleted.
+     * \todo Has to be refactored if deletion was to be used.
      */
     template <typename T>
         requires(Typelist::Contains_MF<typename Impl::SupportedTypelist, T>::value)
@@ -240,7 +242,7 @@ public:
 
         while (true) {
             try {
-                auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
+                const auto& layoutVariant = m_sharedMemory.getLayout(serializableId);
 
                 const bool containsRequestedType =
                     std::holds_alternative<serialization::Layout<T>>(layoutVariant);
@@ -276,6 +278,7 @@ public:
 
         return values;
     }
+
     /**
      * \brief Returns the team ID of the first stored UnitData object.
      * \return team_id of the first UnitData object
@@ -301,11 +304,11 @@ private:
      * \brief Helper method to throw (and log an error) for invalid ids.
      * \param expectedId The id that was expected for the Serializable.
      * \param actualid The id that Serializable was actually assigned.
-     * \param name Name of the Serializable to put into the message, e.g "EngineStatus".
+     * \param name Name of the Serializable to put into the error message, e.g "EngineStatus".
      * \throws std::runtime_error if expetectedId != actualId.
      */
     static void throwOnInvalidId(const SerializableId expectedId, const SerializableId actualId,
-                                 const std::string_view nane);
+                                 const std::string_view name);
 
     /**
      * \brief Resolves and caches the own team ID.

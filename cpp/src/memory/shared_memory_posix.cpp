@@ -378,7 +378,7 @@ bool SharedMemoryPosix::isStartValid(void) const {
         serialization::getSerializableSize(std::type_identity<ShmHeader>{});
     std::vector<std::byte> serializedHeader = read(0, shmHeaderSize);
     try {
-        serialization::deserialize<ShmHeader>(
+        [[maybe_unused]] auto result = serialization::deserialize<ShmHeader>(
             std::span<const std::byte, shmHeaderSize>{serializedHeader.data(), shmHeaderSize});
         return true;
     } catch (const std::invalid_argument& exception) {

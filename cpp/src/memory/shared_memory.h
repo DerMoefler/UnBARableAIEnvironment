@@ -18,6 +18,7 @@
 #include "serialization/layout.h"
 #include "serialization/serialize_information.h"
 #include "serialization/trivial_serializable.hpp"
+#include "serialization/debug/type_name.hpp"
 #include "utility/always_false.h"
 #include "utility/type_index.hpp"
 #include "utility/typelist.h"
@@ -175,6 +176,13 @@ public:
      */
     template <serialization::TrivialSerializable S>
     void updateSerializable(const id::id_t serializableId, const S& value) {
+        if (!containsType(std::type_identity<S>{}, serializableId)) {
+            const std::string message =
+                std::format("Type contained at id {} is not an {}", serializableId,
+                            serialization::debug::typeName<S>());
+            SPDLOG_LOGGER_ERROR(detail::shmLogger, message);
+            throw std::runtime_error(message);
+        }
         const LayoutVariant& layout = getLayoutVariant(serializableId);
         assert(layout == LayoutVariant{serialization::Layout<S>{value}} &&
                "Layouts must be equal here");
@@ -194,6 +202,21 @@ public:
      * \returns Number of Serializables.
      */
     std::size_t serializablesCount(void) const { return m_layouts.size(); }
+
+    /**
+     * \brief Check if the contained type for the \p serializableId is \p S.
+     * \tparam S Type to check for containment at \p serializableId.
+     * \param serializableId Id assigned to the Serializable, e.g. by \ref write.
+     * \throws std::out_of_range if the serializableId is larger than the total number of
+     * Serializables.
+     */
+    template <serialization::Serializable S>
+        requires(Typelist::Contains_MF<SupportedTypelist, S>::value)
+    bool containsType(std::type_identity<S>, const id::id_t serializableId) {
+        const LayoutVariant& layout = getLayoutVariant(serializableId);
+
+        return std::holds_alternative<serialization::Layout<S>>(layout);
+    }
 
     /**
      * \brief Get the Layout for an existing Serializable.
