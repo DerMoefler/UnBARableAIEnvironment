@@ -691,16 +691,17 @@ def _load_checkpoint(
     return int(checkpoint.get("episode", 0))
 
 
-def load_training_config():
+def load_training_config(path: Path):
     with open(
-        "src/train/experiments/3v3Test/3v3Test.json",
+        path,
         "r",
     ) as configfile:
         return json.load(configfile)
 
 def main() -> None:
     #import Json configfile
-    data = load_training_config()
+    config_path = Path("src/train/experiments/3v3Test/3v3Test.json")
+    data = load_training_config(config_path)
 
     log_path = Path(
         f"src/train/experiments/{data['run_name']}/"
@@ -756,9 +757,11 @@ def main() -> None:
 
     success = False
 
-    logger.info("Initializing new BAR Environment")
-    environment = BAR_Environment(training_team_id= data["training_team_id"], environment_id = 0, config_path = Path("src/train/experiments/3v3Test/3v3Test.json"))
-    logger.info("Initialized new BAR Environment")
+    pool = EnvironmentPool(config_path)
+    logger.info("Creating Environment Pool")
+    pool.initialize_environements()
+    logger.info("Finished creating Environment Pool")
+
 
     try:
 
@@ -841,7 +844,7 @@ def main() -> None:
 
 
             logger.info("starting environment reset")
-            reset_result = environment.reset()
+            reset_result = pool.environments[0].reset()
             logger.info("reset complete, env")
             obs_raw, share_obs_raw, available_actions_raw = _parse_reset_result(reset_result)
             obs = _prepare_obs(
@@ -920,7 +923,7 @@ def main() -> None:
 
                 environment_started_at = time.perf_counter()
                 step_result = _step_all_agents(
-                    environment,
+                    pool.environments[0],
                     env_actions,
                     obs_raw=obs_raw,
                     training_team_id=data["training_team_id"],
@@ -1173,12 +1176,7 @@ def main() -> None:
             raise
     
     finally:
-        if environment is not None:
-            try:
-                environment.close()
-                logger.debug("env.close() done")
-            except Exception as close_err:
-                logger.warning("env.close(), error: %s", close_err)
+        pool.close_environements()
 
         if success:
             print("Simulated 3v3 pawn training complete!", flush=True)
