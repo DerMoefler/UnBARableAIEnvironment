@@ -216,6 +216,12 @@ public:
     void updateUnitData(const SerializableId unitId, const UnitDataOpt& unitData);
 
     /**
+     * \brief Get a SerializableId for a UnitDataOpt that is empty, i.e. contains std::nullopt.
+     * \returns A SerializableId or std::nullopt if all UnitDataOpt Serializables contain data.
+     */
+    std::optional<SerializableId> getEmptyUnitSlot(void) const;
+
+    /**
      * \brief Update the engine status in the shared-memory.
      * \param status Current status of the game engine
      */
@@ -314,6 +320,8 @@ public:
      * \throws std::runtime_error if shared memory contains no UnitData object
      */
     int getOwnTeamId();
+
+    inline const std::string& getName(void) const { return m_sharedMemory.getName(); }
 
 private:
     /**

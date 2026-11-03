@@ -228,6 +228,8 @@ public:
         return getLayoutVariant(serializableId);
     }
 
+    inline const std::string& getName(void) const { return m_sharedMemoryImpl.getName(); }
+
 private:
     /// \brief Constant id for the SerializableTable.
     static constexpr memory::id_t c_serializable_table_segment_id = 0;

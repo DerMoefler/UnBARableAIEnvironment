@@ -236,6 +236,8 @@ public:
      */
     std::optional<id_t> getLinkedSegment(id_t segmentId, position_t offset) const;
 
+    inline const std::string& getName(void) const { return m_name; }
+
 private:
     /// \brief Trivial ctor.
     SharedMemoryPosix(std::string_view name);

@@ -5,6 +5,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -84,6 +85,17 @@ void BarSharedMemory::updateUnitData(const SerializableId unitId, const UnitData
     }
 
     m_sharedMemory.updateSerializable(unitId, unitData);
+}
+
+auto BarSharedMemory::getEmptyUnitSlot(void) const -> std::optional<SerializableId> {
+    const auto unitIds = getIdsForType(std::type_identity<UnitDataOpt>{});
+    for (const auto id : unitIds) {
+        auto unit = std::get<UnitDataOpt>(m_sharedMemory.read(id));
+        if (!unit.has_value()) {
+            return id;
+        }
+    }
+    return std::nullopt;
 }
 
 void BarSharedMemory::updateEngineStatus(const EngineStatus status) {
