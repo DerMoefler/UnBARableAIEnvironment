@@ -3,14 +3,16 @@ from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.reward import RewardCalculator
 from src.environment.unit_data_memory import UnitMemory
 from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
+from src.utils.logger_factory import get_file_logger
+
+import json
 import numpy as np
 import bar_ai
 
-import logging
+from pathlib import Path
+from datetime import datetime
 
 from dataclasses import dataclass
-
-logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class EngineSnapshot:
@@ -25,11 +27,18 @@ class BAR_Environment:
         session_cfg: Optional[EngineSessionConfig] = None,
         max_episode_steps: int = 512,
         reward_calculator: Optional[RewardCalculator] = None,
-        port: int = 50051,
-        engine_id: int = 0
+        config_path: Optional[Path] = None,
+        environment_id: Optional[int] = 0
     ):
-        self.session_cfg = session_cfg or EngineSessionConfig(engine_id)
+        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0)
         self.session: Optional[EngineSession] = None
+        if config_path is not None:
+            with open(config_path,"r") as config_data:
+                self.data = json.load(config_data)
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        
+        self.logger = get_file_logger("environment{environment_id}", Path(f"src/train/experiments/{self.data["run_name"]}/{self.data["run_name"]}_environment{environment_id}_{timestamp}.log"))
 
         # Episode tracking
         # max_episode_steps begrenzt, wie viele RL-Steps eine Episode maximal laufen darf.
@@ -49,8 +58,6 @@ class BAR_Environment:
         self.current_update_id = 0
         self.terminated = False
         self.truncated = False
-
-        self.port = port
         
 
         self.shared_memory_name = ""
@@ -64,13 +71,14 @@ class BAR_Environment:
         self.terminated = False
         self.truncated = False
         if self.session == None:
-            self.session = EngineSession(self.session_cfg, self.end_of_session, self.port)
+            self.session = EngineSession(self.session_cfg, self.end_of_session)
             self.session.start()
             self.shared_memory_name = "/sm_proc_" + str(self.session.proc.pid)
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
             self.current_update_id = 0
         
-        logger.info("Engine session started. Waiting for first handleEventUpdate...")
+
+        self.logger.info("Engine session started. Waiting for first handleEventUpdate...")
 
         wait_status, update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
@@ -285,7 +293,7 @@ class BAR_Environment:
 
     def create_observation_dictionary(self, unit_list: List[bar_ai.UnitData]):
         """
-        A dictionary with numpy arraays with all info is being created. The np arrays 
+        A dictionary with numpy arrays with all info is being created. The np arrays 
 
         Parameters
         ----------
@@ -297,7 +305,8 @@ class BAR_Environment:
         dictionary : dict
             a dict where every agent is a key and the data is a numpy array with the infos from the UniData
         """
-        logger.debug(unit_list)
+        self.logger.debug(unit_list)
+
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
@@ -315,7 +324,7 @@ class BAR_Environment:
                 for status in statuses
             ]
 
-            logger.error(
+            self.logger.error(
                 "Expected exactly one engine status, "
                 "but received %d: %s",
                 len(statuses),
@@ -342,7 +351,7 @@ class BAR_Environment:
         if status in TRUNCATED_STATUSES:
             self.truncated = True
 
-            logger.error(
+            self.logger.error(
                 "episode_outcome=%s engine_status=%s",
                 None,
                 getattr(status, "name", str(status)),
@@ -354,7 +363,7 @@ class BAR_Environment:
             self.terminated = True
             outcome = EpisodeOutcome.WON
 
-            logger.info(
+            self.logger.info(
                 "episode_outcome=%s engine_status=%s",
                 outcome.value,
                 status.name,
@@ -369,7 +378,7 @@ class BAR_Environment:
             self.terminated = True
             outcome = EpisodeOutcome.LOST
 
-            logger.info(
+            self.logger.info(
                 "episode_outcome=%s engine_status=%s",
                 outcome.value,
                 status.name,
@@ -378,7 +387,7 @@ class BAR_Environment:
             return outcome
 
         if status == bar_ai.EngineStatus.RUNNING:
-            logger.debug(
+            self.logger.debug(
                 "episode_outcome=%s engine_status=%s",
                 None,
                 status.name,
@@ -388,7 +397,7 @@ class BAR_Environment:
 
         self.truncated = True
 
-        logger.error(
+        self.logger.error(
             "episode_outcome=%s engine_status=%s reason=unhandled_status",
             None,
             getattr(status, "name", str(status)),

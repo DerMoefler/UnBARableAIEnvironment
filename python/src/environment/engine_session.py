@@ -61,7 +61,7 @@ class EngineSessionConfig:
             Path.mkdir(self.write_dir)
 
 class EngineSession:
-    def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[int], None]] = None, port: int = 50051):
+    def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[int], None]] = None):
         self.cfg: EngineSessionConfig = cfg
 
         self.on_exit = on_exit
@@ -75,7 +75,7 @@ class EngineSession:
 
         self._monitor_thread: Optional[threading.Thread] = None
         self.grpc_server: UnBARableAIGRPCServer = UnBARableAIGRPCServer()
-        self.grpc_server.start(port)
+        self.grpc_server.start()
 
     def start(self):
         """

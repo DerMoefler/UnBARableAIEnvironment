@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from logging import config
 from typing import Any, Dict, Optional
 from src.environment.episode_outcome import EpisodeOutcome
 
@@ -7,14 +8,14 @@ import numpy as np
 @dataclass
 class RewardConfig:
     damage_enemy_coef: float = 0.02
-    damage_own_coef: float = 0.02
+    damage_own_coef: float = 0.01
     enemy_kill: float = 2.0
-    own_death: float = 2.0
-    win: float = 0.0 #win: float = 10.0 -> for when win loss calc is fixed
+    own_death: float = 1.0
+    win: float = 10.0
     loss: float = 10.0
     time_penalty: float = 0.002
-    clip_min: float = -10.0
-    clip_max: float = 10.0
+    clip_min: float = -15.0
+    clip_max: float = 15.0
 
 
 class RewardCalculator:
@@ -82,18 +83,17 @@ class RewardCalculator:
             - config.own_death * own_deaths
         )
 
-        #win_bonus = config.win if enemy_health_sum == 0 and own_alive_count > 0 else 0.0
-        #loss_penalty = config.loss if own_alive_count == 0 and enemy_alive_count > 0 else 0.0
-        
-        #scuffed loss calc (maybe works)
-        loss_penalty = config.loss if own_alive_count == 0 else 0.0
-        
-        #equally as scuffed win calc (works probably not)
-        if loss_penalty == 0.0 and enemy_kills == 3:
-            win_bonus = config.win
-        else:
-            win_bonus = 0.0
-        
+        # Determine episode outcome reward
+        win_bonus = 0.0
+        loss_penalty = 0.0
+
+        if terminated or truncated:
+            if outcome == EpisodeOutcome.WON:
+                win_bonus = config.win
+ 
+            elif outcome == EpisodeOutcome.LOST:
+                loss_penalty = config.loss
+
         reward += win_bonus - loss_penalty - config.time_penalty
 
         raw_reward = float(reward)

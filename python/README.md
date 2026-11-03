@@ -14,7 +14,7 @@ uv run python -m grpc_tools.protoc \
   -I ../cpp/proto \
   --python_out=generated \
   --grpc_python_out=generated \
-  ../proto/UnBARableAI.proto
+  ../cpp/proto/UnBARableAI.proto
 ```
 
 ## Pybind

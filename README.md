@@ -78,6 +78,9 @@ if you want to run the engine (e.g. via env_reset)
 
 you need the bar-data folder in your ~ dictonary,
 
+### bar-data updated
+Having acquired a clean bar-data folder (preferably located in your home directory, i.e. ~/bar-data), you have to clone the Beyond All Reason repo into games/BAR.sdd. Then, edit the file modinfo.lua to contain shortName = "BAR" and shortGame = "BAR" instead of BYAR. You also have to put the custom map into the maps folder.
+
 ### how to get the bar-data folder:
 
 on server:

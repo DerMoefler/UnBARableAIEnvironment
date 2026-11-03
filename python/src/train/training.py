@@ -11,6 +11,7 @@ import torch
 import bar_ai
 
 from src.environment.bar_environment import BAR_Environment
+from src.environment.environmentpool import EnvironmentPool
 from src.train.mappo.policy import R_MAPPO_Policy
 from src.train.replay_buffer import SharedReplayBuffer
 from src.train.mappo.r_mappo import R_MAPPO
@@ -762,18 +763,18 @@ def _load_checkpoint(
     return int(checkpoint.get("episode", 0))
 
 
-def load_training_config():
+def load_training_config(path: Path):
     with open(
-        "src/train/experiments/3v3Test/3v3Test.json",
+        path,
         "r",
     ) as configfile:
         return json.load(configfile)
 
 def main() -> None:
     #import Json configfile
-    data = load_training_config()
+    config_path = Path("src/train/experiments/3v3Test/3v3Test.json")
+    data = load_training_config(config_path)
 
-    #start logging and configure log 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     configure_logging(
@@ -816,14 +817,13 @@ def main() -> None:
 
     success = False
 
-    try:
-        environments = []
+    pool = EnvironmentPool(config_path)
+    logging.info("Creating Environment Pool")
+    pool.initialize_environements()
+    logging.info("Finished creating Environment Pool")
 
-        for i in range(data["number_of_environments"]):
-            logging.info("Initializing new BAR Environment, engine_id: %d port %d", i, 50051 + i)
-            env = BAR_Environment(training_team_id=int(data["training_team_id"]), max_episode_steps=int(data["maximum_steps"]), engine_id = i, port = 50051+i)
-            environments.append(env)
-            logging.info("Initialized new BAR Environment, engine_id: %d, port %d", i, 50051 + i)
+
+    try:
 
         obs_dim = OBS_DIM
         action_dim = data["action_dimension"]
@@ -889,25 +889,24 @@ def main() -> None:
             device=device,
         )
 
-
         recurrent_n = 1
         hidden_size = 1
     
-
-
         for episode in range(start_episode, start_episode + data["episodes"]):
             logging.debug("starting episode %d", episode + 1)
             engine_step_seconds = 0.0
 
-            logging.info("starting environment reset")
-            reset_result = environments[0].reset()
-            logging.info("reset complete")
-
-
-            obs_raw, share_obs_raw, available_actions_raw = _parse_reset_result(
-                reset_result
+            rnn_states, rnn_states_critic = _make_rnn_state_arrays(
+                data["number_of_agents"],
+                recurrent_n=recurrent_n,
+                hidden_size=hidden_size,
             )
 
+
+            logging.info("starting environment reset")
+            reset_result = pool.environments[0].reset()
+            logging.info("reset complete, env")
+            obs_raw, share_obs_raw, available_actions_raw = _parse_reset_result(reset_result)
             obs = _prepare_obs(
                 obs_raw,
                 data["number_of_agents"],
@@ -941,8 +940,8 @@ def main() -> None:
             final_enemy_alive = None
             enemy_damage_done = 0.0
             own_damage_taken = 0.0
-            last_info_keys: list[str] = []
-            final_step_info: Any = None
+            last_info_keys = []
+            final_step_info = None
 
             rnn_states, rnn_states_critic = _make_rnn_state_arrays(
                 data["number_of_agents"],
@@ -972,7 +971,7 @@ def main() -> None:
 
                 env_actions = actions
 
-                #Logging taken actions
+                #logging taken actions
                 env_action_types = [int(a) for a in env_actions[:, 0]]
                 action_trace.append(env_action_types)
 
@@ -984,10 +983,10 @@ def main() -> None:
 
                 environment_started_at = time.perf_counter()
                 step_result = _step_all_agents(
-                    environments[0],
+                    pool.environments[0],
                     env_actions,
                     obs_raw=obs_raw,
-                        training_team_id=data["training_team_id"],
+                    training_team_id=data["training_team_id"],
                     policy=policy,
                 )
                 engine_step_elapsed = time.perf_counter() - environment_started_at
@@ -1237,13 +1236,7 @@ def main() -> None:
             raise
     
     finally:
-        for i in range(data["number_of_environments"]):
-            if environments[i] is not None:
-                try:
-                    environments[i].close()
-                    logging.debug("env.close() done")
-                except Exception as close_err:
-                    logging.warning("env.close(), env: %d failed: %s", i, close_err)
+        pool.close_environements()
 
         if success:
             print("Simulated 3v3 pawn training complete!", flush=True)
