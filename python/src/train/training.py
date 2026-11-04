@@ -742,7 +742,7 @@ def main() -> None:
             # -----------------------------------------------------------
 
             while not done:
-                if step_count >= maximum_steps + 1:
+                if step_count > maximum_steps + 1:
                     raise RuntimeError(
                         "Environment exceeded "
                         "maximum_steps without returning "
