@@ -15,6 +15,10 @@
     "resume"                : false,
     "save_every_x_episode"  : 1,
     "training_team_id"      : 0,
+    "observation": {
+        "max_enemy_slots": 3,
+        "position_scale": 1000.0
+    },
 
     "logging": {
         "level": "INFO",

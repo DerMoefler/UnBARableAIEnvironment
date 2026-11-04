@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import json
 import logging
 import time
-import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,162 +12,33 @@ import torch
 
 from src.environment.environmentpool import EnvironmentPool
 from src.train.mappo.obs_r_mappo import (
-    OBS_DIM,
-    _prepare_reward,
+    PreparedStep,
+    RMAPPOObservationAdapter,
 )
-from src.train.mappo.policy_runner import MAPPOPolicyRunner
+from src.train.mappo.policy_runner import (
+    MAPPOPolicyRunner,
+)
 from src.train.mappo.r_mappo import R_MAPPO
 from src.train.mappo.trainerargs import TrainerArgs
 from src.train.replay_buffer import SharedReplayBuffer
 
+
+logger = logging.getLogger(__name__)
+
+
 # ---------------------------------------------------------------------------
-# Helper functions
+# Environment result parsing
 # ---------------------------------------------------------------------------
-
-
-def _extract_episode_debug_from_info(step_info: Any) -> dict[str, Any]:
-    """
-    Extract win/loss/alive/debug metrics from env info.
-
-    Supports:
-    - dict
-    - list/tuple of dicts
-    """
-
-    result: dict[str, Any] = {
-        "won": False,
-        "lost": False,
-        "ally_alive": None,
-        "enemy_alive": None,
-        "enemy_damage_done": 0.0,
-        "own_damage_taken": 0.0,
-        "info_keys": [],
-    }
-
-    infos: list[dict[str, Any]] = []
-
-    if isinstance(step_info, dict):
-        infos = [step_info]
-
-    elif isinstance(step_info, (list, tuple)):
-        infos = [x for x in step_info if isinstance(x, dict)]
-
-    for info in infos:
-        result["info_keys"].extend(list(info.keys()))
-
-        if bool(info.get("won", False)):
-            result["won"] = True
-
-        if bool(info.get("lost", False)):
-            result["lost"] = True
-
-        for ally_key in [
-            "ally_alive",
-            "allies_alive",
-            "num_ally_alive",
-            "final_ally_alive",
-            "ally_units_alive",
-            "alive_allies",
-        ]:
-            if ally_key in info:
-                result["ally_alive"] = info[ally_key]
-
-        for enemy_key in [
-            "enemy_alive",
-            "enemies_alive",
-            "num_enemy_alive",
-            "final_enemy_alive",
-            "enemy_units_alive",
-            "alive_enemies",
-        ]:
-            if enemy_key in info:
-                result["enemy_alive"] = info[enemy_key]
-
-        for damage_key in [
-            "enemy_damage_done",
-            "damage_done",
-            "damage_to_enemy",
-            "enemy_damage",
-        ]:
-            if damage_key in info:
-                result["enemy_damage_done"] += float(info.get(damage_key, 0.0))
-                break
-
-        for damage_key in [
-            "own_damage_taken",
-            "damage_taken",
-            "ally_damage_taken",
-            "own_damage",
-        ]:
-            if damage_key in info:
-                result["own_damage_taken"] += float(info.get(damage_key, 0.0))
-                break
-
-    # Infer win/loss if explicit won/lost is not provided.
-    try:
-        if result["enemy_alive"] is not None and int(result["enemy_alive"]) <= 0:
-            result["won"] = True
-    except Exception:
-        pass
-
-    try:
-        if result["ally_alive"] is not None and int(result["ally_alive"]) <= 0:
-            result["lost"] = True
-    except Exception:
-        pass
-
-    result["info_keys"] = sorted(set(result["info_keys"]))
-
-    return result
-
-
-def _make_rnn_state_arrays(
-    num_agents: int,
-    recurrent_n: int = 1,
-    hidden_size: int = 1,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Allocates zero-filled actor and critic recurrent-state arrays.
-
-    Parameters
-    ----------
-    num_agents : int
-        Number of agents represented in each state array.
-    recurrent_n : int, optional
-        Number of recurrent layers, by default 1.
-    hidden_size : int, optional
-        Recurrent hidden-state width, by default 1.
-
-    Returns
-    -------
-    states : tuple of np.ndarray
-        Actor and critic state arrays with shape
-        `(num_agents, recurrent_n, hidden_size)`.
-
-    Examples
-    --------
-    >>> actor_states, critic_states = _make_rnn_state_arrays(2)
-    >>> actor_states.shape
-    (2, 1, 1)
-    """
-    rnn_shape = (num_agents, recurrent_n, hidden_size)
-
-    return (
-        np.zeros(rnn_shape, dtype=np.float32),
-        np.zeros(rnn_shape, dtype=np.float32),
-    )
-
-
-
 
 
 def _parse_reset_result(
     reset_result: Any,
 ) -> tuple[Any, Any, Any]:
     """
-    Normalize environment reset results.
+    Normalize supported environment reset formats.
 
     Supported formats:
+
     - (obs, info)
     - (obs, share_obs, available_actions)
     - (obs, share_obs, available_actions, info)
@@ -176,72 +48,86 @@ def _parse_reset_result(
         return reset_result, None, None
 
     if len(reset_result) == 0:
-        raise RuntimeError("env.reset() returned an empty tuple.")
+        raise RuntimeError(
+            "env.reset() returned an empty tuple."
+        )
 
     obs_raw = reset_result[0]
     share_obs_raw = None
     available_actions_raw = None
 
     if len(reset_result) == 2:
-        # Standard Gymnasium: (obs, info)
-        # A dictionary in position 2 is metadata, not share_obs.
         second = reset_result[1]
 
+        # Standard Gymnasium result: (obs, info)
         if not isinstance(second, dict):
             share_obs_raw = second
 
     elif len(reset_result) == 3:
-        # Custom format: (obs, share_obs, available_actions)
-        share_obs_raw = reset_result[1]
-        available_actions_raw = reset_result[2]
+        (
+            obs_raw,
+            share_obs_raw,
+            available_actions_raw,
+        ) = reset_result
 
     elif len(reset_result) >= 4:
-        # Custom format: (obs, share_obs, available_actions, info)
-        share_obs_raw = reset_result[1]
-        available_actions_raw = reset_result[2]
+        (
+            obs_raw,
+            share_obs_raw,
+            available_actions_raw,
+        ) = reset_result[:3]
 
-    return obs_raw, share_obs_raw, available_actions_raw
+    return (
+        obs_raw,
+        share_obs_raw,
+        available_actions_raw,
+    )
 
 
-
-def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+def _parse_step_result(
+    step_result: Any,
+) -> tuple[
+    Any,
+    Any,
+    Any,
+    bool,
+    bool,
+    dict[str, Any],
+    Any,
+]:
     """
-    Normalizes supported environment step return formats.
+    Normalize supported environment step formats.
 
-    Parameters
-    ----------
-    step_result : tuple
-        Raw tuple returned by `env.step()`.
+    Supported formats:
 
-    Returns
-    -------
-    parsed : tuple
-        Next observation, shared observation, reward, termination flags, info,
-        and available-action data.
-
-    Raises
-    ------
-    RuntimeError
-        If the environment does not return a supported tuple format.
-
-    Examples
-    --------
-    >>> _parse_step_result(("obs", 1.0, False, False, {}))[0]
-    'obs'
+    - (obs, reward, terminated, truncated, info)
+    - (obs, share_obs, reward, terminated, truncated, info)
+    - (
+        obs,
+        share_obs,
+        reward,
+        terminated,
+        truncated,
+        info,
+        available_actions,
+      )
     """
     if not isinstance(step_result, tuple):
-        raise RuntimeError("env.step(...) must return a tuple.")
-
-    next_obs_raw = None
-    next_share_obs_raw = None
-    reward = None
-    terminated = None
-    truncated = None
-    step_info = {}
-    next_available_actions_raw = None
+        raise RuntimeError(
+            "env.step(...) must return a tuple."
+        )
 
     if len(step_result) == 5:
-        next_obs_raw, reward, terminated, truncated, step_info = step_result
+        (
+            next_obs_raw,
+            reward,
+            terminated,
+            truncated,
+            step_info,
+        ) = step_result
+
+        next_share_obs_raw = None
+        next_available_actions_raw = None
 
     elif len(step_result) == 6:
         (
@@ -252,6 +138,8 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
             truncated,
             step_info,
         ) = step_result
+
+        next_available_actions_raw = None
 
     elif len(step_result) >= 7:
         (
@@ -268,8 +156,37 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
         raise RuntimeError(
             "env.step(...) must return one of:\n"
             "(obs, reward, terminated, truncated, info)\n"
-            "(obs, share_obs, reward, terminated, truncated, info)\n"
-            "(obs, share_obs, reward, terminated, truncated, info, available_actions)"
+            "(obs, share_obs, reward, terminated, "
+            "truncated, info)\n"
+            "(obs, share_obs, reward, terminated, "
+            "truncated, info, available_actions)"
+        )
+
+    if not isinstance(terminated, bool):
+        raise TypeError(
+            "terminated must be bool, got "
+            f"{type(terminated).__name__}."
+        )
+
+    if not isinstance(truncated, bool):
+        raise TypeError(
+            "truncated must be bool, got "
+            f"{type(truncated).__name__}."
+        )
+
+    if terminated and truncated:
+        raise RuntimeError(
+            "Environment returned terminated=True and "
+            "truncated=True simultaneously."
+        )
+
+    if step_info is None:
+        step_info = {}
+
+    if not isinstance(step_info, dict):
+        raise TypeError(
+            "Environment info must be a dictionary, got "
+            f"{type(step_info).__name__}."
         )
 
     return (
@@ -282,17 +199,167 @@ def _parse_step_result(step_result: Any) -> tuple[Any, Any, Any, Any, Any, Any, 
         next_available_actions_raw,
     )
 
+
+# ---------------------------------------------------------------------------
+# Training helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_rnn_state_arrays(
+    num_agents: int,
+    recurrent_n: int = 1,
+    hidden_size: int = 1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Allocate actor and critic recurrent-state arrays.
+
+    The current policy is feed-forward, but the replay buffer expects
+    these arrays.
+    """
+    rnn_shape = (
+        num_agents,
+        recurrent_n,
+        hidden_size,
+    )
+
+    return (
+        np.zeros(
+            rnn_shape,
+            dtype=np.float32,
+        ),
+        np.zeros(
+            rnn_shape,
+            dtype=np.float32,
+        ),
+    )
+
+
+def _episode_metrics(
+    info: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Extract episode metrics from BAR_Environment info.
+    """
+    outcome = info.get("episode_outcome")
+
+    return {
+        "won": outcome == "won",
+        "lost": outcome == "lost",
+        "own_alive_count": info.get(
+            "own_alive_count"
+        ),
+        "enemy_alive_count": info.get(
+            "enemy_alive_count"
+        ),
+        "enemy_damage_done": float(
+            info.get(
+                "reward_info",
+                {},
+            ).get(
+                "enemy_damage_done",
+                0.0,
+            )
+            if isinstance(
+                info.get("reward_info"),
+                dict,
+            )
+            else 0.0
+        ),
+        "own_damage_taken": float(
+            info.get(
+                "reward_info",
+                {},
+            ).get(
+                "own_damage_taken",
+                0.0,
+            )
+            if isinstance(
+                info.get("reward_info"),
+                dict,
+            )
+            else 0.0
+        ),
+        "info_keys": sorted(info.keys()),
+    }
+
+
+def _format_duration(
+    seconds: float,
+) -> str:
+    minutes, seconds = divmod(
+        max(0.0, seconds),
+        60.0,
+    )
+    hours, minutes = divmod(
+        int(minutes),
+        60,
+    )
+
+    if hours:
+        return (
+            f"{hours:d}h "
+            f"{minutes:02d}m "
+            f"{seconds:06.3f}s"
+        )
+
+    if minutes:
+        return (
+            f"{minutes:d}m "
+            f"{seconds:06.3f}s"
+        )
+
+    return f"{seconds:.3f}s"
+
+
+# ---------------------------------------------------------------------------
+# Configuration and logging
+# ---------------------------------------------------------------------------
+
+
+def load_training_config(
+    path: Path,
+) -> dict[str, Any]:
+    with path.open(
+        "r",
+        encoding="utf-8",
+    ) as config_file:
+        config = json.load(config_file)
+
+    if not isinstance(config, dict):
+        raise ValueError(
+            "Training configuration must be "
+            "a JSON object."
+        )
+
+    return config
+
+
 def configure_logging(
     config: dict[str, Any],
     timestamp: str,
 ) -> None:
-    logging_config = config.get("logging", {})
+    logging_config = config.get(
+        "logging",
+        {},
+    )
+
+    if not isinstance(logging_config, dict):
+        raise ValueError(
+            "'logging' must be a JSON object."
+        )
 
     level_name = str(
-        logging_config.get("level", "INFO")
+        logging_config.get(
+            "level",
+            "INFO",
+        )
     ).upper()
 
-    level = getattr(logging, level_name, None)
+    level = getattr(
+        logging,
+        level_name,
+        None,
+    )
 
     if not isinstance(level, int):
         raise ValueError(
@@ -313,9 +380,11 @@ def configure_logging(
         f"{config['run_name']}_{timestamp}.log"
     )
 
+    # Wie vorher: Ausgabe nur in die Logdatei.
     logging.basicConfig(
         filename=log_path,
         filemode="w",
+        encoding="utf-8",
         format=(
             "%(asctime)s - %(levelname)s - "
             "%(name)s - %(filename)s:%(lineno)d - "
@@ -325,14 +394,21 @@ def configure_logging(
         force=True,
     )
 
-    module_levels = logging_config.get("modules", {})
+    module_levels = logging_config.get(
+        "modules",
+        {},
+    )
 
     if not isinstance(module_levels, dict):
         raise ValueError(
-            "'logging.modules' must be a JSON object."
+            "'logging.modules' must be "
+            "a JSON object."
         )
 
-    for module_name, module_level_name in module_levels.items():
+    for (
+        module_name,
+        module_level_name,
+    ) in module_levels.items():
         normalized_level_name = str(
             module_level_name
         ).upper()
@@ -345,76 +421,166 @@ def configure_logging(
 
         if not isinstance(module_level, int):
             raise ValueError(
-                f"Invalid logging level "
+                "Invalid logging level "
                 f"{module_level_name!r} for module "
                 f"{module_name!r}."
             )
 
-        logging.getLogger(module_name).setLevel(
+        logging.getLogger(
+            module_name
+        ).setLevel(
             module_level
         )
+
+
+def _select_device(
+    config: dict[str, Any],
+) -> torch.device:
+    device_config = config["device"]
+
+    if device_config == "auto":
+        device = torch.device(
+            "cuda"
+            if torch.cuda.is_available()
+            else "cpu"
+        )
+    else:
+        device = torch.device(
+            device_config
+        )
+
+    if (
+        device.type == "cuda"
+        and not torch.cuda.is_available()
+    ):
+        raise RuntimeError(
+            "CUDA was configured, but CUDA "
+            "is unavailable."
+        )
+
+    return device
+
+
+# ---------------------------------------------------------------------------
+# Checkpoints
+# ---------------------------------------------------------------------------
+
+
+def _save_checkpoint(
+    policy: Any,
+    adapter: RMAPPOObservationAdapter,
+    episode: int,
+    model_dir: Path,
+) -> Path:
+    """
+    Save policy, target scorer, critic, optimizers and reconstruction
+    metadata atomically.
+    """
+    model_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    checkpoint = {
+        "format_version": 2,
+        "episode": int(episode),
+        "obs_dim": int(adapter.obs_dim),
+        "action_dim": int(
+            adapter.action_dim
+        ),
+        "num_agents": int(
+            adapter.num_agents
+        ),
+        "training_team_id": int(
+            adapter.training_team_id
+        ),
+        "max_enemy_slots": int(
+            adapter.max_enemy_slots
+        ),
+        "target_feature_dim": int(
+            adapter.target_feature_dim
+        ),
+        "position_scale": float(
+            adapter.position_scale
+        ),
+        "actor_state_dict": (
+            policy.actor.state_dict()
+        ),
+        "target_scorer_state_dict": (
+            policy.target_scorer.state_dict()
+        ),
+        "critic_state_dict": (
+            policy.critic.state_dict()
+        ),
+        "actor_optimizer_state_dict": (
+            policy.actor_optimizer.state_dict()
+            if hasattr(
+                policy,
+                "actor_optimizer",
+            )
+            else None
+        ),
+        "critic_optimizer_state_dict": (
+            policy.critic_optimizer.state_dict()
+            if hasattr(
+                policy,
+                "critic_optimizer",
+            )
+            else None
+        ),
+    }
+
+    episode_path = model_dir / (
+        f"r_mappo_episode_{episode:04d}.pt"
+    )
+
+    temporary_path = (
+        episode_path.with_suffix(".tmp")
+    )
+
+    torch.save(
+        checkpoint,
+        temporary_path,
+    )
+
+    temporary_path.replace(
+        episode_path
+    )
+
+    latest_path = (
+        model_dir / "r_mappo_latest.pt"
+    )
+
+    latest_temporary_path = (
+        latest_path.with_suffix(".tmp")
+    )
+
+    torch.save(
+        checkpoint,
+        latest_temporary_path,
+    )
+
+    latest_temporary_path.replace(
+        latest_path
+    )
+
+    return episode_path
+
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def _format_duration(seconds: float) -> str:
-    minutes, seconds = divmod(max(0.0, seconds), 60.0)
-    hours, minutes = divmod(int(minutes), 60)
-    if hours:
-        return f"{hours:d}h {minutes:02d}m {seconds:06.3f}s"
-    if minutes:
-        return f"{minutes:d}m {seconds:06.3f}s"
-    return f"{seconds:.3f}s"
 
-#mappo specific
-def _save_checkpoint(policy: Any, 
-                     config: Any, 
-                     episode: int, 
-                     model_dir: Path) -> Path:
-    """Save actor, critic, and reconstruction metadata atomically."""
-    model_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint = {
-        "format_version": 1,
-        "episode": int(episode),
-        "obs_dim": int(OBS_DIM),
-        "action_dim": int(config["action_dimension"]),
-        "num_agents": int(config["number_of_agents"]),
-        "training_team_id": int(config["training_team_id"]),
-        "actor_state_dict": policy.actor.state_dict(),
-        "critic_state_dict": policy.critic.state_dict(),
-        "actor_optimizer_state_dict": (
-            policy.actor_optimizer.state_dict()
-            if hasattr(policy, "actor_optimizer") else None
-        ),
-        "critic_optimizer_state_dict": (
-            policy.critic_optimizer.state_dict()
-            if hasattr(policy, "critic_optimizer") else None
-        ),
-    }
-    episode_path = model_dir / f"r_mappo_episode_{episode:04d}.pt"
-    temporary_path = episode_path.with_suffix(".tmp")
-    torch.save(checkpoint, temporary_path)
-    temporary_path.replace(episode_path)
-
-    latest_path = model_dir / "r_mappo_latest.pt"
-    latest_temporary_path = latest_path.with_suffix(".tmp")
-    torch.save(checkpoint, latest_temporary_path)
-    latest_temporary_path.replace(latest_path)
-    return episode_path
-
-
-def load_training_config(path: Path):
-    with open(
-        path,
-        "r",
-    ) as configfile:
-        return json.load(configfile)
 
 def main() -> None:
     config_path = Path(
-        "src/train/experiments/3v3Test/3v3Test.json"
+        "src/train/experiments/3v3Test/"
+        "3v3Test.json"
     )
-    data = load_training_config(config_path)
+
+    data = load_training_config(
+        config_path
+    )
 
     timestamp = datetime.now().strftime(
         "%Y-%m-%d_%H-%M-%S"
@@ -425,25 +591,9 @@ def main() -> None:
         timestamp=timestamp,
     )
 
-    logger = logging.getLogger(__name__)
     logger.info("Starting training")
 
-    if data["device"] == "auto":
-        device = torch.device(
-            "cuda"
-            if torch.cuda.is_available()
-            else "cpu"
-        )
-    else:
-        device = torch.device(data["device"])
-
-    if (
-        device.type == "cuda"
-        and not torch.cuda.is_available()
-    ):
-        raise RuntimeError(
-            "CUDA was configured, but CUDA is unavailable."
-        )
+    device = _select_device(data)
 
     device_description = (
         torch.cuda.get_device_name(device)
@@ -460,6 +610,11 @@ def main() -> None:
         Path("src/train/experiments")
         / data["run_name"]
         / "run"
+    )
+
+    run_directory.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
     logger.info(
@@ -480,57 +635,125 @@ def main() -> None:
     total_checkpoint_seconds = 0.0
 
     success = False
-    pool = EnvironmentPool(config_path)
+
+    pool = EnvironmentPool(
+        config_path
+    )
 
     try:
-        logger.info("Creating EnvironmentPool")
+        # ---------------------------------------------------------------
+        # Observation adapter and policy
+        # ---------------------------------------------------------------
 
-        pool_started_at = time.perf_counter()
-        pool.initialize_environements()
-        total_engine_start_seconds += (
-            time.perf_counter() - pool_started_at
-        )
-
-        logger.info(
-            "EnvironmentPool created with %d environment(s)",
-            len(pool.environments),
-        )
-
-        if not pool.environments:
-            raise RuntimeError(
-                "EnvironmentPool contains no environments."
+        adapter = (
+            RMAPPOObservationAdapter.from_config(
+                data
             )
-
-        num_agents = int(data["number_of_agents"])
-        action_dimension = int(
-            data["action_dimension"]
         )
-        buffer_size = int(data["buffer_size"])
-        maximum_steps = int(data["maximum_steps"])
 
         runner = MAPPOPolicyRunner.from_config(
             data,
             device,
+            obs_dim=adapter.obs_dim,
+            target_feature_dim=(
+                adapter.target_feature_dim
+            ),
         )
 
         policy = runner.policy
 
         logger.info(
-            "Created R-MAPPO policy runner: "
-            "agents=%d action_dimension=%d team_id=%d",
-            num_agents,
-            action_dimension,
-            int(data["training_team_id"]),
+            "Created observation adapter: "
+            "obs_dim=%d target_feature_dim=%d "
+            "max_enemy_slots=%d",
+            adapter.obs_dim,
+            adapter.target_feature_dim,
+            adapter.max_enemy_slots,
         )
+
+        logger.info(
+            "Created policy runner: "
+            "agents=%d actions=%d team_id=%d",
+            adapter.num_agents,
+            adapter.action_dim,
+            adapter.training_team_id,
+        )
+
+        # ---------------------------------------------------------------
+        # Environment pool
+        # ---------------------------------------------------------------
+
+        logger.info(
+            "Creating EnvironmentPool"
+        )
+
+        pool_started_at = (
+            time.perf_counter()
+        )
+
+        pool.initialize_environements()
+
+        total_engine_start_seconds += (
+            time.perf_counter()
+            - pool_started_at
+        )
+
+        if not pool.environments:
+            raise RuntimeError(
+                "EnvironmentPool contains "
+                "no environments."
+            )
+
+        logger.info(
+            "EnvironmentPool created with "
+            "%d environment(s)",
+            len(pool.environments),
+        )
+
+        # Aktuell wird nur die erste Umgebung verwendet.
+        environment = pool.environments[0]
+
+        # ---------------------------------------------------------------
+        # Configuration validation
+        # ---------------------------------------------------------------
+
+        maximum_steps = int(
+            data["maximum_steps"]
+        )
+        buffer_size = int(
+            data["buffer_size"]
+        )
+
+        if maximum_steps <= 0:
+            raise ValueError(
+                "maximum_steps must be greater "
+                "than 0."
+            )
+
+        if buffer_size < maximum_steps:
+            raise ValueError(
+                "buffer_size must be at least as "
+                "large as maximum_steps: "
+                f"buffer_size={buffer_size}, "
+                f"maximum_steps={maximum_steps}."
+            )
 
         continue_training = data.get(
             "continue_training"
         )
 
-        if not isinstance(continue_training, bool):
+        if not isinstance(
+            continue_training,
+            bool,
+        ):
             raise ValueError(
-                "'continue_training' must be a boolean."
+                "'continue_training' must be "
+                "a boolean."
             )
+
+        # ---------------------------------------------------------------
+        # Optional checkpoint loading
+        # ---------------------------------------------------------------
 
         start_episode = 0
 
@@ -540,34 +763,38 @@ def main() -> None:
                 / "r_mappo_latest.pt"
             )
 
-            if not checkpoint_path.is_file():
-                raise FileNotFoundError(
-                    "Cannot continue training: "
-                    f"checkpoint not found at {checkpoint_path}"
+            start_episode = (
+                runner.load_checkpoint(
+                    checkpoint_path,
+                    load_optimizers=True,
                 )
-
-            start_episode = runner.load_checkpoint(
-                checkpoint_path,
-                load_optimizers=True,
             )
 
             logger.info(
-                "Resumed training from %s at episode %d",
+                "Resumed training from %s "
+                "at episode %d",
                 checkpoint_path,
                 start_episode,
             )
 
+        # ---------------------------------------------------------------
+        # Buffer and trainer
+        # ---------------------------------------------------------------
+
         buffer = SharedReplayBuffer(
-            num_agents=num_agents,
-            obs_shape=(OBS_DIM,),
+            num_agents=adapter.num_agents,
+            obs_shape=(
+                adapter.obs_dim,
+            ),
             action_shape=(2,),
             buffer_size=buffer_size,
             device=device,
-            action_dim=action_dimension,
+            action_dim=adapter.action_dim,
         )
 
         logger.info(
-            "Created SharedReplayBuffer: capacity=%d",
+            "Created SharedReplayBuffer: "
+            "capacity=%d",
             buffer_size,
         )
 
@@ -590,6 +817,10 @@ def main() -> None:
             + int(data["episodes"])
         )
 
+        # ---------------------------------------------------------------
+        # Episode loop
+        # ---------------------------------------------------------------
+
         for episode in range(
             start_episode,
             final_episode,
@@ -602,11 +833,15 @@ def main() -> None:
                 final_episode,
             )
 
-            reset_started_at = time.perf_counter()
+            # -----------------------------------------------------------
+            # Reset
+            # -----------------------------------------------------------
 
-            reset_result = (
-                pool.environments[0].reset()
+            reset_started_at = (
+                time.perf_counter()
             )
+
+            reset_result = environment.reset()
 
             total_engine_start_seconds += (
                 time.perf_counter()
@@ -621,25 +856,36 @@ def main() -> None:
                 reset_result
             )
 
-            (
-                obs,
-                share_obs,
-                available_actions,
-            ) = runner.prepare_observations(
+            # Stabile Unit-Slots für diese Episode festlegen.
+            adapter.reset_episode(
+                obs_raw
+            )
+
+            prepared = adapter.prepare(
                 obs_raw,
                 share_obs_raw,
                 available_actions_raw,
             )
 
+            logger.debug(
+                "Episode %d stable unit slots: %s",
+                episode_number,
+                adapter.agent_unit_ids,
+            )
+
             episode_reward = 0.0
             done = False
+            terminated = False
+            truncated = False
             step_count = 0
 
             action_counts = np.zeros(
-                action_dimension,
+                adapter.action_dim,
                 dtype=np.int64,
             )
-            action_trace: list[list[int]] = []
+            action_trace: list[
+                list[int]
+            ] = []
 
             episode_won = False
             episode_lost = False
@@ -648,70 +894,87 @@ def main() -> None:
             enemy_damage_done = 0.0
             own_damage_taken = 0.0
             last_info_keys: list[str] = []
-            final_step_info: Any = None
+            final_step_info: dict[
+                str,
+                Any,
+            ] = {}
 
             (
                 rnn_states,
                 rnn_states_critic,
             ) = _make_rnn_state_arrays(
-                num_agents,
+                adapter.num_agents,
                 recurrent_n=recurrent_n,
                 hidden_size=hidden_size,
             )
 
             trainer.prep_rollout()
+            runner.set_evaluation_mode()
+
+            # -----------------------------------------------------------
+            # Step loop
+            # -----------------------------------------------------------
 
             while not done:
                 if step_count >= maximum_steps + 1:
                     raise RuntimeError(
-                        "Environment exceeded maximum_steps "
-                        "without returning terminated=True or "
-                        "truncated=True. "
+                        "Environment exceeded "
+                        "maximum_steps without returning "
+                        "terminated=True or truncated=True: "
                         f"episode={episode_number}, "
                         f"step_count={step_count}, "
                         f"maximum_steps={maximum_steps}."
                     )
 
+                # -------------------------------------------------------
+                # Policy inference
+                # -------------------------------------------------------
+
                 inference_started_at = (
                     time.perf_counter()
                 )
 
-                (
-                    value_preds,
-                    actions,
-                    action_log_probs,
-                    candidate_target_features,
-                    candidate_target_mask,
-                ) = runner.sample_actions(
-                    obs_raw=obs_raw,
-                    obs=obs,
-                    share_obs=share_obs,
-                    available_actions=available_actions,
+                policy_step = runner.act(
+                    prepared
                 )
 
                 if device.type == "cuda":
-                    torch.cuda.synchronize(device)
+                    torch.cuda.synchronize(
+                        device
+                    )
 
-                inference_elapsed = (
+                total_inference_seconds += (
                     time.perf_counter()
                     - inference_started_at
-                )
-                total_inference_seconds += (
-                    inference_elapsed
                 )
 
                 action_types = [
                     int(action)
-                    for action in actions[:, 0]
+                    for action
+                    in policy_step.actions[:, 0]
                 ]
 
-                action_trace.append(action_types)
+                action_trace.append(
+                    action_types
+                )
 
-                for action_type in action_types:
+                # Nur aktive Agents in der Statistik zählen.
+                for row, action_type in enumerate(
+                    action_types
+                ):
+                    if (
+                        prepared.active_mask[
+                            row,
+                            0,
+                        ]
+                        <= 0.0
+                    ):
+                        continue
+
                     if (
                         0
                         <= action_type
-                        < action_dimension
+                        < adapter.action_dim
                     ):
                         action_counts[
                             action_type
@@ -721,28 +984,35 @@ def main() -> None:
                             "Sampled invalid action %d; "
                             "expected range [0, %d]",
                             action_type,
-                            action_dimension - 1,
+                            adapter.action_dim - 1,
                         )
+
+                # -------------------------------------------------------
+                # Convert policy output to BAR actions
+                # -------------------------------------------------------
+
+                bar_actions = (
+                    runner.create_bar_actions(
+                        policy_step,
+                        prepared,
+                    )
+                )
+
+                # -------------------------------------------------------
+                # Environment step
+                # -------------------------------------------------------
 
                 environment_started_at = (
                     time.perf_counter()
                 )
 
-                step_result = (
-                    runner.step_environment(
-                        pool.environments[0],
-                        actions,
-                        obs_raw,
-                    )
-                )
-
-                engine_step_elapsed = (
-                    time.perf_counter()
-                    - environment_started_at
+                step_result = environment.step(
+                    bar_actions
                 )
 
                 total_engine_step_seconds += (
-                    engine_step_elapsed
+                    time.perf_counter()
+                    - environment_started_at
                 )
 
                 (
@@ -757,222 +1027,237 @@ def main() -> None:
                     step_result
                 )
 
-                if (
-                    not isinstance(terminated, bool)
-                    or not isinstance(truncated, bool)
-                ):
-                    raise TypeError(
-                        "Environment termination flags must "
-                        "be bool values."
-                    )
-
-                if terminated and truncated:
-                    raise RuntimeError(
-                        "Environment returned terminated=True "
-                        "and truncated=True simultaneously."
-                    )
-
-                final_step_info = step_info
-
-                debug_metrics = (
-                    _extract_episode_debug_from_info(
-                        step_info
-                    )
-                )
-
-                episode_won = (
-                    episode_won
-                    or debug_metrics["won"]
-                )
-                episode_lost = (
-                    episode_lost
-                    or debug_metrics["lost"]
-                )
-
-                if (
-                    debug_metrics["ally_alive"]
-                    is not None
-                ):
-                    final_ally_alive = (
-                        debug_metrics["ally_alive"]
-                    )
-
-                if (
-                    debug_metrics["enemy_alive"]
-                    is not None
-                ):
-                    final_enemy_alive = (
-                        debug_metrics["enemy_alive"]
-                    )
-
-                enemy_damage_done += (
-                    debug_metrics[
-                        "enemy_damage_done"
-                    ]
-                )
-                own_damage_taken += (
-                    debug_metrics[
-                        "own_damage_taken"
-                    ]
-                )
-
-                if debug_metrics["info_keys"]:
-                    last_info_keys = (
-                        debug_metrics["info_keys"]
-                    )
-
                 done = bool(
                     terminated or truncated
                 )
 
-                dones = np.full(
-                    num_agents,
-                    done,
-                    dtype=bool,
+                final_step_info = step_info
+
+                # -------------------------------------------------------
+                # Episode metrics
+                # -------------------------------------------------------
+
+                metrics = _episode_metrics(
+                    step_info
                 )
 
-                if done and next_obs_raw is None:
-                    # Falls das Environment bei Terminalzuständen
-                    # keine Observation liefert, bleibt der letzte
-                    # valide Zustand für die Buffer-Form erhalten.
-                    next_obs = obs.copy()
-                    next_share_obs = share_obs.copy()
-                    next_available_actions = (
-                        available_actions.copy()
-                    )
-                else:
-                    (
-                        next_obs,
-                        next_share_obs,
-                        next_available_actions,
-                    ) = runner.prepare_observations(
-                        next_obs_raw,
-                        next_share_obs_raw,
-                        next_available_actions_raw,
-                    )
+                episode_won = (
+                    episode_won
+                    or metrics["won"]
+                )
+                episode_lost = (
+                    episode_lost
+                    or metrics["lost"]
+                )
 
-                reward_arr = _prepare_reward(
-                    reward,
-                    num_agents,
+                if (
+                    metrics[
+                        "own_alive_count"
+                    ]
+                    is not None
+                ):
+                    final_ally_alive = metrics[
+                        "own_alive_count"
+                    ]
+
+                if (
+                    metrics[
+                        "enemy_alive_count"
+                    ]
+                    is not None
+                ):
+                    final_enemy_alive = metrics[
+                        "enemy_alive_count"
+                    ]
+
+                enemy_damage_done += metrics[
+                    "enemy_damage_done"
+                ]
+                own_damage_taken += metrics[
+                    "own_damage_taken"
+                ]
+                last_info_keys = metrics[
+                    "info_keys"
+                ]
+
+                # -------------------------------------------------------
+                # Reward and masks
+                # -------------------------------------------------------
+
+                reward_array = (
+                    adapter.prepare_reward(
+                        reward
+                    )
                 )
 
                 masks = np.ones(
-                    (num_agents, 1),
+                    (
+                        adapter.num_agents,
+                        1,
+                    ),
                     dtype=np.float32,
                 )
 
-                # Nur natürliche Terminalzustände stoppen
-                # das Value-Bootstrapping.
+                # Nur ein natürliches Ende verhindert
+                # Value-Bootstrapping.
                 if terminated:
                     masks[:] = 0.0
+
+                # active_mask gehört zum aktuellen PreparedStep,
+                # für das die Action gewählt wurde.
+                active_masks = (
+                    prepared.active_mask.copy()
+                )
+
+                # -------------------------------------------------------
+                # Store transition
+                # -------------------------------------------------------
+
+                buffer.insert(
+                    share_obs=(
+                        prepared.share_obs
+                    ),
+                    obs=prepared.obs,
+                    rnn_states=rnn_states,
+                    rnn_states_critic=(
+                        rnn_states_critic
+                    ),
+                    actions=(
+                        policy_step.actions
+                    ),
+                    action_log_probs=(
+                        policy_step.action_log_probs
+                    ),
+                    value_preds=(
+                        policy_step.value_predictions
+                    ),
+                    rewards=reward_array,
+                    masks=masks,
+                    active_masks=active_masks,
+                    available_actions=(
+                        prepared
+                        .available_actions
+                    ),
+                    candidate_target_features=(
+                        prepared.target_features
+                    ),
+                    candidate_target_mask=(
+                        prepared.target_mask
+                    ),
+                )
+
+                episode_reward += float(
+                    reward_array.mean()
+                )
+                step_count += 1
+
+                # -------------------------------------------------------
+                # Prepare next state
+                # -------------------------------------------------------
+
+                next_prepared: (
+                    PreparedStep | None
+                ) = None
+
+                if next_obs_raw is not None:
+                    next_prepared = (
+                        adapter.prepare(
+                            next_obs_raw,
+                            next_share_obs_raw,
+                            next_available_actions_raw,
+                        )
+                    )
+
+                if not done:
+                    if next_prepared is None:
+                        raise RuntimeError(
+                            "Environment returned no "
+                            "observation while the episode "
+                            "is still running."
+                        )
+
+                    prepared = next_prepared
+
+                elif truncated:
+                    # Für korrektes Bootstrap bei Truncation
+                    # wird der Zustand nach dem letzten Step
+                    # benötigt.
+                    if next_prepared is None:
+                        raise RuntimeError(
+                            "A truncated episode must "
+                            "return a final observation "
+                            "for value bootstrapping."
+                        )
+
+                    prepared = next_prepared
 
                 if done:
                     rnn_states[:] = 0.0
                     rnn_states_critic[:] = 0.0
 
-                active_masks = np.ones(
-                    (num_agents, 1),
-                    dtype=np.float32,
-                )
-                active_masks[dones] = 0.0
-
-                if done:
-                    active_masks[:] = 1.0
-
-                buffer.insert(
-                    share_obs=share_obs,
-                    obs=obs,
-                    rnn_states=rnn_states,
-                    rnn_states_critic=(
-                        rnn_states_critic
-                    ),
-                    actions=actions,
-                    action_log_probs=(
-                        action_log_probs
-                    ),
-                    value_preds=value_preds,
-                    rewards=reward_arr,
-                    masks=masks,
-                    active_masks=active_masks,
-                    available_actions=(
-                        available_actions
-                    ),
-                    candidate_target_features=(
-                        candidate_target_features
-                    ),
-                    candidate_target_mask=(
-                        candidate_target_mask
-                    ),
-                )
-
-                episode_reward += float(
-                    reward_arr.mean()
-                )
-                step_count += 1
-
-                obs_raw = next_obs_raw
-                obs = next_obs
-                share_obs = next_share_obs
-                available_actions = (
-                    next_available_actions
-                )
-
-            if not done:
-                raise RuntimeError(
-                    f"Episode {episode_number} left the "
-                    "rollout loop without termination."
-                )
+            # -----------------------------------------------------------
+            # Validate episode end
+            # -----------------------------------------------------------
 
             if step_count <= 0:
                 raise RuntimeError(
-                    f"Episode {episode_number} ended "
-                    "without executing a step."
+                    f"Episode {episode_number} "
+                    "ended without executing a step."
                 )
 
-            if final_enemy_alive is not None:
-                try:
-                    if int(final_enemy_alive) <= 0:
-                        episode_won = True
-                except (TypeError, ValueError):
-                    logger.warning(
-                        "Invalid final_enemy_alive value: %r",
-                        final_enemy_alive,
-                    )
+            if (
+                final_enemy_alive is not None
+                and int(final_enemy_alive) <= 0
+            ):
+                episode_won = True
 
-            if final_ally_alive is not None:
-                try:
-                    if int(final_ally_alive) <= 0:
-                        episode_lost = True
-                except (TypeError, ValueError):
-                    logger.warning(
-                        "Invalid final_ally_alive value: %r",
-                        final_ally_alive,
-                    )
+            if (
+                final_ally_alive is not None
+                and int(final_ally_alive) <= 0
+            ):
+                episode_lost = True
 
-            # Bei natürlichem Terminalzustand ist kein Bootstrap
-            # erlaubt. Bei Truncation wird der letzte Critic-Wert
-            # verwendet.
+            # -----------------------------------------------------------
+            # Bootstrap and returns
+            # -----------------------------------------------------------
+
             if terminated:
                 next_value = np.zeros(
-                    (num_agents, 1),
+                    (
+                        adapter.num_agents,
+                        1,
+                    ),
                     dtype=np.float32,
                 )
             else:
-                next_value = runner.predict_values(
-                    share_obs
+                # Truncated Episode:
+                # Bootstrap aus finaler Observation.
+                next_value = (
+                    runner.predict_values(
+                        prepared.share_obs
+                    )
                 )
 
             try:
                 buffer.compute_returns(
                     next_value,
-                    gamma=float(data["gamma"]),
+                    gamma=float(
+                        data["gamma"]
+                    ),
                 )
             except TypeError:
+                # Kompatibilität mit älterer
+                # SharedReplayBuffer-Signatur.
                 buffer.compute_returns(
                     next_value
                 )
 
+            # -----------------------------------------------------------
+            # PPO update
+            # -----------------------------------------------------------
+
             trainer.prep_training()
+            runner.set_training_mode()
 
             training_started_at = (
                 time.perf_counter()
@@ -984,7 +1269,9 @@ def main() -> None:
             )
 
             if device.type == "cuda":
-                torch.cuda.synchronize(device)
+                torch.cuda.synchronize(
+                    device
+                )
 
             total_training_seconds += (
                 time.perf_counter()
@@ -992,6 +1279,10 @@ def main() -> None:
             )
 
             buffer.reset()
+
+            # -----------------------------------------------------------
+            # Episode logging
+            # -----------------------------------------------------------
 
             average_reward_per_step = (
                 episode_reward / step_count
@@ -1064,25 +1355,35 @@ def main() -> None:
             )
             logger.info(
                 "Value Loss: %.6f",
-                train_info.get(
-                    "value_loss",
-                    0.0,
+                float(
+                    train_info.get(
+                        "value_loss",
+                        0.0,
+                    )
                 ),
             )
             logger.info(
                 "Policy Loss: %.6f",
-                train_info.get(
-                    "policy_loss",
-                    0.0,
+                float(
+                    train_info.get(
+                        "policy_loss",
+                        0.0,
+                    )
                 ),
             )
             logger.info(
                 "Entropy: %.6f",
-                train_info.get(
-                    "dist_entropy",
-                    0.0,
+                float(
+                    train_info.get(
+                        "dist_entropy",
+                        0.0,
+                    )
                 ),
             )
+
+            # -----------------------------------------------------------
+            # Periodic checkpoint
+            # -----------------------------------------------------------
 
             save_interval = int(
                 data["save_every_x_episode"]
@@ -1097,11 +1398,13 @@ def main() -> None:
                     time.perf_counter()
                 )
 
-                checkpoint_path = _save_checkpoint(
-                    policy,
-                    data,
-                    episode_number,
-                    run_directory,
+                checkpoint_path = (
+                    _save_checkpoint(
+                        policy,
+                        adapter,
+                        episode_number,
+                        run_directory,
+                    )
                 )
 
                 total_checkpoint_seconds += (
@@ -1114,13 +1417,17 @@ def main() -> None:
                     checkpoint_path,
                 )
 
+        # ---------------------------------------------------------------
+        # Final checkpoint
+        # ---------------------------------------------------------------
+
         checkpoint_started_at = (
             time.perf_counter()
         )
 
         final_checkpoint = _save_checkpoint(
             policy,
-            data,
+            adapter,
             final_episode,
             run_directory,
         )
@@ -1136,8 +1443,13 @@ def main() -> None:
         )
         logger.info(
             "Latest model saved to: %s",
-            run_directory / "r_mappo_latest.pt",
+            run_directory
+            / "r_mappo_latest.pt",
         )
+
+        # ---------------------------------------------------------------
+        # Timing summary
+        # ---------------------------------------------------------------
 
         total_runtime = (
             time.perf_counter()
@@ -1157,7 +1469,9 @@ def main() -> None:
             total_runtime - measured_runtime,
         )
 
-        def percentage(seconds: float) -> float:
+        def percentage(
+            seconds: float,
+        ) -> float:
             if total_runtime <= 0.0:
                 return 0.0
 
@@ -1167,10 +1481,14 @@ def main() -> None:
                 / total_runtime
             )
 
-        logger.info("Overall timing summary")
+        logger.info(
+            "Overall timing summary"
+        )
         logger.info(
             "Total runtime: %s (100.00%%)",
-            _format_duration(total_runtime),
+            _format_duration(
+                total_runtime
+            ),
         )
         logger.info(
             "Engine start/reset: %s, %.2f%%",
@@ -1219,33 +1537,44 @@ def main() -> None:
         )
         logger.info(
             "Other Python/logging: %s, %.2f%%",
-            _format_duration(other_seconds),
-            percentage(other_seconds),
+            _format_duration(
+                other_seconds
+            ),
+            percentage(
+                other_seconds
+            ),
         )
 
         success = True
 
     except Exception:
         logger.exception(
-            "Exception occurred during simulated "
-            "3v3 training."
+            "Exception occurred during "
+            "simulated 3v3 training."
         )
         raise
 
     finally:
-        pool.close_environements()
+        try:
+            pool.close_environements()
+        except Exception:
+            logger.exception(
+                "Closing EnvironmentPool failed."
+            )
 
         if success:
             print(
-                "Simulated 3v3 pawn training complete!",
+                "Simulated 3v3 pawn training "
+                "complete!",
                 flush=True,
             )
         else:
             print(
-                "Simulated 3v3 pawn training aborted "
-                "due to an error.",
+                "Simulated 3v3 pawn training "
+                "aborted due to an error.",
                 flush=True,
             )
+
 
 if __name__ == "__main__":
     main()

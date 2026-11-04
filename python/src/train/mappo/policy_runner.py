@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -8,22 +9,41 @@ import torch
 import bar_ai
 
 from src.train.mappo.obs_r_mappo import (
-    OBS_DIM,
-    UNIT_SLOT_FEATURE_DIM,
-    build_r_mappo_action_context,
-    _prepare_available_actions,
-    _prepare_obs,
-    _prepare_share_obs,
+    PreparedStep,
 )
-from src.train.mappo.policy import R_MAPPO_Policy
+from src.train.mappo.policy import (
+    R_MAPPO_Policy,
+)
+
+
+MOVEMENT_TARGET_ID = 4211
+
+
+@dataclass(frozen=True)
+class PolicyStep:
+    """
+    Output produced by one R-MAPPO policy inference step.
+    """
+
+    value_predictions: np.ndarray
+    actions: np.ndarray
+    action_log_probs: np.ndarray
 
 
 class MAPPOPolicyRunner:
     """
-    Runs an R-MAPPO policy against a BAR environment.
+    Runs an R-MAPPO policy on already prepared observations.
 
-    This class is shared by training, evaluation and human-vs-AI play.
-    It does not train the policy.
+    The runner does not interpret raw BAR observations and does not
+    manage controlled-unit slots. Those responsibilities belong to
+    RMAPPOObservationAdapter.
+
+    Responsibilities:
+
+    - construct the R-MAPPO policy,
+    - load checkpoints,
+    - run actor and critic inference,
+    - convert sampled policy actions into bar_ai.Action objects.
     """
 
     def __init__(
@@ -32,36 +52,303 @@ class MAPPOPolicyRunner:
         *,
         device: torch.device,
         num_agents: int,
-        action_dimension: int,
+        action_dim: int,
+        obs_dim: int,
+        target_feature_dim: int,
         training_team_id: int,
     ) -> None:
         self.policy = policy
-        self.device = device
+        self.device = torch.device(device)
+
         self.num_agents = int(num_agents)
-        self.action_dimension = int(action_dimension)
-        self.training_team_id = int(training_team_id)
+        self.action_dim = int(action_dim)
+        self.obs_dim = int(obs_dim)
+        self.target_feature_dim = int(
+            target_feature_dim
+        )
+        self.training_team_id = int(
+            training_team_id
+        )
 
     @classmethod
     def from_config(
         cls,
         config: dict[str, Any],
         device: torch.device,
-    ) -> "MAPPOPolicyRunner":
+        *,
+        obs_dim: int,
+        target_feature_dim: int,
+    ) -> MAPPOPolicyRunner:
+        """
+        Construct a policy and runner from the training configuration.
+
+        Observation dimensions come from RMAPPOObservationAdapter
+        instead of being duplicated in the configuration.
+        """
+        num_agents = int(
+            config["number_of_agents"]
+        )
+        action_dim = int(
+            config["action_dimension"]
+        )
+        training_team_id = int(
+            config["training_team_id"]
+        )
+
         policy = R_MAPPO_Policy(
-            OBS_DIM,
-            int(config["action_dimension"]),
+            obs_dim,
+            action_dim,
             device=device,
-            lr=float(config["learning_rate"]),
-            target_feature_dim=UNIT_SLOT_FEATURE_DIM,
+            lr=float(
+                config["learning_rate"]
+            ),
+            target_feature_dim=(
+                target_feature_dim
+            ),
         )
 
         return cls(
             policy=policy,
             device=device,
-            num_agents=int(config["number_of_agents"]),
-            action_dimension=int(config["action_dimension"]),
-            training_team_id=int(config["training_team_id"]),
+            num_agents=num_agents,
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            target_feature_dim=(
+                target_feature_dim
+            ),
+            training_team_id=(
+                training_team_id
+            ),
         )
+
+    def act(
+        self,
+        prepared: PreparedStep,
+    ) -> PolicyStep:
+        """
+        Run actor, target scorer and critic for one prepared step.
+        """
+        self._validate_prepared_step(
+            prepared
+        )
+
+        obs_tensor = torch.as_tensor(
+            prepared.obs,
+            dtype=torch.float32,
+            device=self.device,
+        )
+
+        available_actions_tensor = (
+            torch.as_tensor(
+                prepared.available_actions,
+                dtype=torch.bool,
+                device=self.device,
+            )
+        )
+
+        target_features_tensor = (
+            torch.as_tensor(
+                prepared.target_features,
+                dtype=torch.float32,
+                device=self.device,
+            )
+        )
+
+        target_mask_tensor = torch.as_tensor(
+            prepared.target_mask,
+            dtype=torch.bool,
+            device=self.device,
+        )
+
+        with torch.no_grad():
+            (
+                actions,
+                action_log_probs,
+            ) = self.policy.get_action(
+                obs_tensor,
+                target_features=(
+                    target_features_tensor
+                ),
+                candidate_target_ids=(
+                    prepared.target_ids
+                ),
+                target_mask=target_mask_tensor,
+                available_actions=(
+                    available_actions_tensor
+                ),
+            )
+
+        action_array = self._to_numpy(
+            actions
+        ).reshape(
+            self.num_agents,
+            2,
+        ).astype(
+            np.float32,
+            copy=False,
+        )
+
+        action_log_prob_array = (
+            self._to_numpy(
+                action_log_probs
+            ).reshape(
+                self.num_agents,
+                1,
+            ).astype(
+                np.float32,
+                copy=False,
+            )
+        )
+
+        value_predictions = self.predict_values(
+            prepared.share_obs
+        )
+
+        return PolicyStep(
+            value_predictions=(
+                value_predictions
+            ),
+            actions=action_array,
+            action_log_probs=(
+                action_log_prob_array
+            ),
+        )
+
+    def create_bar_actions(
+        self,
+        policy_step: PolicyStep,
+        prepared: PreparedStep,
+    ) -> list[bar_ai.Action]:
+        """
+        Convert policy actions into actions for living BAR units.
+
+        Policy output contains one row for every stable agent slot.
+        Rows with own_unit_id = -1 belong to dead or missing units and
+        are not sent to BAR.
+        """
+        self._validate_prepared_step(
+            prepared
+        )
+        self._validate_policy_step(
+            policy_step
+        )
+
+        actions: list[bar_ai.Action] = []
+
+        for row in range(self.num_agents):
+            unit_id = int(
+                prepared.own_unit_ids[row]
+            )
+
+            # Dead or missing controlled unit.
+            if unit_id < 0:
+                continue
+
+            action_type = int(
+                policy_step.actions[row, 0]
+            )
+            target_index = int(
+                policy_step.actions[row, 1]
+            )
+
+            if (
+                action_type
+                == self.policy.attack_action_index
+            ):
+                if not (
+                    0
+                    <= target_index
+                    < prepared.target_ids.shape[1]
+                ):
+                    raise ValueError(
+                        "Invalid target index "
+                        f"{target_index} for controlled "
+                        f"unit {unit_id}."
+                    )
+
+                if not bool(
+                    prepared.target_mask[
+                        row,
+                        target_index,
+                    ]
+                ):
+                    raise ValueError(
+                        f"Target slot {target_index} "
+                        f"is invalid for controlled "
+                        f"unit {unit_id}."
+                    )
+
+                target_unit_id = int(
+                    prepared.target_ids[
+                        row,
+                        target_index,
+                    ]
+                )
+
+                if target_unit_id < 0:
+                    raise ValueError(
+                        "Target mask marked an invalid "
+                        f"target ID for unit {unit_id}: "
+                        f"{target_unit_id}."
+                    )
+            else:
+                target_unit_id = (
+                    MOVEMENT_TARGET_ID
+                )
+
+            actions.append(
+                self._make_bar_action(
+                    action_index=action_type,
+                    unit_id=unit_id,
+                    target_unit_id=(
+                        target_unit_id
+                    ),
+                )
+            )
+
+        if not actions:
+            raise RuntimeError(
+                "No living controlled units are available, "
+                "but an environment step was requested."
+            )
+
+        return actions
+
+    def predict_values(
+        self,
+        share_obs: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Predict the centralized critic value and repeat it per agent.
+
+        Result shape: (num_agents, 1)
+        """
+        share_obs_array = np.asarray(
+            share_obs,
+            dtype=np.float32,
+        )
+
+        if share_obs_array.shape != (
+            self.obs_dim,
+        ):
+            raise ValueError(
+                "Invalid shared observation shape: "
+                f"expected {(self.obs_dim,)}, "
+                f"got {share_obs_array.shape}."
+            )
+
+        share_obs_tensor = torch.as_tensor(
+            share_obs_array,
+            dtype=torch.float32,
+            device=self.device,
+        ).unsqueeze(0)
+
+        with torch.no_grad():
+            values = self.policy.critic(
+                share_obs_tensor
+            )
+
+        return self._repeat_values(values)
 
     def load_checkpoint(
         self,
@@ -69,6 +356,20 @@ class MAPPOPolicyRunner:
         *,
         load_optimizers: bool = False,
     ) -> int:
+        """
+        Load actor, critic and optional optimizer states.
+
+        Returns the episode stored in the checkpoint.
+        """
+        checkpoint_path = Path(
+            checkpoint_path
+        )
+
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(
+                f"Checkpoint not found: {checkpoint_path}"
+            )
+
         checkpoint = torch.load(
             checkpoint_path,
             map_location=self.device,
@@ -89,14 +390,27 @@ class MAPPOPolicyRunner:
         self.policy.actor.load_state_dict(
             checkpoint["actor_state_dict"]
         )
+
         self.policy.critic.load_state_dict(
             checkpoint["critic_state_dict"]
         )
+
+        # Neuere Checkpoints sollten den TargetScorer separat
+        # speichern. Ältere Checkpoints bleiben weiterhin ladbar.
+        target_scorer_state = checkpoint.get(
+            "target_scorer_state_dict"
+        )
+
+        if target_scorer_state is not None:
+            self.policy.target_scorer.load_state_dict(
+                target_scorer_state
+            )
 
         if load_optimizers:
             actor_optimizer_state = checkpoint.get(
                 "actor_optimizer_state_dict"
             )
+
             if actor_optimizer_state is not None:
                 self.policy.actor_optimizer.load_state_dict(
                     actor_optimizer_state
@@ -105,246 +419,31 @@ class MAPPOPolicyRunner:
             critic_optimizer_state = checkpoint.get(
                 "critic_optimizer_state_dict"
             )
+
             if critic_optimizer_state is not None:
                 self.policy.critic_optimizer.load_state_dict(
                     critic_optimizer_state
                 )
 
-        return int(checkpoint.get("episode", 0))
-
-    def prepare_observations(
-        self,
-        obs_raw: Any,
-        share_obs_raw: Any = None,
-        available_actions_raw: Any = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        obs = _prepare_obs(
-            obs_raw,
-            self.num_agents,
-            OBS_DIM,
-            training_team_id=self.training_team_id,
+        return int(
+            checkpoint.get("episode", 0)
         )
 
-        share_obs = _prepare_share_obs(
-            share_obs_raw,
-            obs,
-            self.num_agents,
-            OBS_DIM,
-        )
+    def set_training_mode(self) -> None:
+        """
+        Enable training mode for actor, target scorer and critic.
+        """
+        self.policy.actor.train()
+        self.policy.target_scorer.train()
+        self.policy.critic.train()
 
-        available_actions = _prepare_available_actions(
-            available_actions_raw,
-            self.num_agents,
-            self.action_dimension,
-        )
-
-        return obs, share_obs, available_actions
-
-    def sample_actions(
-        self,
-        *,
-        obs_raw: Any,
-        obs: np.ndarray,
-        share_obs: np.ndarray,
-        available_actions: np.ndarray,
-    ) -> tuple[
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray | None,
-        np.ndarray | None,
-    ]:
-        (
-            own_unit_ids,
-            candidate_target_ids,
-            target_features,
-            target_mask,
-        ) = build_r_mappo_action_context(
-            obs_raw,
-            training_team_id=self.training_team_id,
-        )
-
-        if len(own_unit_ids) != self.num_agents:
-            raise ValueError(
-                "Number of controlled units does not match "
-                f"num_agents: observed={len(own_unit_ids)}, "
-                f"expected={self.num_agents}."
-            )
-
-        obs_tensor = torch.as_tensor(
-            obs,
-            dtype=torch.float32,
-            device=self.device,
-        )
-
-        available_actions_tensor = torch.as_tensor(
-            available_actions,
-            dtype=torch.bool,
-            device=self.device,
-        )
-
-        target_features_array = np.asarray(
-            target_features,
-            dtype=np.float32,
-        )
-        target_mask_array = np.asarray(
-            target_mask,
-            dtype=np.bool_,
-        )
-
-        target_features_tensor = torch.as_tensor(
-            target_features_array,
-            dtype=torch.float32,
-            device=self.device,
-        )
-        target_mask_tensor = torch.as_tensor(
-            target_mask_array,
-            dtype=torch.bool,
-            device=self.device,
-        )
-
-        actions, action_log_probs = self.policy.get_action(
-            obs_tensor,
-            target_features=target_features_tensor,
-            candidate_target_ids=candidate_target_ids,
-            target_mask=target_mask_tensor,
-            available_actions=available_actions_tensor,
-        )
-
-        action_array = self._to_numpy(actions).reshape(
-            self.num_agents,
-            2,
-        ).astype(np.float32)
-
-        log_probability_array = self._to_numpy(
-            action_log_probs
-        ).reshape(
-            self.num_agents,
-            1,
-        ).astype(np.float32)
-
-        with torch.no_grad():
-            share_obs_tensor = torch.as_tensor(
-                share_obs,
-                dtype=torch.float32,
-                device=self.device,
-            ).unsqueeze(0)
-
-            values = self.policy.critic(
-                share_obs_tensor
-            )
-
-        value_predictions = self._repeat_values(
-            values
-        )
-
-        return (
-            value_predictions,
-            action_array,
-            log_probability_array,
-            target_features_array,
-            target_mask_array,
-        )
-
-    def step_environment(
-        self,
-        env: Any,
-        policy_actions: np.ndarray,
-        obs_raw: Any,
-    ) -> tuple[Any, Any, bool, bool, dict[str, Any]]:
-        action_rows = np.asarray(policy_actions)
-
-        if action_rows.ndim == 1:
-            action_rows = action_rows.reshape(1, -1)
-
-        if (
-            action_rows.ndim != 2
-            or action_rows.shape[1] != 2
-        ):
-            raise ValueError(
-                "Policy actions must have shape "
-                f"(num_agents, 2), got {action_rows.shape}."
-            )
-
-        (
-            own_unit_ids,
-            candidate_target_ids,
-            _,
-            candidate_target_mask,
-        ) = build_r_mappo_action_context(
-            obs_raw,
-            training_team_id=self.training_team_id,
-        )
-
-        if len(own_unit_ids) != len(action_rows):
-            raise ValueError(
-                f"Got {len(action_rows)} actions for "
-                f"{len(own_unit_ids)} controlled units."
-            )
-
-        bar_actions: list[bar_ai.Action] = []
-
-        for row, (
-            action_type,
-            target_index,
-        ) in enumerate(action_rows):
-            action_type = int(action_type)
-            target_index = int(target_index)
-
-            if (
-                action_type
-                == self.policy.attack_action_index
-            ):
-                if not (
-                    0
-                    <= target_index
-                    < candidate_target_ids.shape[1]
-                ):
-                    raise ValueError(
-                        f"Invalid target index {target_index} "
-                        f"for unit {own_unit_ids[row]}."
-                    )
-
-                if not candidate_target_mask[
-                    row,
-                    target_index,
-                ]:
-                    raise ValueError(
-                        f"Target slot {target_index} is empty "
-                        f"for unit {own_unit_ids[row]}."
-                    )
-
-                target_unit_id = int(
-                    candidate_target_ids[
-                        row,
-                        target_index,
-                    ]
-                )
-            else:
-                target_unit_id = 4211
-
-            bar_actions.append(
-                self._make_bar_action(
-                    action_index=action_type,
-                    unit_id=own_unit_ids[row],
-                    target_unit_id=target_unit_id,
-                )
-            )
-
-        if not bar_actions:
-            raise ValueError(
-                "At least one agent action is required."
-            )
-
-        result = env.step(bar_actions)
-
-        if not isinstance(result, tuple) or len(result) != 5:
-            raise RuntimeError(
-                "BAR_Environment.step must return "
-                "(obs, reward, terminated, truncated, info)."
-            )
-
-        return result
+    def set_evaluation_mode(self) -> None:
+        """
+        Enable evaluation mode for actor, target scorer and critic.
+        """
+        self.policy.actor.eval()
+        self.policy.target_scorer.eval()
+        self.policy.critic.eval()
 
     def _make_bar_action(
         self,
@@ -353,6 +452,9 @@ class MAPPOPolicyRunner:
         unit_id: Any,
         target_unit_id: Any,
     ) -> bar_ai.Action:
+        """
+        Convert one policy action into a bar_ai.Action.
+        """
         action_value = int(action_index) + 1
         unit_value = int(unit_id)
         target_value = int(target_unit_id)
@@ -363,7 +465,7 @@ class MAPPOPolicyRunner:
             else action_value
         )
 
-        for kwargs in (
+        constructor_variants = (
             {
                 "action_id": action_id,
                 "unit_id": unit_value,
@@ -374,18 +476,31 @@ class MAPPOPolicyRunner:
                 "unitId": unit_value,
                 "targetUnitId": target_value,
             },
-        ):
+        )
+
+        for kwargs in constructor_variants:
             try:
-                return bar_ai.Action(**kwargs)
+                action = bar_ai.Action(**kwargs)
+                self._set_optional_team_fields(
+                    action
+                )
+                return action
             except TypeError:
                 pass
 
         try:
-            return bar_ai.Action(
+            action = bar_ai.Action(
                 action_id,
                 unit_value,
                 target_value,
             )
+
+            self._set_optional_team_fields(
+                action
+            )
+
+            return action
+
         except TypeError:
             pass
 
@@ -395,9 +510,14 @@ class MAPPOPolicyRunner:
                 unit_value,
             )
         except TypeError:
-            action = bar_ai.Action()
+            try:
+                action = bar_ai.Action()
+            except TypeError as exc:
+                raise TypeError(
+                    "Could not construct bar_ai.Action."
+                ) from exc
 
-        field_options = (
+        required_fields = (
             (
                 ("action_id", "actionId"),
                 action_id,
@@ -407,72 +527,101 @@ class MAPPOPolicyRunner:
                 unit_value,
             ),
             (
-                ("target_unit_id", "targetUnitId"),
+                (
+                    "target_unit_id",
+                    "targetUnitId",
+                ),
                 target_value,
             ),
         )
 
-        for field_names, value in field_options:
-            field_name = next(
-                (
-                    name
-                    for name in field_names
-                    if hasattr(action, name)
-                ),
-                None,
+        for field_names, value in required_fields:
+            self._set_required_field(
+                action,
+                field_names,
+                value,
             )
 
-            if field_name is None:
-                raise TypeError(
-                    "bar_ai.Action does not expose any of "
-                    f"these fields: {field_names}."
-                )
-
-            setattr(action, field_name, value)
+        self._set_optional_team_fields(
+            action
+        )
 
         return action
 
-    def _validate_checkpoint(
+    def _set_optional_team_fields(
         self,
-        checkpoint: dict[str, Any],
-        checkpoint_path: Path,
+        action: bar_ai.Action,
     ) -> None:
-        expected = (
-            OBS_DIM,
-            self.action_dimension,
-            self.num_agents,
+        self._set_optional_field(
+            action,
+            ("team_id", "teamId"),
             self.training_team_id,
         )
 
-        actual = (
-            int(checkpoint.get("obs_dim", -1)),
-            int(checkpoint.get("action_dim", -1)),
-            int(checkpoint.get("num_agents", -1)),
-            int(checkpoint.get("training_team_id", -1)),
+        # Falls BAR getrennte AllyTeam-IDs verwendet, sollte dies
+        # später ein eigener Konfigurationswert werden.
+        self._set_optional_field(
+            action,
+            (
+                "ally_team_id",
+                "allyTeamId",
+            ),
+            self.training_team_id,
         )
 
-        if actual != expected:
-            raise ValueError(
-                "Checkpoint configuration does not match: "
-                f"checkpoint={actual}, expected={expected}, "
-                f"path={checkpoint_path}."
+    @staticmethod
+    def _set_required_field(
+        action: bar_ai.Action,
+        field_names: tuple[str, ...],
+        value: Any,
+    ) -> None:
+        field_name = next(
+            (
+                name
+                for name in field_names
+                if hasattr(action, name)
+            ),
+            None,
+        )
+
+        if field_name is None:
+            raise TypeError(
+                "bar_ai.Action does not expose any "
+                f"of these fields: {field_names}."
             )
 
-        required_states = (
-            "actor_state_dict",
-            "critic_state_dict",
+        try:
+            setattr(
+                action,
+                field_name,
+                value,
+            )
+        except (AttributeError, TypeError) as exc:
+            raise TypeError(
+                "Could not set bar_ai.Action field "
+                f"{field_name!r}."
+            ) from exc
+
+    @staticmethod
+    def _set_optional_field(
+        action: bar_ai.Action,
+        field_names: tuple[str, ...],
+        value: Any,
+    ) -> None:
+        field_name = next(
+            (
+                name
+                for name in field_names
+                if hasattr(action, name)
+            ),
+            None,
         )
 
-        missing_states = [
-            key
-            for key in required_states
-            if key not in checkpoint
-        ]
-
-        if missing_states:
-            raise ValueError(
-                "Checkpoint is missing required states: "
-                + ", ".join(missing_states)
+        if field_name is not None:
+            setattr(
+                action,
+                field_name,
+                value,
             )
 
     def _repeat_values(
@@ -495,7 +644,7 @@ class MAPPOPolicyRunner:
             )
 
         result = np.zeros(
-            self.num_agents,
+            (self.num_agents,),
             dtype=np.float32,
         )
 
@@ -503,6 +652,7 @@ class MAPPOPolicyRunner:
             self.num_agents,
             values.size,
         )
+
         result[:count] = values[:count]
 
         return result.reshape(
@@ -510,26 +660,193 @@ class MAPPOPolicyRunner:
             1,
         )
 
-    def predict_values(
+    def _validate_prepared_step(
         self,
-        share_obs: np.ndarray,
-    ) -> np.ndarray:
-        with torch.no_grad():
-            share_obs_tensor = torch.as_tensor(
-                share_obs,
-                dtype=torch.float32,
-                device=self.device,
-            ).unsqueeze(0)
+        prepared: PreparedStep,
+    ) -> None:
+        expected_shapes = {
+            "obs": (
+                self.num_agents,
+                self.obs_dim,
+            ),
+            "share_obs": (
+                self.obs_dim,
+            ),
+            "available_actions": (
+                self.num_agents,
+                self.action_dim,
+            ),
+            "own_unit_ids": (
+                self.num_agents,
+            ),
+            "target_ids": (
+                self.num_agents,
+                prepared.target_ids.shape[1],
+            ),
+            "target_features": (
+                self.num_agents,
+                prepared.target_ids.shape[1],
+                self.target_feature_dim,
+            ),
+            "target_mask": (
+                self.num_agents,
+                prepared.target_ids.shape[1],
+            ),
+            "active_mask": (
+                self.num_agents,
+                1,
+            ),
+        }
 
-            values = self.policy.critic(
-                share_obs_tensor
+        values = {
+            "obs": prepared.obs,
+            "share_obs": prepared.share_obs,
+            "available_actions": (
+                prepared.available_actions
+            ),
+            "own_unit_ids": (
+                prepared.own_unit_ids
+            ),
+            "target_ids": prepared.target_ids,
+            "target_features": (
+                prepared.target_features
+            ),
+            "target_mask": prepared.target_mask,
+            "active_mask": prepared.active_mask,
+        }
+
+        for name, expected_shape in (
+            expected_shapes.items()
+        ):
+            actual_shape = np.asarray(
+                values[name]
+            ).shape
+
+            if actual_shape != expected_shape:
+                raise ValueError(
+                    f"PreparedStep.{name} has invalid "
+                    f"shape: expected={expected_shape}, "
+                    f"actual={actual_shape}."
+                )
+
+        expected_active_mask = (
+            prepared.own_unit_ids >= 0
+        ).astype(
+            np.float32
+        ).reshape(
+            self.num_agents,
+            1,
+        )
+
+        if not np.array_equal(
+            prepared.active_mask,
+            expected_active_mask,
+        ):
+            raise ValueError(
+                "PreparedStep.active_mask does not "
+                "match own_unit_ids."
             )
 
-        return self._repeat_values(values)
+    def _validate_policy_step(
+        self,
+        policy_step: PolicyStep,
+    ) -> None:
+        expected_shapes = {
+            "value_predictions": (
+                self.num_agents,
+                1,
+            ),
+            "actions": (
+                self.num_agents,
+                2,
+            ),
+            "action_log_probs": (
+                self.num_agents,
+                1,
+            ),
+        }
+
+        values = {
+            "value_predictions": (
+                policy_step.value_predictions
+            ),
+            "actions": policy_step.actions,
+            "action_log_probs": (
+                policy_step.action_log_probs
+            ),
+        }
+
+        for name, expected_shape in (
+            expected_shapes.items()
+        ):
+            actual_shape = np.asarray(
+                values[name]
+            ).shape
+
+            if actual_shape != expected_shape:
+                raise ValueError(
+                    f"PolicyStep.{name} has invalid "
+                    f"shape: expected={expected_shape}, "
+                    f"actual={actual_shape}."
+                )
+
+    def _validate_checkpoint(
+        self,
+        checkpoint: dict[str, Any],
+        checkpoint_path: Path,
+    ) -> None:
+        expected_metadata = {
+            "obs_dim": self.obs_dim,
+            "action_dim": self.action_dim,
+            "num_agents": self.num_agents,
+            "training_team_id": (
+                self.training_team_id
+            ),
+        }
+
+        for key, expected_value in (
+            expected_metadata.items()
+        ):
+            actual_value = int(
+                checkpoint.get(key, -1)
+            )
+
+            if actual_value != expected_value:
+                raise ValueError(
+                    "Checkpoint metadata does not match "
+                    f"the current model: key={key!r}, "
+                    f"checkpoint={actual_value}, "
+                    f"expected={expected_value}, "
+                    f"path={checkpoint_path}."
+                )
+
+        required_states = (
+            "actor_state_dict",
+            "critic_state_dict",
+        )
+
+        missing_states = [
+            key
+            for key in required_states
+            if key not in checkpoint
+        ]
+
+        if missing_states:
+            raise ValueError(
+                "Checkpoint is missing required states: "
+                + ", ".join(missing_states)
+            )
 
     @staticmethod
-    def _to_numpy(value: Any) -> np.ndarray:
+    def _to_numpy(
+        value: Any,
+    ) -> np.ndarray:
         if isinstance(value, torch.Tensor):
-            return value.detach().cpu().numpy()
+            return (
+                value
+                .detach()
+                .cpu()
+                .numpy()
+            )
 
         return np.asarray(value)
