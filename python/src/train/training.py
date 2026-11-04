@@ -8,210 +8,21 @@ from typing import Any
 
 import numpy as np
 import torch
-import bar_ai
 
-from src.environment.bar_environment import BAR_Environment
 from src.environment.environmentpool import EnvironmentPool
-from src.train.mappo.policy import R_MAPPO_Policy
-from src.train.replay_buffer import SharedReplayBuffer
-from src.train.mappo.r_mappo import R_MAPPO
 from src.train.mappo.obs_r_mappo import (
     OBS_DIM,
-    UNIT_SLOT_FEATURE_DIM,
-    build_r_mappo_action_context,
-    _prepare_obs,
-    _prepare_share_obs,
     _prepare_reward,
-    _prepare_available_actions,
 )
+from src.train.mappo.policy_runner import MAPPOPolicyRunner
+from src.train.mappo.r_mappo import R_MAPPO
 from src.train.mappo.trainerargs import TrainerArgs
-
+from src.train.replay_buffer import SharedReplayBuffer
 
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
-
-def _make_bar_action(
-    action_index: Any,
-    unit_id: Any,
-    target_unit_id: Any = 4211,
-) -> bar_ai.Action:
-    """Convert a policy action into a BAR action with an explicit target."""
-    action_value = int(action_index) + 1
-    unit_value = int(unit_id)
-    target_value = int(target_unit_id)
-
-    action_id = (
-        bar_ai.ActionId(action_value)
-        if hasattr(bar_ai, "ActionId")
-        else action_value
-    )
-
-    # Prefer named construction to avoid swapping integer arguments.
-    for kwargs in (
-        {
-            "action_id": action_id,
-            "unit_id": unit_value,
-            "target_unit_id": target_value,
-        },
-        {
-            "actionId": action_id,
-            "unitId": unit_value,
-            "targetUnitId": target_value,
-        },
-    ):
-        try:
-            return bar_ai.Action(**kwargs)
-        except TypeError:
-            pass
-
-    # Try positional construction with the target as the third argument.
-    try:
-        return bar_ai.Action(action_id, unit_value, target_value)
-    except TypeError:
-        pass
-
-    # Fall back to the original two-argument constructor.
-    try:
-        result = bar_ai.Action(action_id, unit_value)
-    except TypeError:
-        try:
-            result = bar_ai.Action()
-        except TypeError as exc:
-            raise TypeError(
-                "Could not construct bar_ai.Action with action, unit, "
-                "and target fields."
-            ) from exc
-
-    # Support both common naming conventions for bound fields.
-    field_options = (
-        (("action_id", "actionId"), action_id),
-        (("unit_id", "unitId"), unit_value),
-        (("target_unit_id", "targetUnitId"), target_value),
-    )
-
-    for names, value in field_options:
-        field = next(
-            (name for name in names if hasattr(result, name)),
-            None,
-        )
-        if field is None:
-            raise TypeError(
-                f"bar_ai.Action does not expose any of these fields: {names}."
-            )
-        try:
-            setattr(result, field, value)
-        except (AttributeError, TypeError) as exc:
-            raise TypeError(
-                f"Could not set bar_ai.Action field {field!r}."
-            ) from exc
-
-    return result
-
-
-def _step_all_agents(
-    env: Any,
-    actions: np.ndarray,
-    obs_raw: Any,
-    training_team_id: int,
-    policy: Any,
-) -> Any:
-    """Resolve policy target indices and submit BAR actions."""
-    action_rows = np.asarray(actions)
-
-    if action_rows.ndim == 1:
-        action_rows = action_rows.reshape(1, -1)
-
-    if action_rows.ndim != 2 or action_rows.shape[1] != 2:
-        raise ValueError(
-            "Policy actions must have shape (num_agents, 2), got "
-            f"{action_rows.shape}."
-        )
-
-    own_ids, candidate_ids, _, candidate_mask = (
-        build_r_mappo_action_context(
-            obs_raw,
-            training_team_id=training_team_id,
-        )
-    )
-
-    if len(own_ids) != len(action_rows):
-        raise ValueError(
-            f"Got {len(action_rows)} actions but {len(own_ids)} controlled units."
-        )
-
-    action_list = []
-
-    for row, (action_type, target_index) in enumerate(action_rows):
-        action_type = int(action_type)
-        target_index = int(target_index)
-
-        if action_type == policy.attack_action_index:
-            if not 0 <= target_index < candidate_ids.shape[1]:
-                raise ValueError(
-                    f"Invalid target index {target_index} for unit {own_ids[row]}."
-                )
-            if not candidate_mask[row, target_index]:
-                raise ValueError(
-                    f"Target slot {target_index} is empty for unit {own_ids[row]}."
-                )
-            target_id = int(candidate_ids[row, target_index])
-        else:
-            target_id = 4211
-
-        action_list.append(
-            _make_bar_action(
-                action_type,
-                own_ids[row],
-                target_id,
-            )
-        )
-
-    if not action_list:
-        raise ValueError("At least one agent action is required.")
-
-    result = env.step(action_list)
-
-    if not isinstance(result, tuple) or len(result) != 5:
-        raise RuntimeError(
-            "BAR_Environment.step must return "
-            "(obs, reward, terminated, truncated, info)."
-        )
-
-    return result
-
-def _repeat_value(value_tensor: torch.Tensor, num_agents: int) -> np.ndarray:
-    """
-    Broadcasts critic values to one value per agent.
-
-    Parameters
-    ----------
-    value_tensor : torch.Tensor
-        Scalar or batched critic output.
-    num_agents : int
-        Number of agents represented in the result.
-
-    Returns
-    -------
-    values : np.ndarray
-        Array with shape `(num_agents, 1)` and dtype float32.
-
-    Examples
-    --------
-    >>> _repeat_value(torch.tensor([[2.0]]), 3).shape
-    (3, 1)
-    """
-    value_np = value_tensor.detach().cpu().numpy().reshape(-1)
-
-    if value_np.size == 1:
-        return np.full((num_agents, 1), float(value_np[0]), dtype=np.float32)
-
-    fixed = np.zeros((num_agents,), dtype=np.float32)
-    n = min(num_agents, value_np.size)
-    fixed[:n] = value_np[:n]
-
-    return fixed.reshape(num_agents, 1)
 
 def _extract_episode_debug_from_info(step_info: Any) -> dict[str, Any]:
     """
@@ -345,125 +156,6 @@ def _make_rnn_state_arrays(
         np.zeros(rnn_shape, dtype=np.float32),
     )
 
-
-
-def _policy_sample_actions(
-    policy: Any,
-    obs: np.ndarray,
-    share_obs: np.ndarray,
-    available_actions: np.ndarray,
-    device: torch.device,
-    num_agents: int,
-    raw_obs: Any = None,
-    training_team_id: int = 0,
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray | None,
-    np.ndarray | None,
-]:
-    """Sample actions, log probabilities and critic values for all agents.
-    Acts as a bridge between the BAR environment and the R-MAPPO policy."""
-    target_features_array = None
-    target_mask_array = None
-    candidate_target_ids = None
-
-    obs_tensor = torch.as_tensor(
-        obs,
-        dtype=torch.float32,
-        device=device,
-    )
-    available_actions_tensor = torch.as_tensor(
-        available_actions,
-        dtype=torch.bool,
-        device=device,
-    )
-
-    if raw_obs is not None:
-        (
-            own_unit_ids,
-            candidate_target_ids,
-            target_features,
-            target_mask,
-        ) = build_r_mappo_action_context(
-            raw_obs,
-            training_team_id=training_team_id,
-        )
-
-        if len(own_unit_ids) != num_agents:
-            raise ValueError(
-                "Mismatch between the number of controlled units in "
-                f"raw_obs ({len(own_unit_ids)}) and num_agents "
-                f"({num_agents})."
-            )
-
-        target_features_array = np.asarray(
-            target_features,
-            dtype=np.float32,
-        )
-        target_mask_array = np.asarray(
-            target_mask,
-            dtype=np.bool_,
-        )
-
-        target_features_tensor = torch.as_tensor(
-            target_features_array,
-            dtype=torch.float32,
-            device=device,
-        )
-        target_mask_tensor = torch.as_tensor(
-            target_mask_array,
-            dtype=torch.bool,
-            device=device,
-        )
-
-        # Sample once, preserving target selection and its log probability.
-        actions, action_log_probs = policy.get_action(
-            obs_tensor,
-            target_features=target_features_tensor,
-            candidate_target_ids=candidate_target_ids,
-            target_mask=target_mask_tensor,
-            available_actions=available_actions_tensor,
-        )
-    else:
-        actions, action_log_probs = policy.get_action(
-            obs_tensor,
-            available_actions=available_actions_tensor,
-        )
-
-    action_np = (
-        actions.detach().cpu().numpy()
-        if isinstance(actions, torch.Tensor)
-        else np.asarray(actions)
-    )
-    action_log_prob_np = (
-        action_log_probs.detach().cpu().numpy()
-        if isinstance(action_log_probs, torch.Tensor)
-        else np.asarray(action_log_probs)
-    )
-
-    action_np = action_np.reshape(num_agents, 2).astype(np.float32)
-    action_log_prob_np = action_log_prob_np.reshape(
-        num_agents, 1
-    ).astype(np.float32)
-
-    with torch.no_grad():
-        share_obs_tensor = torch.as_tensor(
-            share_obs,
-            dtype=torch.float32,
-            device=device,
-        ).unsqueeze(0)
-
-        values = policy.critic(share_obs_tensor)
-
-    return (
-        _repeat_value(values, num_agents),
-        action_np,
-        action_log_prob_np,
-        target_features_array,
-        target_mask_array,
-    )
 
 
 
@@ -711,58 +403,6 @@ def _save_checkpoint(policy: Any,
     return episode_path
 
 
-def _load_checkpoint(
-    policy: R_MAPPO_Policy,
-    config: Any,
-    device: torch.device,
-    checkpoint_path: Path,
-) -> int:
-    """Restore actor, critic, and available optimizer states from a checkpoint."""
-    checkpoint = torch.load(
-        checkpoint_path,
-        map_location=device,
-        weights_only=True,
-    )
-    if not isinstance(checkpoint, dict):
-        raise ValueError(
-            f"Checkpoint must contain a dictionary: {checkpoint_path}"
-        )
-
-    expected_dimensions = (OBS_DIM, int(config["action_dimension"]))
-    checkpoint_dimensions = (
-        int(checkpoint.get("obs_dim", -1)),
-        int(checkpoint.get("action_dim", -1)),
-    )
-    if checkpoint_dimensions != expected_dimensions:
-        raise ValueError(
-            "Checkpoint dimensions do not match this training run: "
-            f"checkpoint={checkpoint_dimensions}, "
-            f"requested={expected_dimensions}."
-        )
-
-    required_states = ("actor_state_dict", "critic_state_dict")
-    missing_states = [key for key in required_states if key not in checkpoint]
-    if missing_states:
-        raise ValueError(
-            "Checkpoint is missing required policy state(s): "
-            + ", ".join(missing_states)
-            + "."
-        )
-
-    policy.actor.load_state_dict(checkpoint["actor_state_dict"])
-    policy.critic.load_state_dict(checkpoint["critic_state_dict"])
-
-    actor_optimizer_state = checkpoint.get("actor_optimizer_state_dict")
-    if actor_optimizer_state is not None:
-        policy.actor_optimizer.load_state_dict(actor_optimizer_state)
-
-    critic_optimizer_state = checkpoint.get("critic_optimizer_state_dict")
-    if critic_optimizer_state is not None:
-        policy.critic_optimizer.load_state_dict(critic_optimizer_state)
-
-    return int(checkpoint.get("episode", 0))
-
-
 def load_training_config(path: Path):
     with open(
         path,
@@ -771,44 +411,68 @@ def load_training_config(path: Path):
         return json.load(configfile)
 
 def main() -> None:
-    #import Json configfile
-    config_path = Path("src/train/experiments/3v3Test/3v3Test.json")
+    config_path = Path(
+        "src/train/experiments/3v3Test/3v3Test.json"
+    )
     data = load_training_config(config_path)
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now().strftime(
+        "%Y-%m-%d_%H-%M-%S"
+    )
 
     configure_logging(
         config=data,
         timestamp=timestamp,
     )
 
-    logging.info("Starting log")
+    logger = logging.getLogger(__name__)
+    logger.info("Starting training")
 
-    #Selecting Cuda
     if data["device"] == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        if torch.cuda.is_available():
-            logging.info("auto selection: cuda")
-        else:
-            logging.info("auto selection: CPU")
+        device = torch.device(
+            "cuda"
+            if torch.cuda.is_available()
+            else "cpu"
+        )
     else:
         device = torch.device(data["device"])
-        logging.info("using configured device: %s", device)
-    if device.type == "cuda" and not torch.cuda.is_available():
-        logging.warning("cuda was selected, but cuda is unable to use")
+
+    if (
+        device.type == "cuda"
+        and not torch.cuda.is_available()
+    ):
+        raise RuntimeError(
+            "CUDA was configured, but CUDA is unavailable."
+        )
+
     device_description = (
         torch.cuda.get_device_name(device)
-        if device.type == "cuda" else "CPU"
+        if device.type == "cuda"
+        else "CPU"
     )
-    logging.info("device_description: %s", device_description)
 
-    model_directory = Path(f"src/train/experiments/{data["run_name"]}/models")
-    run_directory = Path(f"src/train/experiments/{data["run_name"]}/run")
+    logger.info(
+        "Using device: %s",
+        device_description,
+    )
 
-    #Starting new run
-    logging.info("run_name: %s", data["run_name"])
-    logging.info("model_directory: %s", model_directory)
+    run_directory = (
+        Path("src/train/experiments")
+        / data["run_name"]
+        / "run"
+    )
+
+    logger.info(
+        "run_name=%s",
+        data["run_name"],
+    )
+    logger.info(
+        "run_directory=%s",
+        run_directory,
+    )
+
     run_started_at = time.perf_counter()
+
     total_engine_start_seconds = 0.0
     total_engine_step_seconds = 0.0
     total_inference_seconds = 0.0
@@ -816,72 +480,101 @@ def main() -> None:
     total_checkpoint_seconds = 0.0
 
     success = False
-
     pool = EnvironmentPool(config_path)
-    logging.info("Creating Environment Pool")
-    pool.initialize_environements()
-    logging.info("Finished creating Environment Pool")
-
 
     try:
+        logger.info("Creating EnvironmentPool")
 
-        obs_dim = OBS_DIM
-        action_dim = data["action_dimension"]
-
-        policy = R_MAPPO_Policy(
-            obs_dim,
-            action_dim,
-            device=device,
-            lr=data["learning_rate"],
-            target_feature_dim=UNIT_SLOT_FEATURE_DIM,
+        pool_started_at = time.perf_counter()
+        pool.initialize_environements()
+        total_engine_start_seconds += (
+            time.perf_counter() - pool_started_at
         )
-        logging.info("created R MAPPO policy")
 
-        if "continue_training" not in data:
-            raise ValueError(
-                "Missing required training configuration key "
-                "'continue_training'. Set it to true or false."
+        logger.info(
+            "EnvironmentPool created with %d environment(s)",
+            len(pool.environments),
+        )
+
+        if not pool.environments:
+            raise RuntimeError(
+                "EnvironmentPool contains no environments."
             )
-        continue_training = data["continue_training"]
+
+        num_agents = int(data["number_of_agents"])
+        action_dimension = int(
+            data["action_dimension"]
+        )
+        buffer_size = int(data["buffer_size"])
+        maximum_steps = int(data["maximum_steps"])
+
+        runner = MAPPOPolicyRunner.from_config(
+            data,
+            device,
+        )
+
+        policy = runner.policy
+
+        logger.info(
+            "Created R-MAPPO policy runner: "
+            "agents=%d action_dimension=%d team_id=%d",
+            num_agents,
+            action_dimension,
+            int(data["training_team_id"]),
+        )
+
+        continue_training = data.get(
+            "continue_training"
+        )
+
         if not isinstance(continue_training, bool):
             raise ValueError(
-                "'continue_training' must be a boolean (true or false)."
+                "'continue_training' must be a boolean."
             )
 
         start_episode = 0
+
         if continue_training:
-            checkpoint_path = run_directory / "r_mappo_latest.pt"
+            checkpoint_path = (
+                run_directory
+                / "r_mappo_latest.pt"
+            )
+
             if not checkpoint_path.is_file():
                 raise FileNotFoundError(
-                    f"Cannot continue training: checkpoint not found at "
-                    f"{checkpoint_path}"
+                    "Cannot continue training: "
+                    f"checkpoint not found at {checkpoint_path}"
                 )
-            start_episode = _load_checkpoint(
-                policy,
-                data,
-                device,
+
+            start_episode = runner.load_checkpoint(
                 checkpoint_path,
+                load_optimizers=True,
             )
-            logging.info(
+
+            logger.info(
                 "Resumed training from %s at episode %d",
                 checkpoint_path,
                 start_episode,
             )
 
-        #initializing Replay Buffer
         buffer = SharedReplayBuffer(
-            num_agents=data["number_of_agents"],
-            obs_shape=(obs_dim,),
+            num_agents=num_agents,
+            obs_shape=(OBS_DIM,),
             action_shape=(2,),
-            buffer_size=data["buffer_size"],
+            buffer_size=buffer_size,
             device=device,
-            action_dim=action_dim,
+            action_dim=action_dimension,
         )
 
-        logging.info("created shared replay buffer")
+        logger.info(
+            "Created SharedReplayBuffer: capacity=%d",
+            buffer_size,
+        )
 
         trainer_args = TrainerArgs()
-        trainer_args.num_mini_batch = data["mini_batch"]
+        trainer_args.num_mini_batch = int(
+            data["mini_batch"]
+        )
 
         trainer = R_MAPPO(
             trainer_args,
@@ -891,47 +584,61 @@ def main() -> None:
 
         recurrent_n = 1
         hidden_size = 1
-    
-        for episode in range(start_episode, start_episode + data["episodes"]):
-            logging.debug("starting episode %d", episode + 1)
-            engine_step_seconds = 0.0
 
-            rnn_states, rnn_states_critic = _make_rnn_state_arrays(
-                data["number_of_agents"],
-                recurrent_n=recurrent_n,
-                hidden_size=hidden_size,
+        final_episode = (
+            start_episode
+            + int(data["episodes"])
+        )
+
+        for episode in range(
+            start_episode,
+            final_episode,
+        ):
+            episode_number = episode + 1
+
+            logger.info(
+                "Starting episode %d of %d",
+                episode_number,
+                final_episode,
             )
 
+            reset_started_at = time.perf_counter()
 
-            logging.info("starting environment reset")
-            reset_result = pool.environments[0].reset()
-            logging.info("reset complete, env")
-            obs_raw, share_obs_raw, available_actions_raw = _parse_reset_result(reset_result)
-            obs = _prepare_obs(
+            reset_result = (
+                pool.environments[0].reset()
+            )
+
+            total_engine_start_seconds += (
+                time.perf_counter()
+                - reset_started_at
+            )
+
+            (
                 obs_raw,
-                data["number_of_agents"],
-                obs_dim,
-                training_team_id=data["training_team_id"],
-            )
-
-            share_obs = _prepare_share_obs(
                 share_obs_raw,
-                obs,
-                data["number_of_agents"],
-                obs_dim,
+                available_actions_raw,
+            ) = _parse_reset_result(
+                reset_result
             )
 
-            available_actions = _prepare_available_actions(
+            (
+                obs,
+                share_obs,
+                available_actions,
+            ) = runner.prepare_observations(
+                obs_raw,
+                share_obs_raw,
                 available_actions_raw,
-                data["number_of_agents"],
-                action_dim,
             )
 
             episode_reward = 0.0
             done = False
             step_count = 0
 
-            action_counts = np.zeros(data["action_dimension"], dtype=np.int64)
+            action_counts = np.zeros(
+                action_dimension,
+                dtype=np.int64,
+            )
             action_trace: list[list[int]] = []
 
             episode_won = False
@@ -940,58 +647,103 @@ def main() -> None:
             final_enemy_alive = None
             enemy_damage_done = 0.0
             own_damage_taken = 0.0
-            last_info_keys = []
-            final_step_info = None
+            last_info_keys: list[str] = []
+            final_step_info: Any = None
 
-            rnn_states, rnn_states_critic = _make_rnn_state_arrays(
-                data["number_of_agents"],
+            (
+                rnn_states,
+                rnn_states_critic,
+            ) = _make_rnn_state_arrays(
+                num_agents,
                 recurrent_n=recurrent_n,
                 hidden_size=hidden_size,
             )
 
             trainer.prep_rollout()
 
-            while not done and step_count < data["buffer_size"]:
-
-                value_preds, actions, action_log_probs, candidate_target_features, candidate_target_mask = (
-                    _policy_sample_actions(
-                        policy=policy,
-                        obs=obs,
-                        share_obs=share_obs,
-                        available_actions=available_actions,
-                        device=device,
-                        num_agents=data["number_of_agents"],
-                        raw_obs=obs_raw,
-                        training_team_id=data["training_team_id"],
+            while not done:
+                if step_count >= maximum_steps + 1:
+                    raise RuntimeError(
+                        "Environment exceeded maximum_steps "
+                        "without returning terminated=True or "
+                        "truncated=True. "
+                        f"episode={episode_number}, "
+                        f"step_count={step_count}, "
+                        f"maximum_steps={maximum_steps}."
                     )
+
+                inference_started_at = (
+                    time.perf_counter()
+                )
+
+                (
+                    value_preds,
+                    actions,
+                    action_log_probs,
+                    candidate_target_features,
+                    candidate_target_mask,
+                ) = runner.sample_actions(
+                    obs_raw=obs_raw,
+                    obs=obs,
+                    share_obs=share_obs,
+                    available_actions=available_actions,
                 )
 
                 if device.type == "cuda":
                     torch.cuda.synchronize(device)
 
-                env_actions = actions
-
-                #logging taken actions
-                env_action_types = [int(a) for a in env_actions[:, 0]]
-                action_trace.append(env_action_types)
-
-                for a in env_action_types:
-                    if 0 <= a < data["action_dimension"]:
-                        action_counts[a] += 1
-                    else:
-                        logging.warning("sampled invalid action %s expected range %s", a, [0, data["action_dimension"] - 1])
-
-                environment_started_at = time.perf_counter()
-                step_result = _step_all_agents(
-                    pool.environments[0],
-                    env_actions,
-                    obs_raw=obs_raw,
-                    training_team_id=data["training_team_id"],
-                    policy=policy,
+                inference_elapsed = (
+                    time.perf_counter()
+                    - inference_started_at
                 )
-                engine_step_elapsed = time.perf_counter() - environment_started_at
-                engine_step_seconds += engine_step_elapsed
-                total_engine_step_seconds += engine_step_elapsed
+                total_inference_seconds += (
+                    inference_elapsed
+                )
+
+                action_types = [
+                    int(action)
+                    for action in actions[:, 0]
+                ]
+
+                action_trace.append(action_types)
+
+                for action_type in action_types:
+                    if (
+                        0
+                        <= action_type
+                        < action_dimension
+                    ):
+                        action_counts[
+                            action_type
+                        ] += 1
+                    else:
+                        logger.warning(
+                            "Sampled invalid action %d; "
+                            "expected range [0, %d]",
+                            action_type,
+                            action_dimension - 1,
+                        )
+
+                environment_started_at = (
+                    time.perf_counter()
+                )
+
+                step_result = (
+                    runner.step_environment(
+                        pool.environments[0],
+                        actions,
+                        obs_raw,
+                    )
+                )
+
+                engine_step_elapsed = (
+                    time.perf_counter()
+                    - environment_started_at
+                )
+
+                total_engine_step_seconds += (
+                    engine_step_elapsed
+                )
 
                 (
                     next_obs_raw,
@@ -1001,209 +753,397 @@ def main() -> None:
                     truncated,
                     step_info,
                     next_available_actions_raw,
-                ) = _parse_step_result(step_result)
+                ) = _parse_step_result(
+                    step_result
+                )
+
+                if (
+                    not isinstance(terminated, bool)
+                    or not isinstance(truncated, bool)
+                ):
+                    raise TypeError(
+                        "Environment termination flags must "
+                        "be bool values."
+                    )
+
+                if terminated and truncated:
+                    raise RuntimeError(
+                        "Environment returned terminated=True "
+                        "and truncated=True simultaneously."
+                    )
 
                 final_step_info = step_info
 
-                debug_metrics = _extract_episode_debug_from_info(step_info)
-                
-                if debug_metrics["won"]:
-                    episode_won = True
+                debug_metrics = (
+                    _extract_episode_debug_from_info(
+                        step_info
+                    )
+                )
 
-                if debug_metrics["lost"]:
-                    episode_lost = True
+                episode_won = (
+                    episode_won
+                    or debug_metrics["won"]
+                )
+                episode_lost = (
+                    episode_lost
+                    or debug_metrics["lost"]
+                )
 
-                if debug_metrics["ally_alive"] is not None:
-                    final_ally_alive = debug_metrics["ally_alive"]
+                if (
+                    debug_metrics["ally_alive"]
+                    is not None
+                ):
+                    final_ally_alive = (
+                        debug_metrics["ally_alive"]
+                    )
 
-                if debug_metrics["enemy_alive"] is not None:
-                    final_enemy_alive = debug_metrics["enemy_alive"]
+                if (
+                    debug_metrics["enemy_alive"]
+                    is not None
+                ):
+                    final_enemy_alive = (
+                        debug_metrics["enemy_alive"]
+                    )
 
-                enemy_damage_done += debug_metrics["enemy_damage_done"]
-                own_damage_taken += debug_metrics["own_damage_taken"]
+                enemy_damage_done += (
+                    debug_metrics[
+                        "enemy_damage_done"
+                    ]
+                )
+                own_damage_taken += (
+                    debug_metrics[
+                        "own_damage_taken"
+                    ]
+                )
 
                 if debug_metrics["info_keys"]:
-                    last_info_keys = debug_metrics["info_keys"]
+                    last_info_keys = (
+                        debug_metrics["info_keys"]
+                    )
 
-                done_env = bool(terminated or truncated)
+                done = bool(
+                    terminated or truncated
+                )
 
                 dones = np.full(
-                    data["number_of_agents"],
-                    done_env,
+                    num_agents,
+                    done,
                     dtype=bool,
                 )
-                done = done_env
 
-                next_obs = _prepare_obs(
-                    next_obs_raw,
-                    data["number_of_agents"],
-                    obs_dim,
-                    training_team_id=data["training_team_id"],
-                )
-
-                next_share_obs = _prepare_share_obs(
-                    next_share_obs_raw,
-                    next_obs,
-                    data["number_of_agents"],
-                    obs_dim,
-                )
-
-                next_available_actions = _prepare_available_actions(
-                    next_available_actions_raw,
-                    data["number_of_agents"],
-                    action_dim,
-                )
+                if done and next_obs_raw is None:
+                    # Falls das Environment bei Terminalzuständen
+                    # keine Observation liefert, bleibt der letzte
+                    # valide Zustand für die Buffer-Form erhalten.
+                    next_obs = obs.copy()
+                    next_share_obs = share_obs.copy()
+                    next_available_actions = (
+                        available_actions.copy()
+                    )
+                else:
+                    (
+                        next_obs,
+                        next_share_obs,
+                        next_available_actions,
+                    ) = runner.prepare_observations(
+                        next_obs_raw,
+                        next_share_obs_raw,
+                        next_available_actions_raw,
+                    )
 
                 reward_arr = _prepare_reward(
                     reward,
-                    data["number_of_agents"],
+                    num_agents,
                 )
 
-                masks = np.ones((data["number_of_agents"], 1), dtype=np.float32)
+                masks = np.ones(
+                    (num_agents, 1),
+                    dtype=np.float32,
+                )
 
-                if done_env:
+                # Nur natürliche Terminalzustände stoppen
+                # das Value-Bootstrapping.
+                if terminated:
                     masks[:] = 0.0
+
+                if done:
                     rnn_states[:] = 0.0
                     rnn_states_critic[:] = 0.0
 
-                active_masks = np.ones((data["number_of_agents"], 1), dtype=np.float32)
+                active_masks = np.ones(
+                    (num_agents, 1),
+                    dtype=np.float32,
+                )
                 active_masks[dones] = 0.0
 
-                if done_env:
+                if done:
                     active_masks[:] = 1.0
 
                 buffer.insert(
                     share_obs=share_obs,
                     obs=obs,
                     rnn_states=rnn_states,
-                    rnn_states_critic=rnn_states_critic,
+                    rnn_states_critic=(
+                        rnn_states_critic
+                    ),
                     actions=actions,
-                    action_log_probs=action_log_probs,
+                    action_log_probs=(
+                        action_log_probs
+                    ),
                     value_preds=value_preds,
                     rewards=reward_arr,
                     masks=masks,
                     active_masks=active_masks,
-                    available_actions=available_actions,
-                    candidate_target_features=candidate_target_features,
-                    candidate_target_mask=candidate_target_mask,
+                    available_actions=(
+                        available_actions
+                    ),
+                    candidate_target_features=(
+                        candidate_target_features
+                    ),
+                    candidate_target_mask=(
+                        candidate_target_mask
+                    ),
                 )
 
-                episode_reward += float(reward_arr.mean())
+                episode_reward += float(
+                    reward_arr.mean()
+                )
                 step_count += 1
 
+                obs_raw = next_obs_raw
                 obs = next_obs
                 share_obs = next_share_obs
-                available_actions = next_available_actions
+                available_actions = (
+                    next_available_actions
+                )
 
-            try:
-                if final_enemy_alive is not None and int(final_enemy_alive) <= 0:
-                    episode_won = True
-            except Exception:
-                pass
+            if not done:
+                raise RuntimeError(
+                    f"Episode {episode_number} left the "
+                    "rollout loop without termination."
+                )
 
-            try:
-                if final_ally_alive is not None and int(final_ally_alive) <= 0:
-                    episode_lost = True
-            except Exception:
-                pass
+            if step_count <= 0:
+                raise RuntimeError(
+                    f"Episode {episode_number} ended "
+                    "without executing a step."
+                )
 
-            with torch.no_grad():
-                share_obs_tensor = torch.as_tensor(
-                    share_obs,
-                    dtype=torch.float32,
-                    device=device,
-                ).unsqueeze(0)
+            if final_enemy_alive is not None:
+                try:
+                    if int(final_enemy_alive) <= 0:
+                        episode_won = True
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid final_enemy_alive value: %r",
+                        final_enemy_alive,
+                    )
 
-                next_value_tensor = policy.critic(share_obs_tensor)
+            if final_ally_alive is not None:
+                try:
+                    if int(final_ally_alive) <= 0:
+                        episode_lost = True
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid final_ally_alive value: %r",
+                        final_ally_alive,
+                    )
 
-            next_value = _repeat_value(
-                next_value_tensor,
-                data["number_of_agents"],
-            )
+            # Bei natürlichem Terminalzustand ist kein Bootstrap
+            # erlaubt. Bei Truncation wird der letzte Critic-Wert
+            # verwendet.
+            if terminated:
+                next_value = np.zeros(
+                    (num_agents, 1),
+                    dtype=np.float32,
+                )
+            else:
+                next_value = runner.predict_values(
+                    share_obs
+                )
 
             try:
                 buffer.compute_returns(
                     next_value,
-                    gamma=data["gamma"],
+                    gamma=float(data["gamma"]),
+                )
+            except TypeError:
+                buffer.compute_returns(
+                    next_value
                 )
 
-            except TypeError:
-                buffer.compute_returns(next_value)
-
-            print("DEBUG: buffer.compute_returns() done", flush=True)
-
             trainer.prep_training()
-            print("DEBUG: trainer.prep_training() done", flush=True)
 
-            training_started_at = time.perf_counter()
+            training_started_at = (
+                time.perf_counter()
+            )
 
             train_info = trainer.train(
                 buffer,
                 update_actor=True,
             )
+
             if device.type == "cuda":
                 torch.cuda.synchronize(device)
-            training_seconds = time.perf_counter() - training_started_at
-            total_training_seconds += training_seconds
 
-
-            logging.info("trainer.training() done")
+            total_training_seconds += (
+                time.perf_counter()
+                - training_started_at
+            )
 
             buffer.reset()
-            logging.info("buffer.reset() done")
 
             average_reward_per_step = (
                 episode_reward / step_count
-                if step_count > 0
-                else 0.0
             )
 
-            logging.info("Episode %d of %d", episode + 1, start_episode + data["episodes"])
-            logging.info("Average Reward per Step: %.4f", average_reward_per_step)
-            logging.info("Episode Reward: %.4f", episode_reward)
-            logging.info("Steps: %d", step_count)
+            logger.info(
+                "Episode %d of %d completed",
+                episode_number,
+                final_episode,
+            )
+            logger.info(
+                "Average Reward per Step: %.4f",
+                average_reward_per_step,
+            )
+            logger.info(
+                "Episode Reward: %.4f",
+                episode_reward,
+            )
+            logger.info(
+                "Steps: %d",
+                step_count,
+            )
+            logger.info(
+                "Terminated: %s",
+                terminated,
+            )
+            logger.info(
+                "Truncated: %s",
+                truncated,
+            )
+            logger.info(
+                "Won: %s",
+                episode_won,
+            )
+            logger.info(
+                "Lost: %s",
+                episode_lost,
+            )
+            logger.info(
+                "Final Ally Alive: %s",
+                final_ally_alive,
+            )
+            logger.info(
+                "Final Enemy Alive: %s",
+                final_enemy_alive,
+            )
+            logger.info(
+                "Enemy Damage Done: %.4f",
+                enemy_damage_done,
+            )
+            logger.info(
+                "Own Damage Taken: %.4f",
+                own_damage_taken,
+            )
+            logger.info(
+                "Action Counts: %s",
+                action_counts.tolist(),
+            )
+            logger.debug(
+                "Action Trace: %s",
+                action_trace,
+            )
+            logger.info(
+                "Last Info Keys: %s",
+                last_info_keys,
+            )
+            logger.info(
+                "Final Step Info: %s",
+                final_step_info,
+            )
+            logger.info(
+                "Value Loss: %.6f",
+                train_info.get(
+                    "value_loss",
+                    0.0,
+                ),
+            )
+            logger.info(
+                "Policy Loss: %.6f",
+                train_info.get(
+                    "policy_loss",
+                    0.0,
+                ),
+            )
+            logger.info(
+                "Entropy: %.6f",
+                train_info.get(
+                    "dist_entropy",
+                    0.0,
+                ),
+            )
 
-            logging.info("Won: %s", episode_won)
-            logging.info("Lost: %s", episode_lost)
-            logging.info("Final Ally Alive: %s",final_ally_alive)
-            logging.info("Final Enemy Alive: %s",final_enemy_alive)
-            logging.info("Enemy Damage Done: %.4f",enemy_damage_done)
-            logging.info("Own Damage Taken: %.4f",own_damage_taken)
+            save_interval = int(
+                data["save_every_x_episode"]
+            )
 
-            logging.info("Action Counts: %s", action_counts.tolist())
-            logging.info("Action Trace: %s",action_trace)
-
-            if last_info_keys:
-                logging.info("Last Info Keys: %s", last_info_keys)
-            else:
-                logging.info("Last Info Keys: []")
-
-            if final_step_info is not None:
-                logging.info("Final Step Info: %s", final_step_info)
-
-            logging.info("Value Loss: %.6f", train_info.get('value_loss', 0))
-            logging.info("Policy Loss: %.6f", train_info.get('policy_loss', 0))
-            logging.info("Entropy: %.6f", train_info.get('dist_entropy', 0))
-
-            if data["save_every_x_episode"] > 0 and (episode + 1) % data["save_every_x_episode"] == 0:
-                checkpoint_started_at = time.perf_counter()
-                checkpoint_path = _save_checkpoint(
-                    policy, data, episode + 1, run_directory
+            if (
+                save_interval > 0
+                and episode_number
+                % save_interval == 0
+            ):
+                checkpoint_started_at = (
+                    time.perf_counter()
                 )
-                total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
-                logging.info("Saved checkpoint: %s", checkpoint_path)
 
-        # Always save the final state, even when save_every is disabled or the
-        # final episode is not an exact multiple of it.
-        checkpoint_started_at = time.perf_counter()
-        final_checkpoint = _save_checkpoint(
-            policy, data, start_episode + data["episodes"], run_directory
+                checkpoint_path = _save_checkpoint(
+                    policy,
+                    data,
+                    episode_number,
+                    run_directory,
+                )
+
+                total_checkpoint_seconds += (
+                    time.perf_counter()
+                    - checkpoint_started_at
+                )
+
+                logger.info(
+                    "Saved checkpoint: %s",
+                    checkpoint_path,
+                )
+
+        checkpoint_started_at = (
+            time.perf_counter()
         )
-        total_checkpoint_seconds += time.perf_counter() - checkpoint_started_at
-        logging.info("Final model saved to: %s", final_checkpoint)
-        logging.info("Latest model saved to: %s", run_directory / 'r_mappo_latest.pt')
 
-        total_runtime = time.perf_counter() - run_started_at
+        final_checkpoint = _save_checkpoint(
+            policy,
+            data,
+            final_episode,
+            run_directory,
+        )
+
+        total_checkpoint_seconds += (
+            time.perf_counter()
+            - checkpoint_started_at
+        )
+
+        logger.info(
+            "Final model saved to: %s",
+            final_checkpoint,
+        )
+        logger.info(
+            "Latest model saved to: %s",
+            run_directory / "r_mappo_latest.pt",
+        )
+
+        total_runtime = (
+            time.perf_counter()
+            - run_started_at
+        )
+
         measured_runtime = (
             total_engine_start_seconds
             + total_engine_step_seconds
@@ -1211,37 +1151,101 @@ def main() -> None:
             + total_training_seconds
             + total_checkpoint_seconds
         )
-        other_seconds = max(0.0, total_runtime - measured_runtime)
+
+        other_seconds = max(
+            0.0,
+            total_runtime - measured_runtime,
+        )
 
         def percentage(seconds: float) -> float:
-            return 100.0 * seconds / total_runtime if total_runtime > 0.0 else 0.0
+            if total_runtime <= 0.0:
+                return 0.0
 
-        logging.info("Overall timing summary")
-        logging.info("Total runtime: %s (100.00%%)", _format_duration(total_runtime))
-        logging.info("Engine start/reset: %s , %6.2f", _format_duration(total_engine_start_seconds), percentage(total_engine_start_seconds))
-        logging.info("Engine steps/waiting: %s , %6.2f", _format_duration(total_engine_step_seconds), percentage(total_engine_step_seconds))
-        logging.info("Policy inference: %s , %6.2f", _format_duration(total_inference_seconds), percentage(total_inference_seconds))
-        logging.info("PPO updates: %s , %6.2f", _format_duration(total_training_seconds), percentage(total_training_seconds))
-        logging.info("Checkpoint writing: %s , %6.2f", _format_duration(total_checkpoint_seconds), percentage(total_checkpoint_seconds))
-        logging.info("Other Python/logging: %s , %6.2f",  _format_duration(other_seconds), percentage(other_seconds))
+            return (
+                100.0
+                * seconds
+                / total_runtime
+            )
+
+        logger.info("Overall timing summary")
+        logger.info(
+            "Total runtime: %s (100.00%%)",
+            _format_duration(total_runtime),
+        )
+        logger.info(
+            "Engine start/reset: %s, %.2f%%",
+            _format_duration(
+                total_engine_start_seconds
+            ),
+            percentage(
+                total_engine_start_seconds
+            ),
+        )
+        logger.info(
+            "Engine steps/waiting: %s, %.2f%%",
+            _format_duration(
+                total_engine_step_seconds
+            ),
+            percentage(
+                total_engine_step_seconds
+            ),
+        )
+        logger.info(
+            "Policy inference: %s, %.2f%%",
+            _format_duration(
+                total_inference_seconds
+            ),
+            percentage(
+                total_inference_seconds
+            ),
+        )
+        logger.info(
+            "PPO updates: %s, %.2f%%",
+            _format_duration(
+                total_training_seconds
+            ),
+            percentage(
+                total_training_seconds
+            ),
+        )
+        logger.info(
+            "Checkpoint writing: %s, %.2f%%",
+            _format_duration(
+                total_checkpoint_seconds
+            ),
+            percentage(
+                total_checkpoint_seconds
+            ),
+        )
+        logger.info(
+            "Other Python/logging: %s, %.2f%%",
+            _format_duration(other_seconds),
+            percentage(other_seconds),
+        )
 
         success = True
-        
-    except Exception as e:
-            logging.error("Exception occurred during simulated 3v3 training!")
-            logging.error("TYPE: %s",type(e).__name__)
-            logging.error("MSG : %s",e)
-            logging.warning("TRACEBACK:")
-            logging.warning(traceback.print_exc)
-            raise
-    
+
+    except Exception:
+        logger.exception(
+            "Exception occurred during simulated "
+            "3v3 training."
+        )
+        raise
+
     finally:
         pool.close_environements()
 
         if success:
-            print("Simulated 3v3 pawn training complete!", flush=True)
+            print(
+                "Simulated 3v3 pawn training complete!",
+                flush=True,
+            )
         else:
-            print("Simulated 3v3 pawn training aborted due to an error.", flush=True)
-   
+            print(
+                "Simulated 3v3 pawn training aborted "
+                "due to an error.",
+                flush=True,
+            )
+
 if __name__ == "__main__":
     main()

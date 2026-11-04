@@ -24,9 +24,9 @@ class EngineSessionConfig:
     isolation_dir: Path = Path("~/bar-data/").expanduser()
     write_dir: Path = field(init=False)
 
-    engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring"
+    engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring-headless"
     config_file: Path = engine_root / "config" / "test_fast.cfg"
-    startscript: Path = engine_root / "startscripts" / "3vs3HumanVsUnBARableAI.txt"
+    startscript: Path = engine_root / "startscripts" / "3vs3PawnsNew.txt"
 
     default_stdout: int | str | Path = Path("~/bar-data/engine_stdout.log").expanduser()
     default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
