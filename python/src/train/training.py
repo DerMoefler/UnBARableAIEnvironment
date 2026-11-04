@@ -26,179 +26,6 @@ from src.train.replay_buffer import SharedReplayBuffer
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Environment result parsing
-# ---------------------------------------------------------------------------
-
-
-def _parse_reset_result(
-    reset_result: Any,
-) -> tuple[Any, Any, Any]:
-    """
-    Normalize supported environment reset formats.
-
-    Supported formats:
-
-    - (obs, info)
-    - (obs, share_obs, available_actions)
-    - (obs, share_obs, available_actions, info)
-    - obs
-    """
-    if not isinstance(reset_result, tuple):
-        return reset_result, None, None
-
-    if len(reset_result) == 0:
-        raise RuntimeError(
-            "env.reset() returned an empty tuple."
-        )
-
-    obs_raw = reset_result[0]
-    share_obs_raw = None
-    available_actions_raw = None
-
-    if len(reset_result) == 2:
-        second = reset_result[1]
-
-        # Standard Gymnasium result: (obs, info)
-        if not isinstance(second, dict):
-            share_obs_raw = second
-
-    elif len(reset_result) == 3:
-        (
-            obs_raw,
-            share_obs_raw,
-            available_actions_raw,
-        ) = reset_result
-
-    elif len(reset_result) >= 4:
-        (
-            obs_raw,
-            share_obs_raw,
-            available_actions_raw,
-        ) = reset_result[:3]
-
-    return (
-        obs_raw,
-        share_obs_raw,
-        available_actions_raw,
-    )
-
-
-def _parse_step_result(
-    step_result: Any,
-) -> tuple[
-    Any,
-    Any,
-    Any,
-    bool,
-    bool,
-    dict[str, Any],
-    Any,
-]:
-    """
-    Normalize supported environment step formats.
-
-    Supported formats:
-
-    - (obs, reward, terminated, truncated, info)
-    - (obs, share_obs, reward, terminated, truncated, info)
-    - (
-        obs,
-        share_obs,
-        reward,
-        terminated,
-        truncated,
-        info,
-        available_actions,
-      )
-    """
-    if not isinstance(step_result, tuple):
-        raise RuntimeError(
-            "env.step(...) must return a tuple."
-        )
-
-    if len(step_result) == 5:
-        (
-            next_obs_raw,
-            reward,
-            terminated,
-            truncated,
-            step_info,
-        ) = step_result
-
-        next_share_obs_raw = None
-        next_available_actions_raw = None
-
-    elif len(step_result) == 6:
-        (
-            next_obs_raw,
-            next_share_obs_raw,
-            reward,
-            terminated,
-            truncated,
-            step_info,
-        ) = step_result
-
-        next_available_actions_raw = None
-
-    elif len(step_result) >= 7:
-        (
-            next_obs_raw,
-            next_share_obs_raw,
-            reward,
-            terminated,
-            truncated,
-            step_info,
-            next_available_actions_raw,
-        ) = step_result[:7]
-
-    else:
-        raise RuntimeError(
-            "env.step(...) must return one of:\n"
-            "(obs, reward, terminated, truncated, info)\n"
-            "(obs, share_obs, reward, terminated, "
-            "truncated, info)\n"
-            "(obs, share_obs, reward, terminated, "
-            "truncated, info, available_actions)"
-        )
-
-    if not isinstance(terminated, bool):
-        raise TypeError(
-            "terminated must be bool, got "
-            f"{type(terminated).__name__}."
-        )
-
-    if not isinstance(truncated, bool):
-        raise TypeError(
-            "truncated must be bool, got "
-            f"{type(truncated).__name__}."
-        )
-
-    if terminated and truncated:
-        raise RuntimeError(
-            "Environment returned terminated=True and "
-            "truncated=True simultaneously."
-        )
-
-    if step_info is None:
-        step_info = {}
-
-    if not isinstance(step_info, dict):
-        raise TypeError(
-            "Environment info must be a dictionary, got "
-            f"{type(step_info).__name__}."
-        )
-
-    return (
-        next_obs_raw,
-        next_share_obs_raw,
-        reward,
-        terminated,
-        truncated,
-        step_info,
-        next_available_actions_raw,
-    )
-
 
 # ---------------------------------------------------------------------------
 # Training helpers
@@ -841,30 +668,29 @@ def main() -> None:
                 time.perf_counter()
             )
 
-            reset_result = environment.reset()
+            obs_raw, reset_info = environment.reset()
 
             total_engine_start_seconds += (
                 time.perf_counter()
                 - reset_started_at
             )
 
-            (
-                obs_raw,
-                share_obs_raw,
-                available_actions_raw,
-            ) = _parse_reset_result(
-                reset_result
-            )
+            if not isinstance(obs_raw, dict):
+                raise TypeError(
+                    "BAR_Environment.reset() must return the observation "
+                    f"as a dictionary, got {type(obs_raw).__name__}."
+                )
 
-            # Stabile Unit-Slots für diese Episode festlegen.
-            adapter.reset_episode(
-                obs_raw
-            )
+            if not isinstance(reset_info, dict):
+                raise TypeError(
+                    "BAR_Environment.reset() must return info as a dictionary, "
+                    f"got {type(reset_info).__name__}."
+                )
+
+            adapter.reset_episode(obs_raw)
 
             prepared = adapter.prepare(
-                obs_raw,
-                share_obs_raw,
-                available_actions_raw,
+                obs_raw=obs_raw,
             )
 
             logger.debug(
@@ -1006,25 +832,42 @@ def main() -> None:
                     time.perf_counter()
                 )
 
-                step_result = environment.step(
-                    bar_actions
-                )
-
-                total_engine_step_seconds += (
-                    time.perf_counter()
-                    - environment_started_at
-                )
-
                 (
                     next_obs_raw,
-                    next_share_obs_raw,
                     reward,
                     terminated,
                     truncated,
                     step_info,
-                    next_available_actions_raw,
-                ) = _parse_step_result(
-                    step_result
+                ) = environment.step(bar_actions)
+
+                if not isinstance(terminated, bool):
+                    raise TypeError(
+                        "BAR_Environment.step() must return terminated as bool, "
+                        f"got {type(terminated).__name__}."
+                    )
+
+                if not isinstance(truncated, bool):
+                    raise TypeError(
+                        "BAR_Environment.step() must return truncated as bool, "
+                        f"got {type(truncated).__name__}."
+                    )
+
+                if terminated and truncated:
+                    raise RuntimeError(
+                        "BAR_Environment.step() returned terminated=True and "
+                        "truncated=True simultaneously."
+                    )
+
+                if not isinstance(step_info, dict):
+                    raise TypeError(
+                        "BAR_Environment.step() must return info as a dictionary, "
+                        f"got {type(step_info).__name__}."
+                    )
+
+
+                total_engine_step_seconds += (
+                    time.perf_counter()
+                    - environment_started_at
                 )
 
                 done = bool(
@@ -1160,12 +1003,8 @@ def main() -> None:
                 ) = None
 
                 if next_obs_raw is not None:
-                    next_prepared = (
-                        adapter.prepare(
-                            next_obs_raw,
-                            next_share_obs_raw,
-                            next_available_actions_raw,
-                        )
+                    next_prepared = adapter.prepare(
+                        obs_raw=next_obs_raw,
                     )
 
                 if not done:
