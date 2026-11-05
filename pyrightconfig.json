@@ -1,0 +1,15 @@
+{
+    "venvPath": "python",
+    "venv": ".venv",
+    "stubPath": "python/typings",
+    "pythonVersion": "3.12",
+    "typeCheckingMode": "strict",
+    "include": [
+        "python/src"
+    ],
+    "exclude": [
+        "python/.venv",
+        "python/src/train/experiments",
+        "**/__pycache__"
+    ]
+}

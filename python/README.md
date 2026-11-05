@@ -18,19 +18,26 @@ uv run python -m grpc_tools.protoc \
 ```
 
 ## Pybind
-If you want to use the bar_ai module just run:
-
-```console
-uv sync
-```
-
-and it should work
-
-otherwise try:
+Our C++ **UnBARableAI Core** library exposes python bindings which are automatically built using uv. If something changes in the library though but you already have the package installed (having previously run *uv sync*), these changes will not be picked up as uv decides there is not reason for rebuilding. Therefore, make sure to always run:
 
 ```console
 uv sync --reinstall
 ```
+
+Pybind is also capable of generating **stubs** for type information. Since that would be two commands (one for uv, one for stub generation), we created a script for that :) Simply run:
+
+``` console
+./scripts/rebuild-bindings.sh
+```
+
+### Pyright
+[Pyright](https://github.com/microsoft/pyright) is a static type checker for python. It's probably already embedded, but you can also invoke it manually on the command line using:
+
+``` console
+uv run pyright --project ../pyrightconfig.json
+```
+
+This gives you a listing of all the errors which you may or may not find useful :)
 
 ## train.py
 Command to start the train.py script, from the python directory. Capslock signals the epceted data type.
