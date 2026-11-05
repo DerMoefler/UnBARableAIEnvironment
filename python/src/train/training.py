@@ -37,10 +37,10 @@ def _make_rnn_state_arrays(
     hidden_size: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Allocate actor and critic recurrent-state arrays.
+    Create placeholder actor and critic RNN states.
 
-    The current policy is feed-forward, but the replay buffer expects
-    these arrays.
+    The current policy is feed-forward. These zero arrays only satisfy
+    the replay-buffer and MAPPO interfaces.
     """
     rnn_shape = (
         num_agents,
@@ -107,34 +107,6 @@ def _episode_metrics(
         ),
         "info_keys": sorted(info.keys()),
     }
-
-
-def _format_duration(
-    seconds: float,
-) -> str:
-    minutes, seconds = divmod(
-        max(0.0, seconds),
-        60.0,
-    )
-    hours, minutes = divmod(
-        int(minutes),
-        60,
-    )
-
-    if hours:
-        return (
-            f"{hours:d}h "
-            f"{minutes:02d}m "
-            f"{seconds:06.3f}s"
-        )
-
-    if minutes:
-        return (
-            f"{minutes:d}m "
-            f"{seconds:06.3f}s"
-        )
-
-    return f"{seconds:.3f}s"
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +178,6 @@ def configure_logging(
         f"{config['run_name']}_{timestamp}.log"
     )
 
-    # Wie vorher: Ausgabe nur in die Logdatei.
     logging.basicConfig(
         filename=log_path,
         filemode="w",

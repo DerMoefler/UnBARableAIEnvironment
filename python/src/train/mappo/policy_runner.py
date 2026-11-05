@@ -41,7 +41,7 @@ class MAPPOPolicyRunner:
     Responsibilities:
 
     - construct the R-MAPPO policy,
-    - load checkpoints,
+    - load checkpoints (from other models),
     - run actor and critic inference,
     - convert sampled policy actions into bar_ai.Action objects.
     """
