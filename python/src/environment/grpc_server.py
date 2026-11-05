@@ -172,6 +172,7 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
 class UnBARableAIGRPCServer:
     def __init__(self):
         self.server = None
+        self.port: int | None = None
         self._service = UnBARableAIService()
 
     def start(self):
@@ -180,9 +181,11 @@ class UnBARableAIGRPCServer:
             self._service,
             self.server,
         )
-        self.server.add_insecure_port(f"localhost:50051")
+
+        self.port = self.server.add_insecure_port(f"localhost:0")
         self.server.start()
-        logging.info(f"Python gRPC server listening on localhost:50051")
+
+        logging.info(f"Python gRPC server listening on localhost:{self.port}")
 
     def wait_for_next_update(self, previous_count: int, timeout: Optional[float] = None,) -> tuple[str, Optional[int]]:
         return self._service.wait_for_next_update(
