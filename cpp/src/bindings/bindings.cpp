@@ -1,19 +1,24 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "../../include/UnBARableAI/unit_data.h"
 #include "../../include/UnBARableAI/action.h"
 #include "../../include/UnBARableAI/engine_status.h"
+#include "../../include/UnBARableAI/grpc_connection.hpp"
+#include "../../include/UnBARableAI/unit_data.h"
 
 #include "../../include/UnBARableAI/bar_shared_memory.h"
 
 namespace py = pybind11;
 
-using UnitData = UnBARableAINS::unit::UnitData;
+using namespace UnBARableAINS;
+
+using BarSharedMemory = memory::BarSharedMemory;
+
 using Action = UnBARableAINS::Action;
 using ActionId = UnBARableAINS::ActionId;
 using EngineStatus = UnBARableAINS::EngineStatus;
-using BarSharedMemory = UnBARableAINS::memory::BarSharedMemory;
+using GrpcConnection = UnBARableAINS::GrpcConnection;
+using UnitData = UnBARableAINS::unit::UnitData;
 
 PYBIND11_MODULE(bar_ai, m) {
     m.doc() = "Python bindings for UnBARableAI";
@@ -45,6 +50,14 @@ PYBIND11_MODULE(bar_ai, m) {
         .value("OTHER_REASON_ERROR", EngineStatus::OTHER_REASON_ERROR)
         .value("RUNNING", EngineStatus::RUNNING)
         .export_values();
+
+    // -------------------------
+    // EngineStatus
+    // -------------------------
+
+    py::class_<GrpcConnection>(m, "GrpcConnection")
+        .def(py::init([](const std::uint16_t port) { return GrpcConnection{port}; }))
+        .def_readwrite("port", &GrpcConnection::port);
 
     // -------------------------
     // UnitData
@@ -94,23 +107,31 @@ PYBIND11_MODULE(bar_ai, m) {
     // -------------------------
 
     py::class_<BarSharedMemory>(m, "SharedMemory")
-        .def_static("create", &BarSharedMemory::create, py::arg("name"))
+        .def_static("create", &BarSharedMemory::create, py::arg("name"), py::arg("status"),
+                    py::arg("connection"), py::arg("initial_num_ally_units"),
+                    py::arg("initial_num_enemy_units"))
 
         .def_static("open", &BarSharedMemory::open, py::arg("name"))
+        //
+        //        .def_static("remove", &BarSharedMemory::remove, py::arg("name"))
+        //
+        //        .def("write_action", &BarSharedMemory::writeAction, py::arg("action"))
+        //
+        //        .def("write_unit_data", &BarSharedMemory::writeUnitData, py::arg("unit_data"))
+        //
+        //        .def("write_engine_status", &BarSharedMemory::writeEngineStatus,
+        //        py::arg("status"))
+        //
+        //        .def("read_all_units",
+        //             [](BarSharedMemory& sharedMemory) { return sharedMemory.readAll<UnitData>();
+        //             })
+        //
+        //        .def("read_all_engine_statuses",
+        //             [](BarSharedMemory& sharedMemory) { return
+        //             sharedMemory.readAll<EngineStatus>();
+        //             })
+        //
+        //        .def("get_own_team_id", &BarSharedMemory::getOwnTeamId);
 
-        .def_static("remove", &BarSharedMemory::remove, py::arg("name"))
-
-        .def("write_action", &BarSharedMemory::writeAction, py::arg("action"))
-
-        .def("write_unit_data", &BarSharedMemory::writeUnitData, py::arg("unit_data"))
-
-        .def("write_engine_status", &BarSharedMemory::writeEngineStatus, py::arg("status"))
-
-        .def("read_all_units",
-             [](BarSharedMemory& sharedMemory) { return sharedMemory.readAll<UnitData>(); })
-
-        .def("read_all_engine_statuses",
-             [](BarSharedMemory& sharedMemory) { return sharedMemory.readAll<EngineStatus>(); })
-
-        .def("get_own_team_id", &BarSharedMemory::getOwnTeamId);
+        ;
 }
