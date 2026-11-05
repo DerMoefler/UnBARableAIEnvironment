@@ -49,6 +49,7 @@ namespace UnBARableAINS::memory {
  * The team_id of the first stored UnitData object is interpreted as
  * the own team ID.
  * \todo Could also just write team id to the memory tbh.
+ * \todo Could implement a cache for free Unit/Action slots.
  */
 class BarSharedMemory {
 public:
@@ -214,6 +215,12 @@ public:
      * is stored as the own team ID.
      */
     void updateUnitData(const SerializableId unitId, const UnitDataOpt& unitData);
+
+    /**
+     * \brief Sets all unit and action opts to std::nullopt.
+     * \todo Test
+     */
+    void clearUnitsAndActions(void);
 
     /**
      * \brief Get a SerializableId for a UnitDataOpt that is empty, i.e. contains std::nullopt.

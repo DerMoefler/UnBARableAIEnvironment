@@ -87,6 +87,18 @@ void BarSharedMemory::updateUnitData(const SerializableId unitId, const UnitData
     m_sharedMemory.updateSerializable(unitId, unitData);
 }
 
+void BarSharedMemory::clearUnitsAndActions(void) {
+    auto clearType = [&]<serialization::Serializable S>(const std::type_identity<S> id) -> void {
+        const std::vector<SerializableId> ids = getIdsForType(id);
+        for (const auto id : ids) {
+            m_sharedMemory.updateSerializable<S>(id, std::nullopt);
+        }
+    };
+
+    clearType(std::type_identity<ActionOpt>{});
+    clearType(std::type_identity<UnitDataOpt>{});
+}
+
 auto BarSharedMemory::getEmptyUnitSlot(void) const -> std::optional<SerializableId> {
     const auto unitIds = getIdsForType(std::type_identity<UnitDataOpt>{});
     for (const auto id : unitIds) {

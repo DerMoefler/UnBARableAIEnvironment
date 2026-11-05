@@ -113,6 +113,7 @@ PYBIND11_MODULE(bar_ai, m) {
         .def_static("open", &BarSharedMemory::open, py::arg("name"))
         .def_static("remove", &BarSharedMemory::remove, py::arg("name"))
         .def("getName", &BarSharedMemory::getName)
+        .def("clearUnitsAndActions", &BarSharedMemory::clearUnitsAndActions)
         //
         //        .def("write_action", &BarSharedMemory::writeAction, py::arg("action"))
         //
