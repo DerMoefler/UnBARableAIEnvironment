@@ -170,6 +170,9 @@ class EngineSession:
             self.proc = None
             self._close_streams()
             self.grpc_server.stop()
+            if self.shared_memory is not None:
+                SharedMemory.remove(self.shared_memory.getName())
+                self.shared_memory = None
             logger.info("Engine Session stop called, process terminated and streams closed.")
 
     def is_running(self) -> bool:

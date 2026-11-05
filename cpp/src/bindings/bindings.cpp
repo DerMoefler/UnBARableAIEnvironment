@@ -110,10 +110,9 @@ PYBIND11_MODULE(bar_ai, m) {
         .def_static("create", &BarSharedMemory::create, py::arg("name"), py::arg("status"),
                     py::arg("connection"), py::arg("initial_num_ally_units"),
                     py::arg("initial_num_enemy_units"))
-
         .def_static("open", &BarSharedMemory::open, py::arg("name"))
-        //
-        //        .def_static("remove", &BarSharedMemory::remove, py::arg("name"))
+        .def_static("remove", &BarSharedMemory::remove, py::arg("name"))
+        .def("getName", &BarSharedMemory::getName)
         //
         //        .def("write_action", &BarSharedMemory::writeAction, py::arg("action"))
         //
