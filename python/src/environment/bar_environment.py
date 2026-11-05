@@ -1,9 +1,9 @@
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
+from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
 from src.environment.reward import RewardCalculator
 from src.environment.unit_data_memory import UnitMemory
-from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
-from src.utils.logger_factory import get_file_logger
+from src.utils.logger_factory import get_file_logger, get_null_logger
 
 import json
 import numpy as np
@@ -32,13 +32,18 @@ class BAR_Environment:
     ):
         self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0)
         self.session: Optional[EngineSession] = None
+
+        logger_name = f"environment{environment_id}"
         if config_path is not None:
             with open(config_path,"r") as config_data:
                 self.data = json.load(config_data)
-        
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        
-        self.logger = get_file_logger("environment{environment_id}", Path(f"src/train/experiments/{self.data["run_name"]}/{self.data["run_name"]}_environment{environment_id}_{timestamp}.log"))
+
+            run_name = self.data["run_name"]
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            self.logger = get_file_logger(logger_name, Path(f"src/train/experiments/{run_name}/{run_name}_environment{environment_id}_{timestamp}.log"))
+        else:
+            self.logger = get_null_logger(logger_name)
+
 
         # Episode tracking
         # max_episode_steps begrenzt, wie viele RL-Steps eine Episode maximal laufen darf.
@@ -403,4 +408,4 @@ class BAR_Environment:
             getattr(status, "name", str(status)),
         )
 
-        return 
+        return
