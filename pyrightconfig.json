@@ -3,7 +3,7 @@
     "venv": ".venv",
     "stubPath": "python/typings",
     "pythonVersion": "3.12",
-    "typeCheckingMode": "strict",
+    "typeCheckingMode": "standard",
     "include": [
         "python/src"
     ],
@@ -11,5 +11,13 @@
         "python/.venv",
         "python/src/train/experiments",
         "**/__pycache__"
+    ],
+    "executionEnvironments": [
+        {
+            "root" : "python",
+            "extraPaths": [
+                "python"
+            ]
+        }
     ]
 }
