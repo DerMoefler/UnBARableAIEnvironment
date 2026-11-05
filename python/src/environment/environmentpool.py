@@ -34,6 +34,6 @@ class EnvironmentPool:
                 self.logger.debug("removed environment from list")
 
     def step_through(self):
-        
+        return 0
 
 

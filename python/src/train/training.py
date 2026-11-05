@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,7 @@ from src.train.mappo.policy_runner import (
 )
 from src.train.mappo.r_mappo import R_MAPPO
 from src.train.mappo.trainerargs import TrainerArgs
-from src.train.replay_buffer import SharedReplayBuffer
+from src.train.rollout_buffer import RolloutBuffer
 
 
 logger = logging.getLogger(__name__)
@@ -591,7 +590,7 @@ def main() -> None:
         # Buffer and trainer
         # ---------------------------------------------------------------
 
-        buffer = SharedReplayBuffer(
+        buffer = RolloutBuffer(
             num_agents=adapter.num_agents,
             obs_shape=(
                 adapter.obs_dim,
@@ -603,7 +602,7 @@ def main() -> None:
         )
 
         logger.info(
-            "Created SharedReplayBuffer: "
+            "Created RolloutBuffer: "
             "capacity=%d",
             buffer_size,
         )
@@ -1041,7 +1040,7 @@ def main() -> None:
                 )
             except TypeError:
                 # Kompatibilität mit älterer
-                # SharedReplayBuffer-Signatur.
+                # RolloutBuffer-Signatur.
                 buffer.compute_returns(
                     next_value
                 )

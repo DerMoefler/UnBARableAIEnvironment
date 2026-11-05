@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-class SharedReplayBuffer:
+class RolloutBuffer:
     """
     Shared replay buffer for MAPPO training.
 
@@ -27,13 +27,13 @@ class SharedReplayBuffer:
 
     Returns
     -------
-    SharedReplayBuffer
+    RolloutBuffer
         A replay buffer instance with preallocated numpy arrays for storing
         MAPPO rollout data.
 
     Examples
     --------
-    >>> buffer = SharedReplayBuffer(
+    >>> buffer = RolloutBuffer(
     ...     num_agents=2,
     ...     obs_shape=(128,),
     ...     action_shape=(1,),
@@ -50,7 +50,7 @@ class SharedReplayBuffer:
 
         Parameters
         ----------
-        self : SharedReplayBuffer
+        self : RolloutBuffer
             The replay buffer instance.
         num_agents : int
             Number of agents in the environment.
@@ -73,7 +73,7 @@ class SharedReplayBuffer:
 
         Examples
         --------
-        >>> buffer = SharedReplayBuffer(2, (64,), (1,), 128)
+        >>> buffer = RolloutBuffer(2, (64,), (1,), 128)
         >>> buffer.buffer_size
         128
         >>> buffer.num_agents
@@ -138,7 +138,7 @@ class SharedReplayBuffer:
 
         Parameters
         ----------
-        self : SharedReplayBuffer
+        self : RolloutBuffer
             The replay buffer instance.
         share_obs : np.ndarray
             Shared or centralized observation stored for the current timestep.
@@ -165,7 +165,7 @@ class SharedReplayBuffer:
 
         Examples
         --------
-        >>> buffer = SharedReplayBuffer(2, (4,), (1,), 8)
+        >>> buffer = RolloutBuffer(2, (4,), (1,), 8)
         >>> share_obs = np.zeros((4,), dtype=np.float32)
         >>> obs = np.zeros((2, 4), dtype=np.float32)
         >>> actions = np.zeros((2, 1), dtype=np.float32)
@@ -613,7 +613,7 @@ class SharedReplayBuffer:
 
         Parameters
         ----------
-        self : SharedReplayBuffer
+        self : RolloutBuffer
             The replay buffer instance.
         advantages : np.ndarray
             Precomputed advantage estimates for all stored transitions.
@@ -630,7 +630,7 @@ class SharedReplayBuffer:
 
         Examples
         --------
-        >>> buffer = SharedReplayBuffer(2, (4,), (1,), 8)
+        >>> buffer = RolloutBuffer(2, (4,), (1,), 8)
         >>> advantages = np.zeros((8, 2, 1), dtype=np.float32)
         >>> gen = buffer.recurrent_generator(advantages, 2, 4)
         >>> batch = next(gen)
@@ -648,7 +648,7 @@ class SharedReplayBuffer:
 
         Parameters
         ----------
-        self : SharedReplayBuffer
+        self : RolloutBuffer
             The replay buffer instance.
         advantages : np.ndarray
             Precomputed advantage estimates for all stored transitions.
@@ -663,7 +663,7 @@ class SharedReplayBuffer:
 
         Examples
         --------
-        >>> buffer = SharedReplayBuffer(2, (4,), (1,), 8)
+        >>> buffer = RolloutBuffer(2, (4,), (1,), 8)
         >>> advantages = np.zeros((8, 2, 1), dtype=np.float32)
         >>> gen = buffer.naive_recurrent_generator(advantages, 2)
         >>> batch = next(gen)
@@ -678,7 +678,7 @@ class SharedReplayBuffer:
 
         Parameters
         ----------
-        self : SharedReplayBuffer
+        self : RolloutBuffer
             The replay buffer instance.
 
         Returns
@@ -687,7 +687,7 @@ class SharedReplayBuffer:
 
         Examples
         --------
-        >>> buffer = SharedReplayBuffer(2, (4,), (1,), 8)
+        >>> buffer = RolloutBuffer(2, (4,), (1,), 8)
         >>> buffer.step = 5
         >>> buffer.reset()
         >>> buffer.step

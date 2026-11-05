@@ -11,8 +11,8 @@ reinforcement learning with one policy shared across agents.
   - `Critic`: estimates the value of a shared observation.
   - `R_MAPPO_Policy`: combines the actor and critic, samples actions, and
     evaluates stored actions.
-- `replay_buffer.py`
-  - `SharedReplayBuffer`: stores one rollout and computes generalized
+- `rollout_buffer.py`
+  - `RolloutBuffer`: stores one rollout and computes generalized
     advantage estimates (GAE) and returns.
 - `r_mappo.py`
   - `R_MAPPO`: performs PPO-style actor and critic updates from the buffer.
@@ -227,9 +227,9 @@ actions, action_log_probs
 entropy for the actions stored in a rollout. The critic is evaluated on
 `share_obs`; the actor is evaluated on `obs`.
 
-## Replay buffer
+## Rollout buffer
 
-`SharedReplayBuffer.insert(...)` stores one transition at the current buffer
+`RolloutBuffer.insert(...)` stores one transition at the current buffer
 index and advances the index circularly. The buffer stores:
 
 - current observations and shared observations,
