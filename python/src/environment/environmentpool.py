@@ -32,12 +32,8 @@ class EnvironmentPool:
             finally:
                 self.environments.pop()
                 self.logger.debug("removed environment from list")
-    
 
-
-
-
-
-#steap trhough
+    def step_through(self):
+        
 
 
