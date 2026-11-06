@@ -31,8 +31,6 @@ class BAR_Environment:
         config_path: Optional[Path] = None,
         environment_id: Optional[int] = 0
     ):
-        startscript_config = StartScriptConfig()
-        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0, startscript_config=(startscript_config))
         self.session: Optional[EngineSession] = None
 
         logger_name = f"environment{environment_id}"
@@ -43,10 +41,12 @@ class BAR_Environment:
             run_name = self.data["run_name"]
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             self.logger = get_file_logger(logger_name, Path(f"src/train/experiments/{run_name}/{run_name}_environment{environment_id}_{timestamp}.log"))
+            startscript_config = StartScriptConfig.from_config(self.data)
         else:
             self.logger = get_null_logger(logger_name)
+            startscript_config = StartScriptConfig()
 
-
+        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0, startscript_config=(startscript_config))
         # Episode tracking
         # max_episode_steps begrenzt, wie viele RL-Steps eine Episode maximal laufen darf.
         # Wird dieses Limit erreicht, ist die Episode truncated.
