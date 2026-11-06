@@ -4,6 +4,7 @@ import re
 import signal
 import subprocess
 import threading
+import uuid
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -110,18 +111,25 @@ class EngineSession:
         if self.cfg.merge_stderr_to_stdout:
             stderr = subprocess.STDOUT
 
+        self.grpc_server.start()
+        self._initialize_shm()
+
+        assert self.shared_memory is not None
+        # Create environment for engine
+        env = os.environ.copy()
+        env["UNBARABLEAI_SHM_NAME"] = self.shared_memory.get_name()
+
         self.proc = subprocess.Popen(
             cmd,
             cwd=str(self.cfg.engine_root),
             stdout=stdout,
             stderr=stderr,
+            env=env,
             start_new_session=True,
             text=True if (stdout == subprocess.PIPE or stderr == subprocess.PIPE) else False,
             bufsize=1,
         )
 
-        self.grpc_server.start()
-        self._initialize_shm()
 
         self._monitor_thread = threading.Thread(
             target=self._monitor_process,
@@ -231,8 +239,9 @@ class EngineSession:
         """
         Initializes the shared-memory.
         """
-        assert self.proc is not None
         assert self.grpc_server.port is not None
+
+        shared_memory_name = f"/bar_ai_{uuid.uuid4().hex}"
 
         startscript: Path = self.cfg.startscript
         if not startscript.is_file():
@@ -252,12 +261,13 @@ class EngineSession:
 
         # TODO change status if enum supports state better
         self.shared_memory = SharedMemory.create(
-            name="/sm_proc_" + str(self.proc.pid),
+            name=shared_memory_name,
             status=bar_ai.EngineStatus.RUNNING,
             connection=bar_ai.GrpcConnection(self.grpc_server.port),
             initial_num_ally_units=num_ally_units,
             initial_num_enemy_units=num_enemy_units,
         )
+
 
     def _monitor_process(self, proc: subprocess.Popen) -> None:
         """
