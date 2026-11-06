@@ -108,6 +108,27 @@ def _episode_metrics(
         "info_keys": sorted(info.keys()),
     }
 
+# ---------------------------------------------------------------------------
+# Creating Adapters, rn just mappo specific
+# ---------------------------------------------------------------------------
+
+def create_mappo_adapters(number_of_environments: int, data):
+    adapters: list[RMAPPOObservationAdapter] = []
+    for i in range(number_of_environments):
+        adapters.append(RMAPPOObservationAdapter.from_config(data))
+
+        logger.info(
+                    "Created observation adapter: %s"
+                    "obs_dim=%d target_feature_dim=%d "
+                    "max_enemy_slots=%d",
+                    i,
+                    adapters[i].obs_dim,
+                    adapters[i].target_feature_dim,
+                    adapters[i].max_enemy_slots,
+                )
+
+    return adapters
+
 
 # ---------------------------------------------------------------------------
 # Configuration and logging
@@ -527,122 +548,34 @@ def main(
             )
 
         # ---------------------------------------------------------------
-        # Observation adapters and policy
+        # Observation adapter and policy, mappo specific
         # ---------------------------------------------------------------
+        if data["algorythm"] == "mappo":
+            adapters = create_mappo_adapters(data["number_of_environments"], data)
 
-        reference_team_id = unbarable_ai_team_ids[0]
+            for i in range(len(adapters)):
+                adapters[i].assign_adapter_id(i)
 
-        number_of_agents = int(
-            config["number_of_agents"]
-        )
-
-        number_of_enemies = int(
-            config["number_of_enemies"]
-        )
-
-        shared_max_enemy_slots = max(
-            number_of_agents,
-            number_of_enemies,
-        )
-
-        adapters: dict[
-            int,
-            RMAPPOObservationAdapter,
-        ] = {}
-
-        for team_id in unbarable_ai_team_ids:
-            if team_id == reference_team_id:
-                num_agents = number_of_agents
-            else:
-                num_agents = number_of_enemies
-
-            adapters[team_id] = (
-                RMAPPOObservationAdapter.from_config(
-                    config,
-                    team_id=team_id,
-                    num_agents=num_agents,
-                    max_enemy_slots=shared_max_enemy_slots,
-                )
+            runner = MAPPOPolicyRunner.from_config(
+                data,
+                device,
+                obs_dim=data["obs_dim"],
+                target_feature_dim=(
+                    adapters[0].target_feature_dim
+                ),
             )
 
+            policy = runner.policy
 
-        reference_adapter = adapters[
-            reference_team_id
-        ]
-
-        for team_id, adapter in adapters.items():
-
-            if (
-                adapter.obs_dim
-                != reference_adapter.obs_dim
-            ):
-                raise ValueError(
-                    "All UnBARableAI teams must use "
-                    "the same observation dimension: "
-                    f"team_id={team_id}, "
-                    f"obs_dim={adapter.obs_dim}, "
-                    f"expected="
-                    f"{reference_adapter.obs_dim}."
-                )
-
-            if (
-                adapter.action_dim
-                != reference_adapter.action_dim
-            ):
-                raise ValueError(
-                    "All UnBARableAI teams must use "
-                    "the same action dimension: "
-                    f"team_id={team_id}, "
-                    f"action_dim={adapter.action_dim}, "
-                    f"expected="
-                    f"{reference_adapter.action_dim}."
-                )
-
-            if (
-                adapter.target_feature_dim
-                != reference_adapter.target_feature_dim
-            ):
-                raise ValueError(
-                    "All UnBARableAI teams must use "
-                    "the same target feature dimension: "
-                    f"team_id={team_id}, "
-                    f"target_feature_dim="
-                    f"{adapter.target_feature_dim}, "
-                    f"expected="
-                    f"{reference_adapter.target_feature_dim}."
-                )
-
-        runner = MAPPOPolicyRunner.from_config(
-            config,
-            device,
-            obs_dim=adapters[
-                reference_team_id
-            ].obs_dim,
-            target_feature_dim=adapters[
-                reference_team_id
-            ].target_feature_dim,
-        )
-
-        policy = runner.policy
-
-        for team_id, adapter in adapters.items():
             logger.info(
-                "Created observation adapter: "
-                "team_id=%d obs_dim=%d "
-                "target_feature_dim=%d "
-                "max_enemy_slots=%d",
-                team_id,
-                adapter.obs_dim,
-                adapter.target_feature_dim,
-                adapter.max_enemy_slots,
-            )
-
-        logger.info(
-            "Created policy runner: "
-            "obs_dim=%d actions=%d",
-            reference_adapter.obs_dim,
-            reference_adapter.action_dim,
-        )
+                        "Created policy runner: "
+                        "agents=%d actions=%d team_id=%d",
+                        data["num_agents"],
+                        data["action_dim"],
+                        data["training_team_id"],
+                    )
+        else:
+            raise RuntimeError("No proper algorythm configured")
 
         # ---------------------------------------------------------------
         # Configuration validation
@@ -783,143 +716,17 @@ def main(
                     f"as a dictionary, got {type(obs_raw).__name__}."
                 )
 
-            if not isinstance(step_info, dict):
-                raise TypeError(
-                    "BAR_Environment.reset() must return info as a dictionary, "
-                    f"got {type(step_info).__name__}."
-                )
+            for i in range(len(pool.environments)):
+                pool.environments[i].stepinfo.receive_prepared(adapters[i].prepare(obs_raw=obs_raw))
 
-            if "current_team_id" not in step_info:
-                raise KeyError(
-                    "BAR_Environment.reset() info does not contain "
-                    "'current_team_id'."
-                )
-
-            current_team_id = int(
-                step_info["current_team_id"]
+            (
+                rnn_states,
+                rnn_states_critic,
+            ) = _make_rnn_state_arrays(
+                data["number_of_agents"],
+                recurrent_n=recurrent_n,
+                hidden_size=hidden_size,
             )
-
-            if current_team_id not in adapters:
-                raise ValueError(
-                    "Environment returned an unknown team ID: "
-                    f"current_team_id={current_team_id}, "
-                    f"available_team_ids={sorted(adapters)}."
-                )
-
-            current_adapter = adapters[current_team_id]
-            current_adapter.reset_episode(obs_raw)
-
-            prepared_by_team: dict[int, PreparedStep] = {
-                current_team_id: current_adapter.prepare(
-                    obs_raw=obs_raw,
-                )
-            }
-
-            pending_transitions: dict[
-                int,
-                dict[str, Any] | None,
-            ] = {
-                team_id: None
-                for team_id in unbarable_ai_team_ids
-            }
-
-            logger.debug(
-                "Episode %d initial team=%d stable unit slots=%s",
-                episode_number,
-                current_team_id,
-                current_adapter.agent_unit_ids,
-            )
-
-            episode_reward = 0.0
-
-            episode_rewards_by_team = {
-                team_id: 0.0
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            done = False
-            terminated = False
-            truncated = False
-            step_count = 0
-
-            action_counts_by_team = {
-                team_id: np.zeros(
-                    adapters[team_id].action_dim,
-                    dtype=np.int64,
-                )
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            action_trace_by_team: dict[
-                int,
-                list[list[int]],
-            ] = {
-                team_id: []
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            episode_won_by_team = {
-                team_id: False
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            episode_lost_by_team = {
-                team_id: False
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            final_ally_alive_by_team: dict[
-                int,
-                int | None,
-            ] = {
-                team_id: None
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            final_enemy_alive_by_team: dict[
-                int,
-                int | None,
-            ] = {
-                team_id: None
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            enemy_damage_done_by_team = {
-                team_id: 0.0
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            own_damage_taken_by_team = {
-                team_id: 0.0
-                for team_id in environment.unbarable_ai_team_ids
-            }
-
-            last_info_keys: list[str] = []
-
-            final_step_info: dict[
-                str,
-                Any,
-            ] = {}
-
-            rnn_states_by_team: dict[
-                int,
-                np.ndarray,
-            ] = {}
-
-            rnn_states_critic_by_team: dict[
-                int,
-                np.ndarray,
-            ] = {}
-
-            for team_id in environment.unbarable_ai_team_ids:
-                (
-                    rnn_states_by_team[team_id],
-                    rnn_states_critic_by_team[team_id],
-                ) = _make_rnn_state_arrays(
-                    adapters[team_id].num_agents,
-                    recurrent_n=recurrent_n,
-                    hidden_size=hidden_size,
-                )
 
             trainer.prep_rollout()
             runner.set_evaluation_mode()

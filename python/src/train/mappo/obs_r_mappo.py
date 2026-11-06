@@ -946,3 +946,6 @@ class RMAPPOObservationAdapter:
         result[:count] = source[:count]
 
         return result.reshape(shape)
+
+    def assign_adapter_id(self, id: int):
+        self.id = id
