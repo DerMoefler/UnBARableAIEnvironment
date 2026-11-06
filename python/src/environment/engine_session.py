@@ -7,14 +7,11 @@ import signal
 from src.environment.grpc_server import UnBARableAIGRPCServer
 import subprocess
 import threading
-from typing import Optional, Dict, Any, List, Union, Callable, Mapping
+from typing import Optional, Dict, Any, List, Callable
 from src.environment.startscript_builder import StartScriptConfig, EngineMode
 
 logger = logging.getLogger(__name__)
 
-from src.environment.startscript_builder import (
-    StartScriptConfig,
-)
 
 
 @dataclass(frozen=True)
