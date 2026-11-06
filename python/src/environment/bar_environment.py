@@ -72,7 +72,7 @@ class BAR_Environment:
         )
 
 
-    def reset(self) -> Tuple[Any, Dict[str, Any]]:
+    def reset(self) -> Any:
         self.terminated = False
         self.truncated = False
         if self.session == None:
@@ -114,16 +114,10 @@ class BAR_Environment:
         stats = self._get_team_stats(snapshot.units)
         self.reward_calculator.reset(stats)
 
-        info = {}
-        # Zusätzliche Debug-Informationen zurückgeben
-        info["episode_step"] = self.episode_step
-        info["max_episode_steps"] = self.max_episode_steps
-        info["reward_state_initialized"] = self.reward_calculator.initialized
-
         observation = self.create_observation_dictionary(snapshot.units)
         bar_ai.SharedMemory.remove(self.shared_memory_name)
 
-        return observation, info
+        return observation
 
     def step(self, actions: List[bar_ai.Action]):
 
