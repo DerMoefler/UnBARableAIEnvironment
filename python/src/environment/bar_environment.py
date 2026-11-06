@@ -343,7 +343,7 @@ class BAR_Environment:
             ),
         }
 
-        return observation, info
+        return observation
 
     def step(
         self,
