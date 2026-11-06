@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include "UnBARableAI/grpc_connection.hpp"
 
 static auto logger = spdlog::stdout_color_mt("BarSharedMemory");
 
@@ -116,6 +117,10 @@ void BarSharedMemory::updateEngineStatus(const EngineStatus status) {
 
 EngineStatus BarSharedMemory::getEngineStatus(void) const {
     return std::get<EngineStatus>(m_sharedMemory.read(c_engine_status_id));
+}
+
+GrpcConnection BarSharedMemory::getGrpcConnection(void) const {
+    return std::get<GrpcConnection>(m_sharedMemory.read(c_grpc_connection_id));
 }
 
 int BarSharedMemory::getOwnTeamId() { return resolveOwnTeamId(); }

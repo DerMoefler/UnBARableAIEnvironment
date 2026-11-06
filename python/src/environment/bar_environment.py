@@ -88,7 +88,7 @@ class BAR_Environment:
 
         wait_status, update_id = self.session.grpc_server.wait_for_next_update(
             previous_count=self.current_update_id,
-            timeout=600.0,
+            timeout=30.0,
         )
 
         if wait_status == "timeout":
@@ -322,14 +322,14 @@ class BAR_Environment:
 
         if num_actions > num_ids:
             self.logger.error(
-                f"Received {num_actions} actions but only {num_ids} slots are available."
-                f"The last {num_actions - num_ids} will be discarded"
+                f"Received {num_actions} actions but only {num_ids} slots are available. "
+                f"The last {num_actions - num_ids} actions will be discarded"
             )
-        elif num_actions < num_ids:
-            self.logger.warning(
-                f"Received only {num_actions} for {num_ids} slots."
-                f"Remaining {num_actions - num_ids} will be cleared."
-            )
+        # elif num_actions < num_ids:
+        #     self.logger.warning(
+        #         f"Received only {num_actions} actions for {num_ids} slots. "
+        #         f"Remaining {num_ids - num_actions} slots will be cleared."
+        #     )
 
         # Write provided actions (if possible)
         for action_id, action in zip(action_serializable_ids, actions):

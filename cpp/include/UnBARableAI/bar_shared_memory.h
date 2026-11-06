@@ -237,6 +237,9 @@ public:
     /// \brief Getter for EngineStatus.
     EngineStatus getEngineStatus(void) const;
 
+    /// \brief Getter for GrpcConnection.
+    GrpcConnection getGrpcConnection(void) const;
+
     /**
      * \brief Reads all stored values of the requested type.
      * \tparam T supported serializable value type
