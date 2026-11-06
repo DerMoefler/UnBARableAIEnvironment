@@ -1,5 +1,6 @@
 {
     "action_dimension"      : 5,
+    "algorythm"             : "MAPPO",
     "buffer_size"           : 6000,
     "continue_training"     : false,   
     "episodes"              : 2,
