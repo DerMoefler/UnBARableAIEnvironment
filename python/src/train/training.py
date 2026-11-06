@@ -108,33 +108,26 @@ def _episode_metrics(
         "info_keys": sorted(info.keys()),
     }
 
+# ---------------------------------------------------------------------------
+# Creating Adapters, rn just mappo specific
+# ---------------------------------------------------------------------------
 
-def _format_duration(
-    seconds: float,
-) -> str:
-    minutes, seconds = divmod(
-        max(0.0, seconds),
-        60.0,
-    )
-    hours, minutes = divmod(
-        int(minutes),
-        60,
-    )
+def create_mappo_adapters(number_of_environments: int, data):
+    adapters: list[RMAPPOObservationAdapter] = []
+    for i in range(number_of_environments):
+        adapters.append(RMAPPOObservationAdapter.from_config(data))
 
-    if hours:
-        return (
-            f"{hours:d}h "
-            f"{minutes:02d}m "
-            f"{seconds:06.3f}s"
-        )
+        logger.info(
+                    "Created observation adapter: %s"
+                    "obs_dim=%d target_feature_dim=%d "
+                    "max_enemy_slots=%d",
+                    i,
+                    adapters[i].obs_dim,
+                    adapters[i].target_feature_dim,
+                    adapters[i].max_enemy_slots,
+                )
 
-    if minutes:
-        return (
-            f"{minutes:d}m "
-            f"{seconds:06.3f}s"
-        )
-
-    return f"{seconds:.3f}s"
+    return adapters
 
 
 # ---------------------------------------------------------------------------
@@ -472,29 +465,34 @@ def main() -> None:
             len(pool.environments),
         )
         # ---------------------------------------------------------------
-        # Observation adapter and policy
+        # Observation adapter and policy, mappo specific
         # ---------------------------------------------------------------
+        if data["algorythm"] == "mappo":
+            adapters = create_mappo_adapters(data["number_of_environments"], data)
 
-        adapters = pool.create_adapters()
+            for i in range(len(adapters)):
+                adapters[i].assign_adapter_id(i)
 
-        runner = MAPPOPolicyRunner.from_config(
-            data,
-            device,
-            obs_dim=data["obs_dim"],
-            target_feature_dim=(
-                adapters[0].target_feature_dim
-            ),
-        )
+            runner = MAPPOPolicyRunner.from_config(
+                data,
+                device,
+                obs_dim=data["obs_dim"],
+                target_feature_dim=(
+                    adapters[0].target_feature_dim
+                ),
+            )
 
-        policy = runner.policy
+            policy = runner.policy
 
-        logger.info(
-                    "Created policy runner: "
-                    "agents=%d actions=%d team_id=%d",
-                    data["num_agents"],
-                    data["action_dim"],
-                    data["training_team_id"],
-                )
+            logger.info(
+                        "Created policy runner: "
+                        "agents=%d actions=%d team_id=%d",
+                        data["num_agents"],
+                        data["action_dim"],
+                        data["training_team_id"],
+                    )
+        else:
+            raise RuntimeError("No proper algorythm configured")
 
         # ---------------------------------------------------------------
         # Configuration validation
@@ -628,7 +626,8 @@ def main() -> None:
                     f"as a dictionary, got {type(obs_raw).__name__}."
                 )
 
-            pool.prepare_step_loop(obs_raw, episode_number)
+            for i in range(len(pool.environments)):
+                pool.environments[i].stepinfo.receive_prepared(adapters[i].prepare(obs_raw=obs_raw))
 
             (
                 rnn_states,
