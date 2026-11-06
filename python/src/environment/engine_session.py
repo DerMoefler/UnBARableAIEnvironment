@@ -8,6 +8,7 @@ from src.environment.grpc_server import UnBARableAIGRPCServer
 import subprocess
 import threading
 from typing import Optional, Dict, Any, List, Union, Callable, Mapping
+from src.environment.startscript_builder import StartScriptConfig, EngineMode
 
 logger = logging.getLogger(__name__)
 
@@ -19,17 +20,6 @@ from src.environment.startscript_builder import (
 @dataclass(frozen=True)
 class EngineSessionFactory:
     startscript_config: StartScriptConfig
-
-    @classmethod
-    def from_config(
-        cls,
-        config: Mapping[str, Any],
-    ) -> "EngineSessionFactory":
-        return cls(
-            startscript_config=(
-                StartScriptConfig.from_config(config)
-            )
-        )
 
     def __call__(self, engine_id: int) -> EngineSession:
         session_config = EngineSessionConfig(
@@ -54,9 +44,10 @@ class EngineSessionConfig:
     repo_root: Path = Path(__file__).resolve().parents[3]
     engine_root: Path = repo_root / "RecoilEngine"
     isolation_dir: Path = Path("~/bar-data/").expanduser()
+
     write_dir: Path = field(init=False)
 
-    engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring-headless"
+    engine_exe: Path = field(init=False)
     config_file: Path = engine_root / "config" / "test_fast.cfg"
     startscript: Path = field(init=False)
 
@@ -64,9 +55,37 @@ class EngineSessionConfig:
     default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
     merge_stderr_to_stdout: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        write_dir = (
+            self.isolation_dir
+            / "instances"
+            / f"engine-{self.engine_id:03d}"
+        )
+
+        object.__setattr__(
+            self,
+            "write_dir",
+            write_dir,
+        )
+
+        executable_name = self._get_executable_name()
+
+        object.__setattr__(
+            self,
+            "engine_exe",
+            self.engine_root
+            / "build-amd64-linux"
+            / "install"
+            / executable_name,
+        )
+
+        object.__setattr__(
+            self,
+            "startscript",
+            write_dir / "startscript.txt",
+        )
+
         self.validate()
-        object.__setattr__(self, "write_dir", self.isolation_dir / "instances" / f"engine-{self.engine_id:03d}")
         self.ensure_write_dir()
 
     def validate(self) -> None:
@@ -81,8 +100,7 @@ class EngineSessionConfig:
 
     def ensure_write_dir(self) -> None:
         """
-        Checks that a directory isolation_dir / "instances" / "engine-{self.engine_id}" exists
-
+        Checks that a directory isolation_dir / "instances" / "engine-{self.engine_id}" exists        
         Creates if it doesn't exist yet.
         """
         instances_dir = self.write_dir.resolve().parents[0]
@@ -91,6 +109,19 @@ class EngineSessionConfig:
 
         if not self.write_dir.is_dir():
             Path.mkdir(self.write_dir)
+
+    def _get_executable_name(self) -> str:
+        mode = self.startscript_config.mode
+
+        if mode is EngineMode.TRAINING:
+            return "spring-headless"
+
+        if mode is EngineMode.PLAY_AGAINST_HUMAN:
+            return "spring"
+
+        raise ValueError(
+            f"Unsupported engine mode: {mode!r}"
+        )
 
 class EngineSession:
     def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[int], None]] = None):

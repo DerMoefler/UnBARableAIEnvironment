@@ -8,6 +8,8 @@ from enum import Enum, auto
 from typing import Callable, Mapping, Any
 
 from src.environment.engine_session import EngineSession, EngineSessionFactory
+from src.environment.startscript_builder import StartScriptConfig
+
 
 class SessionState(Enum):
     """
@@ -193,14 +195,16 @@ class EngineSessionPool:
         cls,
         config: Mapping[str, Any],
     ) -> "EngineSessionPool":
-        pool_size = config["number_of_engines"]
+        startscript_config = (
+            StartScriptConfig.from_config(config)
+        )
 
-        session_factory = (
-            EngineSessionFactory.from_config(config)
+        session_factory = EngineSessionFactory(
+            startscript_config=startscript_config
         )
 
         return cls(
-            pool_size=pool_size,
+            pool_size=config["number_of_engines"],
             session_factory=session_factory,
         )
 
