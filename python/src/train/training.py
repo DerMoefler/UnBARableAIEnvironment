@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,7 @@ from src.train.mappo.policy_runner import (
 )
 from src.train.mappo.r_mappo import R_MAPPO
 from src.train.mappo.trainerargs import TrainerArgs
-from src.train.replay_buffer import SharedReplayBuffer
+from src.train.rollout_buffer import RolloutBuffer
 
 
 logger = logging.getLogger(__name__)
@@ -38,10 +37,10 @@ def _make_rnn_state_arrays(
     hidden_size: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Allocate actor and critic recurrent-state arrays.
+    Create placeholder actor and critic RNN states.
 
-    The current policy is feed-forward, but the replay buffer expects
-    these arrays.
+    The current policy is feed-forward. These zero arrays only satisfy
+    the replay-buffer and MAPPO interfaces.
     """
     rnn_shape = (
         num_agents,
@@ -108,34 +107,6 @@ def _episode_metrics(
         ),
         "info_keys": sorted(info.keys()),
     }
-
-
-def _format_duration(
-    seconds: float,
-) -> str:
-    minutes, seconds = divmod(
-        max(0.0, seconds),
-        60.0,
-    )
-    hours, minutes = divmod(
-        int(minutes),
-        60,
-    )
-
-    if hours:
-        return (
-            f"{hours:d}h "
-            f"{minutes:02d}m "
-            f"{seconds:06.3f}s"
-        )
-
-    if minutes:
-        return (
-            f"{minutes:d}m "
-            f"{seconds:06.3f}s"
-        )
-
-    return f"{seconds:.3f}s"
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +178,6 @@ def configure_logging(
         f"{config['run_name']}_{timestamp}.log"
     )
 
-    # Wie vorher: Ausgabe nur in die Logdatei.
     logging.basicConfig(
         filename=log_path,
         filemode="w",
@@ -453,14 +423,6 @@ def main() -> None:
         run_directory,
     )
 
-    run_started_at = time.perf_counter()
-
-    total_engine_start_seconds = 0.0
-    total_engine_step_seconds = 0.0
-    total_inference_seconds = 0.0
-    total_training_seconds = 0.0
-    total_checkpoint_seconds = 0.0
-
     success = False
 
     pool = EnvironmentPool(
@@ -514,16 +476,7 @@ def main() -> None:
             "Creating EnvironmentPool"
         )
 
-        pool_started_at = (
-            time.perf_counter()
-        )
-
         pool.initialize_environements()
-
-        total_engine_start_seconds += (
-            time.perf_counter()
-            - pool_started_at
-        )
 
         if not pool.environments:
             raise RuntimeError(
@@ -608,7 +561,7 @@ def main() -> None:
         # Buffer and trainer
         # ---------------------------------------------------------------
 
-        buffer = SharedReplayBuffer(
+        buffer = RolloutBuffer(
             num_agents=adapter.num_agents,
             obs_shape=(
                 adapter.obs_dim,
@@ -620,7 +573,7 @@ def main() -> None:
         )
 
         logger.info(
-            "Created SharedReplayBuffer: "
+            "Created RolloutBuffer: "
             "capacity=%d",
             buffer_size,
         )
@@ -664,16 +617,7 @@ def main() -> None:
             # Reset
             # -----------------------------------------------------------
 
-            reset_started_at = (
-                time.perf_counter()
-            )
-
             obs_raw, reset_info = environment.reset()
-
-            total_engine_start_seconds += (
-                time.perf_counter()
-                - reset_started_at
-            )
 
             if not isinstance(obs_raw, dict):
                 raise TypeError(
@@ -756,10 +700,6 @@ def main() -> None:
                 # Policy inference
                 # -------------------------------------------------------
 
-                inference_started_at = (
-                    time.perf_counter()
-                )
-
                 policy_step = runner.act(
                     prepared
                 )
@@ -768,11 +708,6 @@ def main() -> None:
                     torch.cuda.synchronize(
                         device
                     )
-
-                total_inference_seconds += (
-                    time.perf_counter()
-                    - inference_started_at
-                )
 
                 action_types = [
                     int(action)
@@ -828,10 +763,6 @@ def main() -> None:
                 # Environment step
                 # -------------------------------------------------------
 
-                environment_started_at = (
-                    time.perf_counter()
-                )
-
                 (
                     next_obs_raw,
                     reward,
@@ -863,12 +794,6 @@ def main() -> None:
                         "BAR_Environment.step() must return info as a dictionary, "
                         f"got {type(step_info).__name__}."
                     )
-
-
-                total_engine_step_seconds += (
-                    time.perf_counter()
-                    - environment_started_at
-                )
 
                 done = bool(
                     terminated or truncated
@@ -1086,7 +1011,7 @@ def main() -> None:
                 )
             except TypeError:
                 # Kompatibilität mit älterer
-                # SharedReplayBuffer-Signatur.
+                # RolloutBuffer-Signatur.
                 buffer.compute_returns(
                     next_value
                 )
@@ -1098,10 +1023,6 @@ def main() -> None:
             trainer.prep_training()
             runner.set_training_mode()
 
-            training_started_at = (
-                time.perf_counter()
-            )
-
             train_info = trainer.train(
                 buffer,
                 update_actor=True,
@@ -1111,11 +1032,6 @@ def main() -> None:
                 torch.cuda.synchronize(
                     device
                 )
-
-            total_training_seconds += (
-                time.perf_counter()
-                - training_started_at
-            )
 
             buffer.reset()
 
@@ -1233,9 +1149,6 @@ def main() -> None:
                 and episode_number
                 % save_interval == 0
             ):
-                checkpoint_started_at = (
-                    time.perf_counter()
-                )
 
                 checkpoint_path = (
                     _save_checkpoint(
@@ -1244,11 +1157,6 @@ def main() -> None:
                         episode_number,
                         run_directory,
                     )
-                )
-
-                total_checkpoint_seconds += (
-                    time.perf_counter()
-                    - checkpoint_started_at
                 )
 
                 logger.info(
@@ -1260,20 +1168,11 @@ def main() -> None:
         # Final checkpoint
         # ---------------------------------------------------------------
 
-        checkpoint_started_at = (
-            time.perf_counter()
-        )
-
         final_checkpoint = _save_checkpoint(
             policy,
             adapter,
             final_episode,
             run_directory,
-        )
-
-        total_checkpoint_seconds += (
-            time.perf_counter()
-            - checkpoint_started_at
         )
 
         logger.info(
@@ -1284,104 +1183,6 @@ def main() -> None:
             "Latest model saved to: %s",
             run_directory
             / "r_mappo_latest.pt",
-        )
-
-        # ---------------------------------------------------------------
-        # Timing summary
-        # ---------------------------------------------------------------
-
-        total_runtime = (
-            time.perf_counter()
-            - run_started_at
-        )
-
-        measured_runtime = (
-            total_engine_start_seconds
-            + total_engine_step_seconds
-            + total_inference_seconds
-            + total_training_seconds
-            + total_checkpoint_seconds
-        )
-
-        other_seconds = max(
-            0.0,
-            total_runtime - measured_runtime,
-        )
-
-        def percentage(
-            seconds: float,
-        ) -> float:
-            if total_runtime <= 0.0:
-                return 0.0
-
-            return (
-                100.0
-                * seconds
-                / total_runtime
-            )
-
-        logger.info(
-            "Overall timing summary"
-        )
-        logger.info(
-            "Total runtime: %s (100.00%%)",
-            _format_duration(
-                total_runtime
-            ),
-        )
-        logger.info(
-            "Engine start/reset: %s, %.2f%%",
-            _format_duration(
-                total_engine_start_seconds
-            ),
-            percentage(
-                total_engine_start_seconds
-            ),
-        )
-        logger.info(
-            "Engine steps/waiting: %s, %.2f%%",
-            _format_duration(
-                total_engine_step_seconds
-            ),
-            percentage(
-                total_engine_step_seconds
-            ),
-        )
-        logger.info(
-            "Policy inference: %s, %.2f%%",
-            _format_duration(
-                total_inference_seconds
-            ),
-            percentage(
-                total_inference_seconds
-            ),
-        )
-        logger.info(
-            "PPO updates: %s, %.2f%%",
-            _format_duration(
-                total_training_seconds
-            ),
-            percentage(
-                total_training_seconds
-            ),
-        )
-        logger.info(
-            "Checkpoint writing: %s, %.2f%%",
-            _format_duration(
-                total_checkpoint_seconds
-            ),
-            percentage(
-                total_checkpoint_seconds
-            ),
-        )
-        logger.info(
-            "Other Python/logging: %s, %.2f%%",
-            _format_duration(
-                other_seconds
-            ),
-            percentage(
-                other_seconds
-            ),
         )
 
         success = True
@@ -1413,7 +1214,6 @@ def main() -> None:
                 "aborted due to an error.",
                 flush=True,
             )
-
 
 if __name__ == "__main__":
     main()

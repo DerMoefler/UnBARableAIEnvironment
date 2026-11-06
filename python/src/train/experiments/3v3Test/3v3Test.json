@@ -10,7 +10,8 @@
     "mini_batch"            : 4,
     "model_root"            : 1,
     "number_of_agents"      : 3,
-    "number_of_environments": 1,   
+    "number_of_environments": 1,
+    "number_of_engines"     : 1,   
     "run_name"              : "3v3Test",
     "resume"                : false,
     "save_every_x_episode"  : 1,
@@ -18,6 +19,18 @@
     "observation": {
         "max_enemy_slots": 3,
         "position_scale": 1000.0
+    },
+
+    "engine": {
+        "mode": "training",
+        "unit": "armpw",
+        "spawn_spacing": 80,
+
+        "ai_options": {
+            "update_interval_frames": 2,
+            "move_step_size": 100.0,
+            "first_update_frame": 2
+        }
     },
 
     "logging": {
