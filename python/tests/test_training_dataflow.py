@@ -116,22 +116,59 @@ def test_training_dataflow_one_mappo_update():
             )
 
             self.step_calls += 1
-            self.actions_per_step.append(list(actions))
-            self.received_actions.extend(actions)
+            self.actions_per_step.append(
+                list(actions)
+            )
+            self.received_actions.extend(
+                actions
+            )
+
+            terminated = self.step_calls >= 1
 
             return (
                 self.observations,
                 0.1,
-                False,
+                terminated,
                 False,
                 {
-                    "own_alive_count": len(OWN_UNIT_IDS),
+                    "episode_step": self.step_calls,
+                    "own_alive_count": len(
+                        OWN_UNIT_IDS
+                    ),
                     "enemy_alive_count": enemy_count,
+                    "terminated": terminated,
+                    "truncated": False,
+                    "episode_outcome": (
+                        "won"
+                        if terminated
+                        else None
+                    ),
+                    "reward": 0.1,
+                    "reward_info": {
+                        "enemy_damage_done": 0.0,
+                        "own_damage_taken": 0.0,
+                    },
                 },
             )
 
         def close(self):
             pass
+
+    class SimulatedEnvironmentPool:
+        def __init__(self, config_path):
+            self.config_path = config_path
+            self.environments = []
+
+        def initialize_environements(self):
+            self.environments = [
+                SimulatedBAREnvironment()
+            ]
+
+        def close_environements(self):
+            for environment in self.environments:
+                environment.close()
+
+            self.environments.clear()
 
     #class SingleEpochTrainerArgs(train_fixed_v7.TrainerArgs):
     class SingleEpochTrainerArgs(trainerargs.TrainerArgs):
@@ -158,10 +195,11 @@ def test_training_dataflow_one_mappo_update():
         patches.enter_context(
             patch.object(
                 training,
-                "BAR_Environment",
-                SimulatedBAREnvironment,
+                "EnvironmentPool",
+                SimulatedEnvironmentPool,
             )
         )
+
         patches.enter_context(
             patch.object(
                 training,
@@ -176,47 +214,45 @@ def test_training_dataflow_one_mappo_update():
                 CountingRMAPPO,
             )
         )
-        patches.enter_context(
-            patch(
-                "sys.argv",
-                [
-                    "training.py",
-                    "--num-episodes",
-                    "1",
-                    "--num-agents",
-                    "3",
-                     "--buffer-size",
-                    "1",
-                    "--num-mini-batch",
-                    "1",
-                    "--device",
-                    "cpu",
-                    "--run-name",
-                    "dataflow_test",
-                    "--save-every",
-                    "0",
-                    "--debug-shapes",
-                    "--seed",
-                    "7",
-                ],
-            )
+        
+
+        config_path = Path(
+            "src/train/experiments/3v3Test/3v3Test.json"
         )
 
-        config = training.load_training_config().copy()
-        config.update({
-            "run_name": "dataflow_test",
-            "device": "cpu",
-            "number_of_agents": 3,
-            "number_of_environments": 1,
-            "buffer_size": 1,
-            "mini_batch": 1,
-            "episodes": 1,
-            "save_every_x_episode": 0,
-        })
+        config = training.load_training_config(
+            config_path
+        ).copy()
+        config.update(
+            {
+                "run_name": "dataflow_test",
+                "device": "cpu",
+                "number_of_agents": 3,
+                "number_of_environments": 1,
+                "buffer_size": 1,
+                "maximum_steps": 1,
+                "mini_batch": 1,
+                "episodes": 1,
+                "save_every_x_episode": 0,
+                "continue_training": False,
+                "training_team_id": 0,
+                "action_dimension": 5,
+                "learning_rate": 1e-4,
+                "gamma": 0.99,
+                "observation": {
+                    "max_enemy_slots": 3,
+                    "position_scale": 1000.0,
+                },
+            }
+        )
 
         patches.enter_context(
-            patch.object(training, "load_training_config", return_value=config)
+            patch.object(
+                training,
+                "load_training_config",
+                side_effect=lambda path: config.copy(),
             )
+        )
         #DEBUG
         #with redirect_stdout(StringIO()):
         training.main()    #training.main()
