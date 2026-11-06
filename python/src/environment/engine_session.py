@@ -7,9 +7,39 @@ import signal
 from src.environment.grpc_server import UnBARableAIGRPCServer
 import subprocess
 import threading
-from typing import Optional, Dict, Any, List, Union, Callable
+from typing import Optional, Dict, Any, List, Union, Callable, Mapping
 
 logger = logging.getLogger(__name__)
+
+from src.environment.startscript_builder import (
+    StartScriptConfig,
+)
+
+
+@dataclass(frozen=True)
+class EngineSessionFactory:
+    startscript_config: StartScriptConfig
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Mapping[str, Any],
+    ) -> "EngineSessionFactory":
+        return cls(
+            startscript_config=(
+                StartScriptConfig.from_config(config)
+            )
+        )
+
+    def __call__(self, engine_id: int) -> EngineSession:
+        session_config = EngineSessionConfig(
+            engine_id=engine_id,
+            startscript_config=self.startscript_config,
+        )
+
+        return EngineSession(cfg=session_config)
+
+
 
 @dataclass(frozen=True)
 class EngineSessionConfig:
@@ -19,6 +49,8 @@ class EngineSessionConfig:
     stderr is output stream for the engine's error output, can be None (Terminal output), a file path, or subprocess.PIPE
     """
     engine_id: int
+    startscript_config: StartScriptConfig
+
     repo_root: Path = Path(__file__).resolve().parents[3]
     engine_root: Path = repo_root / "RecoilEngine"
     isolation_dir: Path = Path("~/bar-data/").expanduser()
@@ -26,7 +58,7 @@ class EngineSessionConfig:
 
     engine_exe: Path = engine_root / "build-amd64-linux" / "install" / "spring-headless"
     config_file: Path = engine_root / "config" / "test_fast.cfg"
-    startscript: Path = engine_root / "startscripts" / "3vs3PawnsNew.txt"
+    startscript: Path = field(init=False)
 
     default_stdout: int | str | Path = Path("~/bar-data/engine_stdout.log").expanduser()
     default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()

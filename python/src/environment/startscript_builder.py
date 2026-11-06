@@ -3,7 +3,7 @@ from enum import Enum
 from pathlib import Path
 import os
 import tempfile
-
+from typing import Any, Mapping
 
 class EngineMode(str, Enum):
     TRAINING = "training"
@@ -23,6 +23,60 @@ class StartScriptConfig:
     first_update_frame: int = 2
 
     human_player_name: str = "Human"
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Mapping[str, Any],
+    ) -> "StartScriptConfig":
+        engine_config = config.get("engine", {})
+        ai_config = engine_config.get("unbarable_ai", {})
+        human_config = engine_config.get("human_player", {})
+
+        raw_mode = engine_config.get(
+            "mode",
+            EngineMode.TRAINING.value,
+        )
+
+        try:
+            mode = EngineMode(raw_mode)
+        except ValueError as exc:
+            allowed_modes = ", ".join(
+                mode.value for mode in EngineMode
+            )
+            raise ValueError(
+                f"Invalid engine.mode {raw_mode!r}. "
+                f"Allowed values: {allowed_modes}"
+            ) from exc
+
+        startscript_config = cls(
+            mode=mode,
+            number_of_agents=config["number_of_agents"],
+            unit=engine_config.get("unit", "armpw"),
+            spawn_spacing=engine_config.get(
+                "spawn_spacing",
+                80,
+            ),
+            update_interval_frames=ai_config.get(
+                "update_interval_frames",
+                2,
+            ),
+            move_step_size=ai_config.get(
+                "move_step_size",
+                100.0,
+            ),
+            first_update_frame=ai_config.get(
+                "first_update_frame",
+                2,
+            ),
+            human_player_name=human_config.get(
+                "name",
+                "Human",
+            ),
+        )
+
+        startscript_config.validate()
+        return startscript_config
 
     def validate(self) -> None:
         if self.number_of_agents < 1:
