@@ -459,68 +459,42 @@ def main() -> None:
     )
 
     try:
-        # ---------------------------------------------------------------
-        # Observation adapter and policy
-        # ---------------------------------------------------------------
-
-        adapter = (
-            RMAPPOObservationAdapter.from_config(
-                data
-            )
-        )
-
-        runner = MAPPOPolicyRunner.from_config(
-            data,
-            device,
-            obs_dim=adapter.obs_dim,
-            target_feature_dim=(
-                adapter.target_feature_dim
-            ),
-        )
-
-        policy = runner.policy
-
-        logger.info(
-            "Created observation adapter: "
-            "obs_dim=%d target_feature_dim=%d "
-            "max_enemy_slots=%d",
-            adapter.obs_dim,
-            adapter.target_feature_dim,
-            adapter.max_enemy_slots,
-        )
-
-        logger.info(
-            "Created policy runner: "
-            "agents=%d actions=%d team_id=%d",
-            adapter.num_agents,
-            adapter.action_dim,
-            adapter.training_team_id,
-        )
-
-        # ---------------------------------------------------------------
-        # Environment pool
-        # ---------------------------------------------------------------
-
-        logger.info(
-            "Creating EnvironmentPool"
-        )
+        logger.info("Creating EnvironmentPool")
 
         pool.initialize_environements()
 
         if not pool.environments:
-            raise RuntimeError(
-                "EnvironmentPool contains "
-                "no environments."
-            )
+            raise RuntimeError("EnvironmentPool contains no environments.")
 
         logger.info(
             "EnvironmentPool created with "
             "%d environment(s)",
             len(pool.environments),
         )
+        # ---------------------------------------------------------------
+        # Observation adapter and policy
+        # ---------------------------------------------------------------
 
-        # Aktuell wird nur die erste Umgebung verwendet.
-        environment = pool.environments[0]
+        adapters = pool.create_adapters()
+
+        runner = MAPPOPolicyRunner.from_config(
+            data,
+            device,
+            obs_dim=data["obs_dim"],
+            target_feature_dim=(
+                adapters[0].target_feature_dim
+            ),
+        )
+
+        policy = runner.policy
+
+        logger.info(
+                    "Created policy runner: "
+                    "agents=%d actions=%d team_id=%d",
+                    data["num_agents"],
+                    data["action_dim"],
+                    data["training_team_id"],
+                )
 
         # ---------------------------------------------------------------
         # Configuration validation
@@ -591,14 +565,14 @@ def main() -> None:
         # ---------------------------------------------------------------
 
         buffer = RolloutBuffer(
-            num_agents=adapter.num_agents,
+            num_agents=data["number_of_agents"],
             obs_shape=(
-                adapter.obs_dim,
+                data["obs_dim"],
             ),
             action_shape=(2,),
             buffer_size=buffer_size,
             device=device,
-            action_dim=adapter.action_dim,
+            action_dim=data["action_dimension"],
         )
 
         logger.info(
@@ -646,7 +620,7 @@ def main() -> None:
             # Reset
             # -----------------------------------------------------------
 
-            obs_raw, reset_info = environment.reset()
+            obs_raw = pool.reset_environments()    
 
             if not isinstance(obs_raw, dict):
                 raise TypeError(
@@ -654,55 +628,13 @@ def main() -> None:
                     f"as a dictionary, got {type(obs_raw).__name__}."
                 )
 
-            if not isinstance(reset_info, dict):
-                raise TypeError(
-                    "BAR_Environment.reset() must return info as a dictionary, "
-                    f"got {type(reset_info).__name__}."
-                )
-
-            adapter.reset_episode(obs_raw)
-
-            prepared = adapter.prepare(
-                obs_raw=obs_raw,
-            )
-
-            logger.debug(
-                "Episode %d stable unit slots: %s",
-                episode_number,
-                adapter.agent_unit_ids,
-            )
-
-            episode_reward = 0.0
-            done = False
-            terminated = False
-            truncated = False
-            step_count = 0
-
-            action_counts = np.zeros(
-                adapter.action_dim,
-                dtype=np.int64,
-            )
-            action_trace: list[
-                list[int]
-            ] = []
-
-            episode_won = False
-            episode_lost = False
-            final_ally_alive = None
-            final_enemy_alive = None
-            enemy_damage_done = 0.0
-            own_damage_taken = 0.0
-            last_info_keys: list[str] = []
-            final_step_info: dict[
-                str,
-                Any,
-            ] = {}
+            pool.prepare_step_loop(obs_raw, episode_number)
 
             (
                 rnn_states,
                 rnn_states_critic,
             ) = _make_rnn_state_arrays(
-                adapter.num_agents,
+                data["number_of_agents"],
                 recurrent_n=recurrent_n,
                 hidden_size=hidden_size,
             )
