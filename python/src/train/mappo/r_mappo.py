@@ -67,7 +67,12 @@ class R_MAPPO:
             value_loss = value_loss_original
 
         if self._use_value_active_masks:
-            value_loss = (value_loss * active_masks_batch).sum() / active_masks_batch.sum()
+            active_agent_count = active_masks_batch.sum()
+
+            value_loss = (
+                value_loss * active_masks_batch
+            ).sum() / active_agent_count.clamp_min(1.0)
+
         else:
             value_loss = value_loss.mean()
 
@@ -171,19 +176,37 @@ class R_MAPPO:
         ) * adv_targ
 
         if self._use_policy_active_masks:
+            active_agent_count = active_masks_batch.sum()
+
             policy_action_loss = (
-                -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True)
+                -torch.sum(
+                    torch.min(surr1, surr2),
+                    dim=-1,
+                    keepdim=True,
+                )
                 * active_masks_batch
-            ).sum() / active_masks_batch.sum()
+            ).sum() / active_agent_count.clamp_min(1.0)
+
         else:
             policy_action_loss = -torch.sum(
-                torch.min(surr1, surr2), dim=-1, keepdim=True
+                torch.min(surr1, surr2),
+                dim=-1,
+                keepdim=True,
             ).mean()
 
         policy_loss = policy_action_loss
+
         self.policy.actor_optimizer.zero_grad()
-        if update_actor:
-            (policy_loss - dist_entropy * self.entropy_coef).backward()
+
+        has_active_agents = bool(
+            torch.any(active_masks_batch > 0).item()
+        )
+
+        if update_actor and has_active_agents:
+            (
+                policy_loss
+                - dist_entropy * self.entropy_coef
+            ).backward()
 
         actor_parameters = (
             list(self.policy.actor.parameters())
@@ -200,7 +223,8 @@ class R_MAPPO:
                 actor_parameters
             )
 
-        self.policy.actor_optimizer.step()
+        if update_actor and has_active_agents:
+            self.policy.actor_optimizer.step()
 
         value_loss = self.cal_value_loss(
             values, value_preds_batch, return_batch, value_active_masks_batch

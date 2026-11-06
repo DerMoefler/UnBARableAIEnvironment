@@ -191,7 +191,7 @@ class RolloutBuffer:
         self.value_preds[self.step] = value_preds
         self.rewards[self.step] = rewards
         self.masks[self.step + 1] = masks
-        self.active_masks[self.step + 1] = active_masks
+        self.active_masks[self.step] = active_masks
 
         if available_actions is not None:
             available_actions = np.asarray(available_actions, dtype=np.float32)
