@@ -1,3 +1,4 @@
+from types import NoneType
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
@@ -63,9 +64,6 @@ class BAR_Environment:
         self.current_update_id = 0
         self.terminated = False
         self.truncated = False
-        
-
-        self.shared_memory_name = ""
 
         self.unit_memory = UnitMemory(
             self.training_team_id
@@ -75,13 +73,16 @@ class BAR_Environment:
     def reset(self) -> Tuple[Any, Dict[str, Any]]:
         self.terminated = False
         self.truncated = False
+        # TODO replace with pool
         if self.session == None:
             self.session = EngineSession(self.session_cfg, self.end_of_session)
             self.session.start()
-            self.shared_memory_name = "/sm_proc_" + str(self.session.proc.pid)
-            shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
             self.current_update_id = 0
-        
+
+        assert self.current_update_id is not None
+        assert self.session.shared_memory is not None
+
+        self.session.shared_memory.clear_units_and_actions()
 
         self.logger.info("Engine session started. Waiting for first handleEventUpdate...")
 
@@ -89,9 +90,9 @@ class BAR_Environment:
             previous_count=self.current_update_id,
             timeout=600.0,
         )
+
         if wait_status == "timeout":
             raise TimeoutError("Kein erstes handleEventUpdate nach reset(). Timeout.")
-
         if wait_status == "stopped":
             raise RuntimeError("gRPC server stopped unexpectedly after reset().")
 
@@ -103,8 +104,6 @@ class BAR_Environment:
         snapshot = self._read_engine_snapshot()
                 
         self.evaluate_engine_status(snapshot.status)
-
-        
 
         self.unit_memory.reset(
             snapshot.units,
@@ -121,17 +120,16 @@ class BAR_Environment:
         info["reward_state_initialized"] = self.reward_calculator.initialized
 
         observation = self.create_observation_dictionary(snapshot.units)
-        bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, info
 
     def step(self, actions: List[bar_ai.Action]):
+        assert self.current_update_id is not None
+        assert self.session is not None
 
-        shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
+        # 0) Update actions in the shared-memory
+        self.__update_actions(actions)
 
-        for action in actions:
-            shared_memory.write_action(action)
-        
         # 1) das aktuelle offene Update freigeben
         self.session.grpc_server.ack_update(self.current_update_id)
 
@@ -146,7 +144,6 @@ class BAR_Environment:
             raise RuntimeError("gRPC server stopped unexpectedly after reset().")
 
         self.current_update_id = next_update_id
-
 
         # Ein RL-Step wurde ausgeführt
         self.episode_step += 1
@@ -165,7 +162,6 @@ class BAR_Environment:
 
         stats = self._get_team_stats(snapshot.units)
 
-
         # Natural episode end:
         # z. B. alle Gegner tot oder alle eigenen Units tot.
         terminated = self.terminated
@@ -183,11 +179,6 @@ class BAR_Environment:
                 )
 
         observation = self.create_observation_dictionary(snapshot.units)
-         
-        if terminated or truncated:
-            bar_ai.SharedMemory.remove(self.shared_memory_name)
-            shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
-            self.session.grpc_server.ack_update(self.current_update_id)
 
         info = {
             "episode_step": self.episode_step,
@@ -203,9 +194,6 @@ class BAR_Environment:
             "reward": reward,
             "reward_info": self.reward_calculator.last_info,
         }
-        
-        if not terminated and not truncated:
-            bar_ai.SharedMemory.remove(self.shared_memory_name)
 
         return observation, reward, terminated, truncated, info
 
@@ -220,10 +208,6 @@ class BAR_Environment:
         Returns
         -------
         """
-        try:
-            bar_ai.SharedMemory.remove(self.shared_memory_name)
-        except Exception:
-            pass
         if self.session is not None:
             self.session.stop()
             self.session = None
@@ -315,35 +299,56 @@ class BAR_Environment:
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
-    def _read_engine_snapshot(self) -> EngineSnapshot:
-        shared_memory = bar_ai.SharedMemory.open(
-            self.shared_memory_name
-        )
+    def __update_actions(self, actions: List[bar_ai.Action]) -> None:
+        """
+        Update the actions in the shared-memory.
 
-        units = shared_memory.read_all_units()
-        statuses = shared_memory.read_all_engine_statuses()
+        Clears all action slots if there are more slots than actions provided.
+        If there are too many actions, the trailing actions will not be written.
+        This is also being logged.
 
-        if len(statuses) != 1:
-            status_names = [
-                getattr(status, "name", str(status))
-                for status in statuses
-            ]
+        Parameters
+        ----------
+        actions: List[bar_ai.Action]
+            the actions to write (update) in the shared memory
+        """
+        assert self.session is not None
+        assert self.session.shared_memory is not None
 
+        action_serializable_ids = self.session.shared_memory.get_action_ids()
+
+        num_ids = len(action_serializable_ids)
+        num_actions = len(actions)
+
+        if num_actions > num_ids:
             self.logger.error(
-                "Expected exactly one engine status, "
-                "but received %d: %s",
-                len(statuses),
-                status_names,
+                f"Received {num_actions} actions but only {num_ids} slots are available."
+                f"The last {num_actions - num_ids} will be discarded"
+            )
+        elif num_actions < num_ids:
+            self.logger.warning(
+                f"Received only {num_actions} for {num_ids} slots."
+                f"Remaining {num_actions - num_ids} will be cleared."
             )
 
-            raise RuntimeError(
-                "Expected exactly one engine status in shared memory, "
-                f"but received {len(statuses)}: {status_names}"
-            )
+        # Write provided actions (if possible)
+        for action_id, action in zip(action_serializable_ids, actions):
+            self.session.shared_memory.update_action(action_id, action)
+
+        # Clear reamining slots (if needed)
+        for action_id in action_serializable_ids[num_actions:]:
+            self.session.shared_memory.update_action(action_id, None)
+
+    def _read_engine_snapshot(self) -> EngineSnapshot:
+        assert self.session is not None
+        assert self.session.shared_memory is not None
+
+        units = self.session.shared_memory.read_all_units()
+        status = self.session.shared_memory.get_engine_status()
 
         return EngineSnapshot(
             units=units,
-            status=statuses[0],
+            status=status,
         )
 
     def evaluate_engine_status(

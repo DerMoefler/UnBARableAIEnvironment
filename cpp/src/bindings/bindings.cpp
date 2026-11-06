@@ -1,5 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <ranges>
+#include <type_traits>
 
 #include "../../include/UnBARableAI/action.h"
 #include "../../include/UnBARableAI/engine_status.h"
@@ -56,7 +58,8 @@ PYBIND11_MODULE(bar_ai, m) {
     // -------------------------
 
     py::class_<GrpcConnection>(m, "GrpcConnection")
-        .def(py::init([](const std::uint16_t port) { return GrpcConnection{port}; }))
+        .def(py::init(
+            [](const std::uint16_t port) -> GrpcConnection { return GrpcConnection{port}; }))
         .def_readwrite("port", &GrpcConnection::port);
 
     // -------------------------
@@ -112,19 +115,39 @@ PYBIND11_MODULE(bar_ai, m) {
                     py::arg("initial_num_enemy_units"))
         .def_static("open", &BarSharedMemory::open, py::arg("name"))
         .def_static("remove", &BarSharedMemory::remove, py::arg("name"))
-        .def("getName", &BarSharedMemory::getName)
-        .def("clearUnitsAndActions", &BarSharedMemory::clearUnitsAndActions)
-        //
-        //        .def("write_action", &BarSharedMemory::writeAction, py::arg("action"))
-        //
-        //        .def("write_unit_data", &BarSharedMemory::writeUnitData, py::arg("unit_data"))
+        .def("get_name", &BarSharedMemory::getName)
+        .def("clear_units_and_actions", &BarSharedMemory::clearUnitsAndActions)
+        .def("get_unit_data_ids",
+             [](const BarSharedMemory& shm) -> std::vector<BarSharedMemory::SerializableId> {
+                 return shm.getIdsForType(std::type_identity<BarSharedMemory::UnitDataOpt>{});
+             })
+        .def("get_action_ids",
+             [](const BarSharedMemory& shm) -> std::vector<BarSharedMemory::SerializableId> {
+                 return shm.getIdsForType(std::type_identity<BarSharedMemory::ActionOpt>{});
+             })
+        .def("update_unit_data", &BarSharedMemory::updateUnitData, py::arg("unit_serializable_id"),
+             py::arg("unit_data"))
+        .def("update_action", &BarSharedMemory::updateAction, py::arg("action_serializable_id"),
+             py::arg("action"))
+        .def("get_engine_status", &BarSharedMemory::getEngineStatus)
+        .def("read_all_units",
+             [](const BarSharedMemory& shm) -> std::vector<UnitData> {
+                 auto unitOpts = shm.readAll<BarSharedMemory::UnitDataOpt>();
+
+                 std::vector<UnitData> result;
+                 result.reserve(unitOpts.size());
+
+                 for (auto& unit :
+                      unitOpts | std::views::filter([](const auto& u) { return u.has_value(); })) {
+                     result.push_back(std::move(*unit));
+                 }
+
+                 return result;
+             })
         //
         //        .def("write_engine_status", &BarSharedMemory::writeEngineStatus,
         //        py::arg("status"))
         //
-        //        .def("read_all_units",
-        //             [](BarSharedMemory& sharedMemory) { return sharedMemory.readAll<UnitData>();
-        //             })
         //
         //        .def("read_all_engine_statuses",
         //             [](BarSharedMemory& sharedMemory) { return
