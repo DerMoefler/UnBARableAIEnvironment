@@ -4,6 +4,7 @@ from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES,
 from src.environment.reward import RewardCalculator
 from src.environment.unit_data_memory import UnitMemory
 from src.utils.logger_factory import get_file_logger, get_null_logger
+from src.environment.startscript_builder import StartScriptConfig
 
 import json
 import numpy as np
@@ -30,7 +31,8 @@ class BAR_Environment:
         config_path: Optional[Path] = None,
         environment_id: Optional[int] = 0
     ):
-        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0)
+        startscript_config = StartScriptConfig()
+        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0, startscript_config=(startscript_config))
         self.session: Optional[EngineSession] = None
 
         logger_name = f"environment{environment_id}"

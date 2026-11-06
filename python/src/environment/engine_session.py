@@ -8,23 +8,9 @@ from src.environment.grpc_server import UnBARableAIGRPCServer
 import subprocess
 import threading
 from typing import Optional, Dict, Any, List, Callable
-from src.environment.startscript_builder import StartScriptConfig, EngineMode
+from src.environment.startscript_builder import StartScriptConfig, EngineMode, StartScriptBuilder
 
 logger = logging.getLogger(__name__)
-
-
-
-@dataclass(frozen=True)
-class EngineSessionFactory:
-    startscript_config: StartScriptConfig
-
-    def __call__(self, engine_id: int) -> EngineSession:
-        session_config = EngineSessionConfig(
-            engine_id=engine_id,
-            startscript_config=self.startscript_config,
-        )
-
-        return EngineSession(cfg=session_config)
 
 
 
@@ -371,3 +357,16 @@ class EngineSession:
                 self._stderr_handle.close()
         finally:
             self._stderr_handle = None
+
+
+@dataclass(frozen=True)
+class EngineSessionFactory:
+    startscript_config: StartScriptConfig
+
+    def __call__(self, engine_id: int) -> EngineSession:
+        session_config = EngineSessionConfig(
+            engine_id=engine_id,
+            startscript_config=self.startscript_config,
+        )
+
+        return EngineSession(cfg=session_config)
