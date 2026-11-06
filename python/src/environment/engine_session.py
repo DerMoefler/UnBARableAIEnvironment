@@ -90,6 +90,8 @@ class EngineSession:
         if self.is_running():
             return self.info()
 
+        self._create_startscript()
+
         cmd = self._get_build_cmd()
 
         stdout = self._resolve_stream(self.stdout)
@@ -122,6 +124,23 @@ class EngineSession:
 
         logger.info("Engine process started: %s", pformat(self.info()))
         return self.info()
+
+
+    def _create_startscript(self) -> None:
+        builder = StartScriptBuilder(
+            self.cfg.startscript_config
+        )
+
+        startscript_path = builder.write(
+            self.cfg.startscript
+        )
+
+        logger.info(
+            "Created %s startscript for engine %03d: %s",
+            self.cfg.startscript_config.mode.value,
+            self.cfg.engine_id,
+            startscript_path,
+        )
 
     def stop(self) -> None:
         """

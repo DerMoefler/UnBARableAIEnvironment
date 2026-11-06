@@ -20,6 +20,18 @@
         "position_scale": 1000.0
     },
 
+    "engine": {
+        "mode": "training",
+        "unit": "armpw",
+        "spawn_spacing": 80,
+
+        "ai_options": {
+            "update_interval_frames": 2,
+            "move_step_size": 100.0,
+            "first_update_frame": 2
+        }
+    },
+
     "logging": {
         "level": "INFO",
         "modules": {
