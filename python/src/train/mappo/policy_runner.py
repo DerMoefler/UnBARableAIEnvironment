@@ -79,12 +79,9 @@ class MAPPOPolicyRunner:
         obs_dim: int,
         target_feature_dim: int,
     ) -> MAPPOPolicyRunner:
-        """
-        Construct a policy and runner from the training configuration.
+        training_config = config["training"]
+        mappo_config = training_config["mappo"]
 
-        Observation dimensions come from RMAPPOObservationAdapter
-        instead of being duplicated in the configuration.
-        """
         num_agents = int(
             config["number_of_agents"]
         )
@@ -100,11 +97,9 @@ class MAPPOPolicyRunner:
             action_dim,
             device=device,
             lr=float(
-                config["learning_rate"]
+                mappo_config["learning_rate"]
             ),
-            target_feature_dim=(
-                target_feature_dim
-            ),
+            target_feature_dim=target_feature_dim,
         )
 
         return cls(
@@ -113,12 +108,8 @@ class MAPPOPolicyRunner:
             num_agents=num_agents,
             action_dim=action_dim,
             obs_dim=obs_dim,
-            target_feature_dim=(
-                target_feature_dim
-            ),
-            training_team_id=(
-                training_team_id
-            ),
+            target_feature_dim=target_feature_dim,
+            training_team_id=training_team_id,
         )
 
     def act(

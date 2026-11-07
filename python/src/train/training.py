@@ -116,7 +116,7 @@ def _episode_metrics(
 
 def load_training_config(
     path: Path,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     with path.open(
         "r",
         encoding="utf-8",
@@ -125,11 +125,25 @@ def load_training_config(
 
     if not isinstance(config, dict):
         raise ValueError(
-            "Training configuration must be "
-            "a JSON object."
+            "Training configuration must be a JSON object."
         )
 
-    return config
+    training_config = config.get("training")
+
+    if not isinstance(training_config, dict):
+        raise ValueError(
+            "Training configuration must contain a "
+            "'training' JSON object."
+        )
+
+    mappo_config = training_config.get("mappo")
+
+    if not isinstance(mappo_config, dict):
+        raise ValueError(
+            "'training.mappo' must be a JSON object."
+        )
+
+    return config, training_config, mappo_config
 
 
 def configure_logging(
@@ -375,7 +389,7 @@ def main() -> None:
         "3v3Test.json"
     )
 
-    data = load_training_config(
+    config, training_config, mappo_config = load_training_config(
         config_path
     )
 
@@ -384,13 +398,13 @@ def main() -> None:
     )
 
     configure_logging(
-        config=data,
+        config=config,
         timestamp=timestamp,
     )
 
     logger.info("Starting training")
 
-    device = _select_device(data)
+    device = _select_device(config)
 
     device_description = (
         torch.cuda.get_device_name(device)
@@ -405,7 +419,7 @@ def main() -> None:
 
     run_directory = (
         Path("src/train/experiments")
-        / data["run_name"]
+        / config["run_name"]
         / "run"
     )
 
@@ -416,7 +430,7 @@ def main() -> None:
 
     logger.info(
         "run_name=%s",
-        data["run_name"],
+        config["run_name"],
     )
     logger.info(
         "run_directory=%s",
@@ -436,12 +450,12 @@ def main() -> None:
 
         adapter = (
             RMAPPOObservationAdapter.from_config(
-                data
+                config
             )
         )
 
         runner = MAPPOPolicyRunner.from_config(
-            data,
+            config,
             device,
             obs_dim=adapter.obs_dim,
             target_feature_dim=(
@@ -498,10 +512,10 @@ def main() -> None:
         # ---------------------------------------------------------------
 
         maximum_steps = int(
-            data["maximum_steps"]
+            training_config["maximum_steps"]
         )
         buffer_size = int(
-            data["buffer_size"]
+            training_config["buffer_size"]
         )
 
         if maximum_steps <= 0:
@@ -518,7 +532,7 @@ def main() -> None:
                 f"maximum_steps={maximum_steps}."
             )
 
-        continue_training = data.get(
+        continue_training = training_config.get(
             "continue_training"
         )
 
@@ -580,7 +594,7 @@ def main() -> None:
 
         trainer_args = TrainerArgs()
         trainer_args.num_mini_batch = int(
-            data["mini_batch"]
+            training_config["mini_batch"]
         )
 
         trainer = R_MAPPO(
@@ -594,7 +608,7 @@ def main() -> None:
 
         final_episode = (
             start_episode
-            + int(data["episodes"])
+            + int(training_config["episodes"])
         )
 
         # ---------------------------------------------------------------
@@ -1006,7 +1020,7 @@ def main() -> None:
                 buffer.compute_returns(
                     next_value,
                     gamma=float(
-                        data["gamma"]
+                        mappo_config.get("gamma")
                     ),
                 )
             except TypeError:
@@ -1141,7 +1155,7 @@ def main() -> None:
             # -----------------------------------------------------------
 
             save_interval = int(
-                data["save_every_x_episode"]
+                training_config["save_every_x_episode"]
             )
 
             if (

@@ -18,7 +18,7 @@ class EnvironmentPool:
     def initialize_environements(self):
         logging.info("Initializing Environments")
         self.environments = []
-        for i in range(self.data["number_of_environments"]):
+        for i in range(self.data["training"]["number_of_environments"]):
             self.environments.append(BAR_Environment(training_team_id=self.data["training_team_id"], environment_id=i, config_path=self.path))
 
     def close_environements(self):

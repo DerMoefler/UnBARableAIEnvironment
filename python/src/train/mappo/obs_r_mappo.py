@@ -131,7 +131,7 @@ class RMAPPOObservationAdapter:
         Create an adapter from the central training configuration.
         """
         observation_config = config.get(
-            "observation"
+            "adapter"
         )
 
         if not isinstance(
@@ -140,11 +140,12 @@ class RMAPPOObservationAdapter:
         ):
             raise ValueError(
                 "Configuration must contain an "
-                "'observation' object."
+                "'adapter' object."
             )
 
         required_root_keys = {
             "number_of_agents",
+            "number_of_enemies",
             "action_dimension",
             "training_team_id",
         }
@@ -160,7 +161,6 @@ class RMAPPOObservationAdapter:
             )
 
         required_observation_keys = {
-            "max_enemy_slots",
             "position_scale",
         }
 
@@ -188,8 +188,8 @@ class RMAPPOObservationAdapter:
                 config["training_team_id"]
             ),
             max_enemy_slots=int(
-                observation_config[
-                    "max_enemy_slots"
+                config[
+                    "number_of_enemies"
                 ]
             ),
             position_scale=float(
