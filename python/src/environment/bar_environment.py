@@ -180,6 +180,10 @@ class BAR_Environment:
 
         observation = self.create_observation_dictionary(snapshot.units)
 
+        if terminated or truncated:
+            assert self.current_update_id is not None
+            self.session.grpc_server.ack_update(self.current_update_id)
+
         info = {
             "episode_step": self.episode_step,
             "own_alive_count": stats["own_alive_count"],
