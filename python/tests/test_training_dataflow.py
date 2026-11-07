@@ -220,29 +220,50 @@ def test_training_dataflow_one_mappo_update():
             "src/train/experiments/3v3Test/3v3Test.json"
         )
 
-        config = training.load_training_config(
-            config_path
-        ).copy()
+        config, training_config, mappo_config = (
+            training.load_training_config(
+                config_path
+            )
+        )
+
+        config = config.copy()
+        training_config = training_config.copy()
+        mappo_config = mappo_config.copy()
+
+        training_config["mappo"] = mappo_config
+        config["training"] = training_config
         config.update(
             {
                 "run_name": "dataflow_test",
                 "device": "cpu",
+                "model_name": "r_mappo_latest.pt",
                 "number_of_agents": 3,
-                "number_of_environments": 1,
-                "buffer_size": 1,
-                "maximum_steps": 1,
-                "mini_batch": 1,
-                "episodes": 1,
-                "save_every_x_episode": 0,
-                "continue_training": False,
+                "number_of_enemies": 3,
                 "training_team_id": 0,
                 "action_dimension": 5,
-                "learning_rate": 1e-4,
-                "gamma": 0.99,
-                "observation": {
-                    "max_enemy_slots": 3,
+                "adapter": {
                     "position_scale": 1000.0,
                 },
+            }
+        )
+
+        training_config.update(
+            {
+                "continue_training": False,
+                "buffer_size": 1,
+                "mini_batch": 1,
+                "episodes": 1,
+                "number_of_environments": 1,
+                "number_of_engines": 1,
+                "save_every_x_episode": 0,
+                "maximum_steps": 1,
+            }
+        )
+
+        mappo_config.update(
+            {
+                "learning_rate": 1e-4,
+                "gamma": 0.99,
             }
         )
 
@@ -250,7 +271,11 @@ def test_training_dataflow_one_mappo_update():
             patch.object(
                 training,
                 "load_training_config",
-                side_effect=lambda path: config.copy(),
+                return_value=(
+                    config,
+                    training_config,
+                    mappo_config,
+                ),
             )
         )
         #DEBUG
