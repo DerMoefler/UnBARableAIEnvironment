@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from logging import config
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from src.environment.episode_outcome import EpisodeOutcome
+from src.environment.unit_data_memory import UnitMemory
+import bar_ai
 
 import numpy as np
 
@@ -22,7 +24,8 @@ class RewardCalculator:
     """Calculates training rewards from per-step team statistics."""
     
 
-    def __init__(self, config: Optional[RewardConfig] = None) -> None:
+    def __init__(self, training_team_id: int, config: Optional[RewardConfig] = None) -> None:
+        self.training_team_id = training_team_id
         self.config = config if config is not None else RewardConfig()
         self.prev_own_health_sum = 0.0
         self.prev_enemy_health_sum = 0.0
@@ -30,9 +33,14 @@ class RewardCalculator:
         self.prev_enemy_alive_count = 0
         self.initialized = False
         self.last_info: Dict[str, Any] = {}
+        self.unit_memory = UnitMemory(self.training_team_id)
 
-    def reset(self, stats: Dict[str, Any]) -> None:
+    def reset(self, units: List[bar_ai.UnitData]) -> None:
         """Set the initial reward baseline for an episode."""
+
+        self.unit_memory.reset(units)
+        stats = self._get_team_stats(units)
+
         self.prev_own_health_sum = stats["own_health_sum"]
         self.prev_enemy_health_sum = stats["enemy_health_sum"]
         self.prev_own_alive_count = stats["own_alive_count"]
@@ -44,13 +52,17 @@ class RewardCalculator:
 
     def calculate(
         self,
-        stats: Dict[str, Any],
+        units: List[bar_ai.UnitData],
         *,
         terminated: bool = False,
         truncated: bool = False,
         outcome: Optional[EpisodeOutcome] = None,
     ) -> float:
         """Calculate a clipped reward and retain its component diagnostics."""
+
+        self.unit_memory.update(units)
+        stats = self._get_team_stats(units)
+
         own_health_sum = stats["own_health_sum"]
         enemy_health_sum = stats["enemy_health_sum"]
         own_alive_count = stats["own_alive_count"]
@@ -118,6 +130,34 @@ class RewardCalculator:
         )
         return clipped_reward
 
+    def _get_team_stats(
+            self,
+            current_units: List[bar_ai.UnitData],
+        ) -> Dict[str, Any]:
+    
+            own_alive = [
+                unit
+                for unit in current_units
+                if int(unit.team_id) == self.training_team_id
+                and not bool(unit.is_dead)
+                and float(unit.health) > 0.0
+            ]
+    
+            remembered_enemy_alive = self.unit_memory.get_alive_units()
+    
+            return {
+                "own_health_sum": float(sum(
+                    max(0.0, float(unit.health))
+                    for unit in own_alive
+                )),
+                "enemy_health_sum": float(sum(
+                    max(0.0, float(unit.health))
+                    for unit in remembered_enemy_alive
+                )),
+                "own_alive_count": len(own_alive),
+                "enemy_alive_count": len(remembered_enemy_alive),
+            }
+    
     @staticmethod
     def _make_info(
         stats: Dict[str, Any],
