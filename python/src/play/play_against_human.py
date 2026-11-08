@@ -20,9 +20,8 @@ CONFIG_PATH = Path(
     "src/play/config/3v3Test.json"
 )
 
-CHECKPOINT_PATH = Path(
+MODELS_PATH = Path(
     "src/train/experiments/3v3Test/run/"
-    "r_mappo_latest.pt"
 )
 
 
@@ -87,6 +86,8 @@ def main() -> None:
             "Set engine.mode to "
             "'play_against_human' in the configuration."
         )
+
+    CHECKPOINT_PATH = MODELS_PATH / config["model_name"]
 
     if not CHECKPOINT_PATH.is_file():
         raise FileNotFoundError(

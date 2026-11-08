@@ -79,8 +79,8 @@ class MAPPOPolicyRunner:
         obs_dim: int,
         target_feature_dim: int,
     ) -> MAPPOPolicyRunner:
-        training_config = config["training"]
-        mappo_config = training_config["mappo"]
+        training_config = config.get("training", {})
+        mappo_config = training_config.get("mappo", {})
 
         num_agents = int(
             config["number_of_agents"]
@@ -92,13 +92,15 @@ class MAPPOPolicyRunner:
             config["training_team_id"]
         )
 
+        learing_rate = float(
+            mappo_config.get("learning_rate", 0.0001)
+        )
+
         policy = R_MAPPO_Policy(
             obs_dim,
             action_dim,
             device=device,
-            lr=float(
-                mappo_config["learning_rate"]
-            ),
+            lr=learing_rate,
             target_feature_dim=target_feature_dim,
         )
 
