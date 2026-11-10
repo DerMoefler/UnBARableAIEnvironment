@@ -69,7 +69,7 @@ class RewardCalculator:
         own_alive_count = stats["own_alive_count"]
         enemy_alive_count = stats["enemy_alive_count"]
 
-        if own_alive_count == 0 and enemy_alive_count == 0:
+        if (own_alive_count == 0 and enemy_alive_count == 0 and not terminated and not truncated):
             self.initialized = False
             self.last_info = self._make_info(stats, False)
             return 0.0
