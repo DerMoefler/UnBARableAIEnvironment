@@ -9,24 +9,25 @@ import numpy as np
 
 @dataclass
 class RewardConfig:
-    damage_enemy_coef: float = 0.02
-    damage_own_coef: float = 0.01
-    enemy_kill: float = 2.0
-    own_death: float = 1.0
-    win: float = 10.0
-    loss: float = 10.0
-    time_penalty: float = 0.002
-    clip_min: float = -15.0
-    clip_max: float = 15.0
+#Default reward configuration values
+    damage_enemy_coef: float 
+    damage_own_coef: float 
+    enemy_kill: float 
+    own_death: float 
+    win: float 
+    loss: float 
+    time_penalty: float 
+    clip_min: float 
+    clip_max: float 
 
 
 class RewardCalculator:
     """Calculates training rewards from per-step team statistics."""
     
 
-    def __init__(self, training_team_id: int, config: Optional[RewardConfig] = None) -> None:
+    def __init__(self, training_team_id: int, config: RewardConfig) -> None:
         self.training_team_id = training_team_id
-        self.config = config if config is not None else RewardConfig()
+        self.config = config
         self.prev_own_health_sum = 0.0
         self.prev_enemy_health_sum = 0.0
         self.prev_own_alive_count = 0

@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
-from src.environment.reward import RewardCalculator
+from src.environment.reward import RewardCalculator, RewardConfig
 from src.utils.logger_factory import get_file_logger, get_null_logger
 from src.environment.startscript_builder import StartScriptConfig
 
@@ -33,14 +33,45 @@ class BAR_Environment:
         self.session: Optional[EngineSession] = None
 
         logger_name = f"environment{environment_id}"
+
         if config_path is not None:
-            with open(config_path,"r") as config_data:
+            with open(config_path, "r") as config_data:
                 self.data = json.load(config_data)
+
+            reward_data = self.data.get("reward")
+
+            if not isinstance(reward_data, dict):
+                raise ValueError(
+                    "Missing or invalid 'reward' configuration in startconfig.json."
+                )
+
+            try:
+                reward_config = RewardConfig(**reward_data)
+            except TypeError as exc:
+                raise ValueError(
+                    f"Invalid reward configuration in startconfig.json: {exc}"
+                ) from exc
 
             run_name = self.data["run_name"]
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            self.logger = get_file_logger(logger_name, Path(f"src/train/experiments/{run_name}/{run_name}_environment{environment_id}_{timestamp}.log"))
+
+            self.logger = get_file_logger(
+                logger_name,
+                Path(
+                    f"src/train/experiments/{run_name}/"
+                    f"{run_name}_environment{environment_id}_{timestamp}.log"
+                )
+            )
+
+            # ADD DEBUG OUTPUT HERE
+            self.logger.info(
+                "[REWARD CONFIG] Environment %s | Loaded values: %s",
+                environment_id,
+                reward_config,
+            )
+
             startscript_config = StartScriptConfig.from_config(self.data)
+
         else:
             self.logger = get_null_logger(logger_name)
             startscript_config = StartScriptConfig()
@@ -58,7 +89,12 @@ class BAR_Environment:
 
 
         self.reward_calculator = (
-            reward_calculator if reward_calculator is not None else RewardCalculator(training_team_id=self.training_team_id)
+            reward_calculator
+            if reward_calculator is not None
+            else RewardCalculator(
+                training_team_id=self.training_team_id,
+                config=reward_config,
+            )
         )
 
         self.current_update_id = 0

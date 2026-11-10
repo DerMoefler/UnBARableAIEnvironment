@@ -7,6 +7,18 @@
     "number_of_enemies"     : 3,
     "training_team_id"      : 0,
     "action_dimension"      : 5,
+
+    "reward": {
+    "damage_enemy_coef": 0.02,
+    "damage_own_coef": 0.01,
+    "enemy_kill": 2.0,
+    "own_death": 1.0,
+    "win": 10.0,
+    "loss": 10.0,
+    "time_penalty": 0.002,
+    "clip_min": -15.0,
+    "clip_max": 15.0
+    },
     
     "training": {
         "continue_training"     : false,
