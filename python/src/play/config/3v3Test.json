@@ -12,24 +12,14 @@
         "position_scale": 1000.0
     },
 
-
-    "reward": {
-    "damage_enemy_coef": 0.04,
-    "damage_own_coef": 0.005,
-    "enemy_kill": 5.0,
-    "own_death": 1.0,
-    "win": 10.0,
-    "loss": 10.0,
-    "time_penalty": 0.003,
-    "clip_min": -15.0,
-    "clip_max": 15.0
-    },
-    
-
     "engine": {
         "mode": "play_against_human",
         "unit": "armpw",
         "spawn_spacing": 80,
+
+        "human_player": {
+            "name": "LukasOskar"
+        },
 
         "ai_options": {
             "update_interval_frames": 2,

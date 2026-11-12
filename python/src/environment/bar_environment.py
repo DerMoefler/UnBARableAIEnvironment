@@ -33,24 +33,11 @@ class BAR_Environment:
         self.session: Optional[EngineSession] = None
 
         logger_name = f"environment{environment_id}"
+        reward_config = RewardConfig()
 
         if config_path is not None:
             with open(config_path, "r") as config_data:
                 self.data = json.load(config_data)
-
-            reward_data = self.data.get("reward")
-
-            if not isinstance(reward_data, dict):
-                raise ValueError(
-                    "Missing or invalid 'reward' configuration in startconfig.json."
-                )
-
-            try:
-                reward_config = RewardConfig(**reward_data)
-            except TypeError as exc:
-                raise ValueError(
-                    f"Invalid reward configuration in startconfig.json: {exc}"
-                ) from exc
 
             run_name = self.data["run_name"]
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -63,7 +50,28 @@ class BAR_Environment:
                 )
             )
 
-            # ADD DEBUG OUTPUT HERE
+            reward_data = self.data.get("reward")
+
+            if reward_data is None:
+                self.logger.warning(
+                    "No reward configuration found. Using default values: %s",
+                    reward_config,
+                )
+            elif not isinstance(reward_data, dict):
+                self.logger.warning(
+                    "Invalid reward configuration. Expected a dictionary, got %s. "
+                    "Using default values: %s",
+                    type(reward_data).__name__,
+                    reward_config,
+                )
+            else:
+                try:
+                    reward_config = RewardConfig(**reward_data)
+                except TypeError as exc:
+                    raise ValueError(
+                        f"Invalid reward configuration in startconfig.json: {exc}"
+                    ) from exc
+            
             self.logger.info(
                 "[REWARD CONFIG] Environment %s | Loaded values: %s",
                 environment_id,
@@ -75,7 +83,6 @@ class BAR_Environment:
         else:
             self.logger = get_null_logger(logger_name)
             startscript_config = StartScriptConfig()
-            reward_config = RewardConfig()
 
         self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0, startscript_config=(startscript_config))
         # Episode tracking

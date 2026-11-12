@@ -15,6 +15,7 @@ class StartScriptConfig:
     mode: EngineMode = EngineMode.TRAINING
 
     number_of_agents: int = 3
+    number_of_enemies: int = 3
     unit: str = "armpw"
     spawn_spacing: int = 80
 
@@ -30,7 +31,7 @@ class StartScriptConfig:
         config: Mapping[str, Any],
     ) -> "StartScriptConfig":
         engine_config = config.get("engine", {})
-        ai_config = engine_config.get("unbarable_ai", {})
+        ai_config = engine_config.get("ai_options", {})
         human_config = engine_config.get("human_player", {})
 
         raw_mode = engine_config.get(
@@ -52,6 +53,7 @@ class StartScriptConfig:
         startscript_config = cls(
             mode=mode,
             number_of_agents=config["number_of_agents"],
+            number_of_enemies=config["number_of_enemies"],
             unit=engine_config.get("unit", "armpw"),
             spawn_spacing=engine_config.get(
                 "spawn_spacing",
@@ -82,6 +84,11 @@ class StartScriptConfig:
         if self.number_of_agents < 1:
             raise ValueError(
                 "number_of_agents must be at least 1"
+            )
+
+        if self.number_of_enemies < 1:
+            raise ValueError(
+                "number_of_enemies must be at least 1"
             )
 
         if not self.unit or not self.unit.strip():
@@ -250,8 +257,12 @@ class StartScriptBuilder:
             max_speed = "20"
             start_speed = "1"
 
-        spawn = (
+        agent_spawn = (
             f"{self.cfg.unit}:{self.cfg.number_of_agents}"
+        )
+
+        enemy_spawn = (
+            f"{self.cfg.unit}:{self.cfg.number_of_enemies}"
         )
 
         return f"""\
@@ -262,10 +273,10 @@ class StartScriptBuilder:
         startSpeed = {start_speed};
         deathmode = killall;
 
-        rl_team1_spawn = {spawn};
+        rl_team1_spawn = {agent_spawn};
         rl_team1_allowed = {self.cfg.unit};
 
-        rl_team2_spawn = {spawn};
+        rl_team2_spawn = {enemy_spawn};
         rl_team2_allowed = {self.cfg.unit};
 
         rl_spawn_spacing = {self.cfg.spawn_spacing};
