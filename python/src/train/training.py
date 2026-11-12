@@ -994,19 +994,10 @@ def main() -> None:
                     )
                 )
 
-            try:
-                buffer.compute_returns(
-                    next_value,
-                    gamma=float(
-                        mappo_config.get("gamma")
-                    ),
-                )
-            except TypeError:
-                # Kompatibilität mit älterer
-                # RolloutBuffer-Signatur.
-                buffer.compute_returns(
-                    next_value
-                )
+            buffer.compute_returns(
+                next_value,
+                gamma=float(mappo_config["gamma"]),
+            )
 
             # -----------------------------------------------------------
             # PPO update
