@@ -937,37 +937,15 @@ def main() -> None:
                 # Prepare next state
                 # -------------------------------------------------------
 
-                next_prepared: (
-                    PreparedStep | None
-                ) = None
-
-                if next_obs_raw is not None:
-                    next_prepared = adapter.prepare(
-                        obs_raw=next_obs_raw,
+                if not isinstance(next_obs_raw, dict):
+                    raise TypeError(
+                        "BAR_Environment.step() must return the observation "
+                        f"as a dictionary, got {type(next_obs_raw).__name__}."
                     )
 
-                if not done:
-                    if next_prepared is None:
-                        raise RuntimeError(
-                            "Environment returned no "
-                            "observation while the episode "
-                            "is still running."
-                        )
-
-                    prepared = next_prepared
-
-                elif truncated:
-                    # Für korrektes Bootstrap bei Truncation
-                    # wird der Zustand nach dem letzten Step
-                    # benötigt.
-                    if next_prepared is None:
-                        raise RuntimeError(
-                            "A truncated episode must "
-                            "return a final observation "
-                            "for value bootstrapping."
-                        )
-
-                    prepared = next_prepared
+                prepared = adapter.prepare(
+                    obs_raw=next_obs_raw,
+                )
 
                 if done:
                     rnn_states[:] = 0.0
