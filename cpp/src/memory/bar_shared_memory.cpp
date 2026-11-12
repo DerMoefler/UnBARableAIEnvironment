@@ -100,9 +100,13 @@ void BarSharedMemory::clearUnitsAndActions(void) {
     clearType(std::type_identity<UnitDataOpt>{});
 }
 
-auto BarSharedMemory::getEmptyUnitSlot(void) const -> std::optional<SerializableId> {
+auto BarSharedMemory::getEmptyUnitSlot(const std::set<SerializableId>& excludeIds) const
+    -> std::optional<SerializableId> {
     const auto unitIds = getIdsForType(std::type_identity<UnitDataOpt>{});
     for (const auto id : unitIds) {
+        if (excludeIds.contains(id)) {
+            continue;
+        }
         auto unit = std::get<UnitDataOpt>(m_sharedMemory.read(id));
         if (!unit.has_value()) {
             return id;

@@ -224,9 +224,14 @@ public:
 
     /**
      * \brief Get a SerializableId for a UnitDataOpt that is empty, i.e. contains std::nullopt.
+     * \param excludeIds A set of Ids that should be excluded from the search.
      * \returns A SerializableId or std::nullopt if all UnitDataOpt Serializables contain data.
+     *
+     * The \p exlucdeIds param is useful if you already assigned an empty unit slot to some unit but
+     * have not actually yet written it.
      */
-    std::optional<SerializableId> getEmptyUnitSlot(void) const;
+    std::optional<SerializableId> getEmptyUnitSlot(
+        const std::set<SerializableId>& excludeIds) const;
 
     /**
      * \brief Update the engine status in the shared-memory.
