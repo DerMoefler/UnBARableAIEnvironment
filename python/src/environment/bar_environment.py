@@ -75,6 +75,7 @@ class BAR_Environment:
         else:
             self.logger = get_null_logger(logger_name)
             startscript_config = StartScriptConfig()
+            reward_config = RewardConfig()
 
         self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0, startscript_config=(startscript_config))
         # Episode tracking

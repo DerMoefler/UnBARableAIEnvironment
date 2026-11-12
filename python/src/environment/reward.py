@@ -9,16 +9,15 @@ import numpy as np
 
 @dataclass
 class RewardConfig:
-#Default reward configuration values
-    damage_enemy_coef: float 
-    damage_own_coef: float 
-    enemy_kill: float 
-    own_death: float 
-    win: float 
-    loss: float 
-    time_penalty: float 
-    clip_min: float 
-    clip_max: float 
+    damage_enemy_coef: float = 0.02
+    damage_own_coef: float = 0.01
+    enemy_kill: float = 2.0
+    own_death: float = 1.0
+    win: float = 10.0
+    loss: float = 10.0
+    time_penalty: float = 0.002
+    clip_min: float = -15.0
+    clip_max: float = 15.0
 
 
 class RewardCalculator:
