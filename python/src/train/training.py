@@ -467,7 +467,7 @@ def main() -> None:
         # ---------------------------------------------------------------
         # Observation adapter and policy, mappo specific
         # ---------------------------------------------------------------
-        if data["algorythm"] == "mappo":
+        if data["algorithm"] == "MAPPO":
             adapters = create_mappo_adapters(data["number_of_environments"], data)
 
             for i in range(len(adapters)):
@@ -492,7 +492,7 @@ def main() -> None:
                         data["training_team_id"],
                     )
         else:
-            raise RuntimeError("No proper algorythm configured")
+            raise RuntimeError("No proper algorithm configured")
 
         # ---------------------------------------------------------------
         # Configuration validation
