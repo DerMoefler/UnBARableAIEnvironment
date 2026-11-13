@@ -8,6 +8,7 @@ from typing import Any
 import torch
 
 from src.environment.bar_environment import BAR_Environment
+from src.environment.episode_outcome import EpisodeOutcome
 from src.train.mappo.obs_r_mappo import (
     RMAPPOObservationAdapter,
 )
@@ -204,14 +205,12 @@ def main() -> None:
             final_info.get("episode_outcome"),
         )
 
-        print(
-            "Match beendet:",
-            f"outcome={final_info.get('episode_outcome')},",
-            f"steps={step_count},",
-            f"terminated={terminated},",
-            f"truncated={truncated}",
-            flush=True,
-        )
+        if terminated and final_info.get("episode_outcome") == "won":
+            print("You lost the match against the AI. Better luck next time!")
+        elif terminated and final_info.get("episode_outcome") == "lost":
+             print("Congratulations! You won the match against the AI!")
+        elif truncated:
+            print("The match was truncated.")
 
     except KeyboardInterrupt:
         logging.info(
