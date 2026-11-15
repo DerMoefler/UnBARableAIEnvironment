@@ -34,12 +34,13 @@ class PoolSlot:
     state: SessionState
 
 class EngineSessionPool:
-    def __init__(self, pool_size: int, session_factory: Callable[[int], EngineSession]):
+    def __init__(self, pool_size: int, session_factory: Callable[[int], EngineSession], unbarable_ai_team_ids: tuple[int, ...]):
         self.pool_size: int = pool_size
         if self.pool_size <= 0:
             raise ValueError("Pool size must be greater than zero.")
 
         self._session_factory: Callable[[int], EngineSession] = session_factory
+        self._unbarable_ai_team_ids: tuple[int, ...] = unbarable_ai_team_ids
 
         self._is_running: bool = False
         # TODO Currently only possible to close once, after start won't work
@@ -199,12 +200,24 @@ class EngineSessionPool:
             StartScriptConfig.from_config(config)
         )
 
+        if startscript_config.self_play:
+            unbarable_ai_team_ids = (
+                startscript_config.training_team_id,
+                startscript_config.opponent_team_id,
+            )
+        else:
+            unbarable_ai_team_ids = (
+                startscript_config.training_team_id,
+            )
+
         session_factory = EngineSessionFactory(
-            startscript_config=startscript_config
+            startscript_config=startscript_config,
+            unbarable_ai_team_ids=unbarable_ai_team_ids,
         )
 
         return cls(
             pool_size=config["number_of_engines"],
             session_factory=session_factory,
+            unbarable_ai_team_ids=unbarable_ai_team_ids
         )
 

@@ -21,6 +21,7 @@ class EngineSessionConfig:
     stderr is output stream for the engine's error output, can be None (Terminal output), a file path, or subprocess.PIPE
     """
     engine_id: int
+    unbarable_ai_team_ids: tuple[int, ...]
     startscript_config: StartScriptConfig
 
     repo_root: Path = Path(__file__).resolve().parents[3]
@@ -114,16 +115,6 @@ class EngineSession:
     ):
         self.cfg: EngineSessionConfig = cfg
 
-        if self.cfg.startscript_config.self_play:
-            self.unbarable_ai_team_ids = (
-                self.cfg.startscript_config.training_team_id,
-                self.cfg.startscript_config.opponent_team_id,
-            )
-        else:
-            self.unbarable_ai_team_ids = (
-                self.cfg.startscript_config.training_team_id,
-            )
-
         self.on_exit = on_exit
 
         self.proc: Optional[subprocess.Popen] = None
@@ -137,7 +128,7 @@ class EngineSession:
 
         self.grpc_servers: Dict[int, UnBARableAIGRPCServer] = {}
 
-        for team_id in self.unbarable_ai_team_ids:
+        for team_id in cfg.unbarable_ai_team_ids:
             grpc_server = UnBARableAIGRPCServer(
                 port=50051 + team_id,
             )
@@ -422,11 +413,13 @@ class EngineSession:
 @dataclass(frozen=True)
 class EngineSessionFactory:
     startscript_config: StartScriptConfig
+    unbarable_ai_team_ids: tuple[int, ...]
 
     def __call__(self, engine_id: int) -> EngineSession:
         session_config = EngineSessionConfig(
             engine_id=engine_id,
             startscript_config=self.startscript_config,
+            unbarable_ai_team_ids=self.unbarable_ai_team_ids,
         )
 
         return EngineSession(

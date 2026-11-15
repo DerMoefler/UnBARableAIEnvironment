@@ -23,14 +23,12 @@ class BAR_Environment:
     def __init__(
         self,
         *,
-        training_team_id: int,
-        session_cfg: Optional[EngineSessionConfig] = None,
         max_episode_steps: int = 512,
         reward_calculator: Optional[RewardCalculator] = None,
         config_path: Optional[Path] = None,
         environment_id: Optional[int] = 0
     ):
-        self.session: Optional[EngineSession] = None
+        self.session: Optional[EngineSession] = None  #TODO: later handled by engine pool
 
         logger_name = f"environment{environment_id}"
         reward_config = RewardConfig()
@@ -78,13 +76,23 @@ class BAR_Environment:
                 reward_config,
             )
 
-            startscript_config = StartScriptConfig.from_config(self.data)
+            startscript_config = StartScriptConfig.from_config(self.data)  #TODO: later handled by engine pool
 
         else:
             self.logger = get_null_logger(logger_name)
-            startscript_config = StartScriptConfig()
+            startscript_config = StartScriptConfig()  #TODO: later handled by engine pool
 
-        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0, startscript_config=(startscript_config))
+        if startscript_config.self_play: #TODO: later handled by engine pool
+            unbarable_ai_team_ids = (
+                startscript_config.training_team_id,
+                startscript_config.opponent_team_id,
+            )
+        else:
+            unbarable_ai_team_ids = (
+                startscript_config.training_team_id,
+            )
+
+        self.session_cfg = EngineSessionConfig(engine_id=0, startscript_config=(startscript_config), unbarable_ai_team_ids=unbarable_ai_team_ids) #TODO: later handled by engine pool
         # Episode tracking
         # max_episode_steps begrenzt, wie viele RL-Steps eine Episode maximal laufen darf.
         # Wird dieses Limit erreicht, ist die Episode truncated.
@@ -93,7 +101,7 @@ class BAR_Environment:
         # Zähler für aktuelle Episode
         self.episode_step = 0
 
-        self.training_team_id = training_team_id
+        self.training_team_id = unbarable_ai_team_ids[0]
 
 
         self.reward_calculator = (
