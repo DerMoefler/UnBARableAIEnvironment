@@ -13,7 +13,6 @@ from src.environment.startscript_builder import StartScriptConfig, EngineMode, S
 logger = logging.getLogger(__name__)
 
 
-
 @dataclass(frozen=True)
 class EngineSessionConfig:
     """
@@ -106,9 +105,16 @@ class EngineSessionConfig:
             f"Unsupported engine mode: {mode!r}"
         )
 
+
 class EngineSession:
-    def __init__(self, cfg: EngineSessionConfig, on_exit: Optional[Callable[[int], None]] = None):
+    def __init__(
+        self,
+        cfg: EngineSessionConfig,
+        number_of_unbarable_ais: int,
+        on_exit: Optional[Callable[[int], None]] = None,
+    ):
         self.cfg: EngineSessionConfig = cfg
+        self.number_of_unbarable_ais = number_of_unbarable_ais
 
         self.on_exit = on_exit
 
@@ -120,8 +126,62 @@ class EngineSession:
         self._stderr_handle: Optional[Any] = None
 
         self._monitor_thread: Optional[threading.Thread] = None
-        self.grpc_server: UnBARableAIGRPCServer = UnBARableAIGRPCServer()
-        self.grpc_server.start()
+
+        self.grpc_servers: Dict[int, UnBARableAIGRPCServer] = {}
+
+        for team_id in range(self.number_of_unbarable_ais):
+            grpc_server = UnBARableAIGRPCServer(
+                port=50051 + team_id,
+            )
+            grpc_server.start()
+            self.grpc_servers[team_id] = grpc_server
+
+    def wait_for_next_update(
+        self,
+        team_id: int,
+        previous_count: int,
+        timeout: Optional[float] = None,
+    ) -> int:
+        if team_id not in self.grpc_servers:
+            raise ValueError(
+                f"No gRPC server configured for team_id={team_id}"
+            )
+
+        wait_status, update_id = self.grpc_servers[
+            team_id
+        ].wait_for_next_update(
+            previous_count=previous_count,
+            timeout=timeout,
+        )
+
+        if wait_status == "timeout":
+            raise TimeoutError(
+                f"No handleEventUpdate for team_id={team_id}. Timeout."
+            )
+
+        if wait_status == "stopped":
+            raise RuntimeError(
+                f"gRPC server for team_id={team_id} stopped unexpectedly."
+            )
+
+        if update_id is None:
+            raise RuntimeError(
+                f"No update_id returned for team_id={team_id}."
+            )
+
+        return update_id
+
+    def ack_update(
+        self,
+        team_id: int,
+        update_id: int,
+    ) -> None:
+        if team_id not in self.grpc_servers:
+            raise ValueError(
+                f"No gRPC server configured for team_id={team_id}"
+            )
+
+        self.grpc_servers[team_id].ack_update(update_id)
 
     def start(self):
         """
@@ -170,7 +230,6 @@ class EngineSession:
 
         logger.info("Engine process started: %s", pformat(self.info()))
         return self.info()
-
 
     def _create_startscript(self) -> None:
         builder = StartScriptBuilder(
@@ -222,7 +281,10 @@ class EngineSession:
         finally:
             self.proc = None
             self._close_streams()
-            self.grpc_server.stop()
+
+            for grpc_server in self.grpc_servers.values():
+                grpc_server.stop()
+
             logger.info("Engine Session stop called, process terminated and streams closed.")
 
     def is_running(self) -> bool:
@@ -362,6 +424,7 @@ class EngineSession:
 @dataclass(frozen=True)
 class EngineSessionFactory:
     startscript_config: StartScriptConfig
+    number_of_unbarable_ais: int
 
     def __call__(self, engine_id: int) -> EngineSession:
         session_config = EngineSessionConfig(
@@ -369,4 +432,7 @@ class EngineSessionFactory:
             startscript_config=self.startscript_config,
         )
 
-        return EngineSession(cfg=session_config)
+        return EngineSession(
+            cfg=session_config,
+            number_of_unbarable_ais=self.number_of_unbarable_ais,
+        )
