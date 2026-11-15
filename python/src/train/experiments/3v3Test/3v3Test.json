@@ -7,6 +7,7 @@
     "number_of_enemies"     : 3,
     "training_team_id"      : 0,
     "action_dimension"      : 5,
+    "self_play"             : false,
 
     "reward": {
     "damage_enemy_coef": 0.02,

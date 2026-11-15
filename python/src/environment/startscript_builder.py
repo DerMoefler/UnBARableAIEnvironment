@@ -19,6 +19,8 @@ class StartScriptConfig:
     unit: str = "armpw"
     spawn_spacing: int = 80
 
+    self_play: bool = False
+
     update_interval_frames: int = 2
     move_step_size: float = 100.0
     first_update_frame: int = 2
@@ -59,6 +61,10 @@ class StartScriptConfig:
                 "spawn_spacing",
                 80,
             ),
+            self_play=config.get(
+                "self_play",
+                False,
+            ),
             update_interval_frames=ai_config.get(
                 "update_interval_frames",
                 2,
@@ -89,6 +95,11 @@ class StartScriptConfig:
         if self.number_of_enemies < 1:
             raise ValueError(
                 "number_of_enemies must be at least 1"
+            )
+
+        if not isinstance(self.self_play, bool):
+            raise TypeError(
+                "self_play must be a boolean value"
             )
 
         if not self.unit or not self.unit.strip():
@@ -247,6 +258,44 @@ class StartScriptBuilder:
     }}
 """
 
+    def _training_opponent_section(self) -> str:
+        """
+        Builds the AI section for team 1.
+
+        In self-play mode, team 1 is controlled by another UnBARableAI
+        instance. Otherwise, SimpleAI remains the opponent.
+        """
+        if not self.cfg.self_play:
+            return """\
+    [ai1]
+    {
+        Host = 0;
+        IsFromDemo = 0;
+        Name = "SimpleAI";
+        ShortName = "SimpleAI";
+        Team = 1;
+    }
+"""
+
+        return f"""\
+    [ai1]
+    {{
+        Host = 0;
+        IsFromDemo = 0;
+        Name = "UnBARableAI";
+        ShortName = "UnBARableAI";
+        Team = 1;
+        Version = stable;
+
+        [Options]
+        {{
+            unbarable_update_interval_frames = {self.cfg.update_interval_frames};
+            unbarable_move_step_size = {self.cfg.move_step_size};
+            unbarable_first_update_frame = {self.cfg.first_update_frame};
+        }}
+    }}
+"""
+
     def _modoptions(self, training: bool) -> str:
         if training:
             min_speed = "10000"
@@ -291,17 +340,7 @@ class StartScriptBuilder:
             "[Game]\n"
             "{\n"
             f"{self._common_sections()}\n"
-            """\
-    [ai1]
-    {
-        Host = 0;
-        IsFromDemo = 0;
-        Name = "SimpleAI";
-        ShortName = "SimpleAI";
-        Team = 1;
-    }
-
-"""
+            f"{self._training_opponent_section()}\n"
             f"{self._modoptions(training=True)}\n"
             """\
     [player0]
