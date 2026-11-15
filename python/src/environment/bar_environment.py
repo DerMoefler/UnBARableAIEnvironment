@@ -105,7 +105,6 @@ class BAR_Environment:
             )
         )
 
-        self.current_update_id = 0
         self.terminated = False
         self.truncated = False
         
@@ -121,22 +120,14 @@ class BAR_Environment:
             self.session.start()
             self.shared_memory_name = "/sm_proc_" + str(self.session.proc.pid)
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
-            self.current_update_id = 0
         
 
         self.logger.info("Engine session started. Waiting for first handleEventUpdate...")
 
-        wait_status, update_id = self.session.grpc_server.wait_for_next_update(
-            previous_count=self.current_update_id,
+        self.session.wait_for_next_update(
+            team_id=0,
             timeout=600.0,
         )
-        if wait_status == "timeout":
-            raise TimeoutError("Kein erstes handleEventUpdate nach reset(). Timeout.")
-
-        if wait_status == "stopped":
-            raise RuntimeError("gRPC server stopped unexpectedly after reset().")
-
-        self.current_update_id = update_id
 
         # Episode-Zähler zurücksetzen
         self.episode_step = 0
@@ -165,20 +156,13 @@ class BAR_Environment:
         for action in actions:
             shared_memory.write_action(action)
         
-        # 1) das aktuelle offene Update freigeben
-        self.session.grpc_server.ack_update(self.current_update_id)
 
-        # 2) auf das nächste Update warten
-        wait_status, next_update_id = self.session.grpc_server.wait_for_next_update(
-            previous_count=self.current_update_id,
+        self.session.ack_update(team_id=0)
+
+        self.session.wait_for_next_update(
+            team_id=0,
             timeout=60.0,
         )
-        if wait_status == "timeout":
-            raise TimeoutError("Kein neues handleEventUpdate nach step().")
-        if wait_status == "stopped":
-            raise RuntimeError("gRPC server stopped unexpectedly after reset().")
-
-        self.current_update_id = next_update_id
 
         self.episode_step += 1
 
@@ -211,7 +195,7 @@ class BAR_Environment:
         if terminated or truncated:
             bar_ai.SharedMemory.remove(self.shared_memory_name)
             shared_memory = bar_ai.SharedMemory.create(self.shared_memory_name)
-            self.session.grpc_server.ack_update(self.current_update_id)
+            self.session.ack_update(team_id=0)
 
         info = {
             "episode_step": self.episode_step,

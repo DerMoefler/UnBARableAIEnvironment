@@ -98,17 +98,13 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
 
     def wait_for_next_update(
         self,
-        previous_count: int,
         timeout: Optional[float] = None,
-    ) -> tuple[str, Optional[int]]:
+    ) -> str:
         """
         Wartet bis ein neues handleEventUpdate angekommen ist oder der Grpc Server gestoppt wurde.
 
         Parameters
         ----------
-        previous_count : int
-            Der zuletzt bekannte arrived_update_count.
-            Gewartet wird auf arrived_update_count > previous_count.
         timeout : float | None
             Zeit in Sekunden, die maximal gewartet werden soll.
             None bedeutet unendlich lang warten.
@@ -119,46 +115,39 @@ class UnBARableAIService(unbarable_ai_pb2_grpc.UnBARableAIServiceServicer):
             "update" wenn ein neues Update kam,
             "timeout" wenn die Wartezeit abgelaufen ist,
             "stopped" wenn der Grpc Server gestoppt wurde.
-        arrived_update_count: int | None
-            Anzahl empfangener handleEventUpdate()-RPCs, wenn ein neues Update kam.
-            None bei Timeout.
         """
         with self._condition:
+            previous_count = self.acked_update_count
             ok = self._condition.wait_for(
                 lambda: self._stopping or self.arrived_update_count > previous_count,
                 timeout=timeout,
             )
 
             if not ok:
-                return "timeout", None
+                return "timeout"
             if self._stopping:
-                return "stopped", None
+                return "stopped"
 
-            return "update", self.arrived_update_count
+            return "update"
 
-    def ack_update(self, update_id: int) -> None:
+    def ack_update(self) -> None:
         """
         Gibt ein bestimmtes Update frei.
 
         Wird von step() aufgerufen, nachdem die action ins shared memory geschrieben wurde. Nach dem Aufruf von ack_update() darf der handleEventUpdate()-Call zurückkehren, sodass die Engine weiterlaufen kann.
-
-        Parameters
-        ----------
-        update_id : int
-            Die Update-ID, die freigegeben werden soll.
-        
-        Wichtig:
-        - ack_update(1) gibt handleEventUpdate #1 frei, ack_update(2) gibt #2 frei, usw.
         """
         with self._condition:
-            if update_id > self.acked_update_count:
-                self.acked_update_count = update_id
-                logging.debug(
+            if self.arrived_update_count <= self.acked_update_count:
+                raise RuntimeError(
+                    "No unacknowledged update available"
+                )
+            logging.debug(
                     "Acked update_id=%s (arrived=%s)",
                     self.acked_update_count,
                     self.arrived_update_count,
                 )
-                self._condition.notify_all()
+            self.acked_update_count = self.arrived_update_count
+            self._condition.notify_all()
 
     def stop_waiters(self) -> None:
         """
@@ -184,14 +173,13 @@ class UnBARableAIGRPCServer:
         self.server.start()
         logging.info(f"Python gRPC server listening on localhost:50051")
 
-    def wait_for_next_update(self, previous_count: int, timeout: Optional[float] = None,) -> tuple[str, Optional[int]]:
+    def wait_for_next_update(self, timeout: Optional[float] = None) -> str:
         return self._service.wait_for_next_update(
-            previous_count=previous_count,
-            timeout=timeout,
+            timeout=timeout
         )
 
-    def ack_update(self, update_id: int) -> None:
-        self._service.ack_update(update_id)
+    def ack_update(self) -> None:
+        self._service.ack_update()
 
     def stop(self, grace: float = 0.1) -> None:
         """

@@ -139,18 +139,16 @@ class EngineSession:
     def wait_for_next_update(
         self,
         team_id: int,
-        previous_count: int,
         timeout: Optional[float] = None,
-    ) -> int:
+    ) -> None:
         if team_id not in self.grpc_servers:
             raise ValueError(
                 f"No gRPC server configured for team_id={team_id}"
             )
 
-        wait_status, update_id = self.grpc_servers[
+        wait_status = self.grpc_servers[
             team_id
         ].wait_for_next_update(
-            previous_count=previous_count,
             timeout=timeout,
         )
 
@@ -164,24 +162,16 @@ class EngineSession:
                 f"gRPC server for team_id={team_id} stopped unexpectedly."
             )
 
-        if update_id is None:
-            raise RuntimeError(
-                f"No update_id returned for team_id={team_id}."
-            )
 
-        return update_id
-
-    def ack_update(
-        self,
-        team_id: int,
-        update_id: int,
-    ) -> None:
+    def ack_update(self, team_id: int) -> None:
         if team_id not in self.grpc_servers:
             raise ValueError(
                 f"No gRPC server configured for team_id={team_id}"
             )
 
-        self.grpc_servers[team_id].ack_update(update_id)
+        self.grpc_servers[
+            team_id
+        ].ack_current_update()
 
     def start(self):
         """
