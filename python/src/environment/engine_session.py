@@ -110,11 +110,19 @@ class EngineSession:
     def __init__(
         self,
         cfg: EngineSessionConfig,
-        number_of_unbarable_ais: int,
         on_exit: Optional[Callable[[int], None]] = None,
     ):
         self.cfg: EngineSessionConfig = cfg
-        self.number_of_unbarable_ais = number_of_unbarable_ais
+
+        if self.cfg.startscript_config.self_play:
+            self.unbarable_ai_team_ids = (
+                self.cfg.startscript_config.training_team_id,
+                self.cfg.startscript_config.opponent_team_id,
+            )
+        else:
+            self.unbarable_ai_team_ids = (
+                self.cfg.startscript_config.training_team_id,
+            )
 
         self.on_exit = on_exit
 
@@ -129,7 +137,7 @@ class EngineSession:
 
         self.grpc_servers: Dict[int, UnBARableAIGRPCServer] = {}
 
-        for team_id in range(self.number_of_unbarable_ais):
+        for team_id in self.unbarable_ai_team_ids:
             grpc_server = UnBARableAIGRPCServer(
                 port=50051 + team_id,
             )
@@ -414,7 +422,6 @@ class EngineSession:
 @dataclass(frozen=True)
 class EngineSessionFactory:
     startscript_config: StartScriptConfig
-    number_of_unbarable_ais: int
 
     def __call__(self, engine_id: int) -> EngineSession:
         session_config = EngineSessionConfig(
@@ -424,5 +431,4 @@ class EngineSessionFactory:
 
         return EngineSession(
             cfg=session_config,
-            number_of_unbarable_ais=self.number_of_unbarable_ais,
         )

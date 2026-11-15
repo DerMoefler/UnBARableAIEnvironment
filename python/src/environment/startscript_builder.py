@@ -19,6 +19,8 @@ class StartScriptConfig:
     unit: str = "armpw"
     spawn_spacing: int = 80
 
+    training_team_id: int = 0
+    opponent_team_id: int = 1
     self_play: bool = False
 
     update_interval_frames: int = 2
@@ -246,7 +248,7 @@ class StartScriptBuilder:
         IsFromDemo = 0;
         Name = "UnBARableAI";
         ShortName = "UnBARableAI";
-        Team = 0;
+        Team = {self.cfg.training_team_id};
         Version = stable;
 
         [Options]
@@ -273,7 +275,7 @@ class StartScriptBuilder:
         IsFromDemo = 0;
         Name = "SimpleAI";
         ShortName = "SimpleAI";
-        Team = 1;
+        Team = {self.cfg.opponent_team_id};
     }
 """
 
@@ -284,7 +286,7 @@ class StartScriptBuilder:
         IsFromDemo = 0;
         Name = "UnBARableAI";
         ShortName = "UnBARableAI";
-        Team = 1;
+        Team = {self.cfg.opponent_team_id};
         Version = stable;
 
         [Options]
