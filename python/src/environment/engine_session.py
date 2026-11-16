@@ -308,20 +308,8 @@ class EngineSession:
 
         shared_memory_name = f"/bar_ai_{uuid.uuid4().hex}"
 
-        startscript: Path = self.cfg.startscript
-        if not startscript.is_file():
-            raise ValueError("Startscript file does not exist")
-
-        # Simple regex for scheme "{num_ally_units}vs{num_enemy_units}"
-        # vs is case insensitive and the number has dynamic extent, i.e. 1 but also 100 works
-        match = re.match(r"^(\d+)vs(\d+)", startscript.stem, re.IGNORECASE)
-        if not match:
-            raise ValueError(
-                f"Startscript name must start with '<numAllyUnits>vs<numEnemyUnits>', got"
-                "'{startscript.name}'")
-
-        num_ally_units = int(match.group(1))
-        num_enemy_units = int(match.group(2))
+        num_ally_units = self.cfg.startscript_config.number_of_agents
+        num_enemy_units = self.cfg.startscript_config.number_of_enemies
 
 
         # TODO change status if enum supports state better
