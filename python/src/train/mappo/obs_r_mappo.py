@@ -131,7 +131,7 @@ class RMAPPOObservationAdapter:
         Create an adapter from the central training configuration.
         """
         observation_config = config.get(
-            "observation"
+            "adapter"
         )
 
         if not isinstance(
@@ -140,11 +140,12 @@ class RMAPPOObservationAdapter:
         ):
             raise ValueError(
                 "Configuration must contain an "
-                "'observation' object."
+                "'adapter' object."
             )
 
         required_root_keys = {
             "number_of_agents",
+            "number_of_enemies",
             "action_dimension",
             "training_team_id",
         }
@@ -160,7 +161,6 @@ class RMAPPOObservationAdapter:
             )
 
         required_observation_keys = {
-            "max_enemy_slots",
             "position_scale",
         }
 
@@ -188,8 +188,8 @@ class RMAPPOObservationAdapter:
                 config["training_team_id"]
             ),
             max_enemy_slots=int(
-                observation_config[
-                    "max_enemy_slots"
+                config[
+                    "number_of_enemies"
                 ]
             ),
             position_scale=float(
@@ -224,8 +224,8 @@ class RMAPPOObservationAdapter:
         """
         Initialize stable controlled-unit slots for a new episode.
 
-        The reset observation must contain exactly num_agents living
-        controlled units.
+        Living controlled units are assigned to slots in ascending unit-ID
+        order. Unused slots are initialized with -1.
         """
         if not isinstance(obs_raw, Mapping):
             raise TypeError(
@@ -237,20 +237,25 @@ class RMAPPOObservationAdapter:
             obs_raw
         )
 
-        unit_ids = tuple(
+        unit_ids = [
             int(self._field(unit, "unit_id"))
             for unit in controlled_units
-        )
+        ]
 
-        if len(unit_ids) != self.num_agents:
+        if len(unit_ids) > self.num_agents:
             raise ValueError(
-                "Reset observation must contain exactly "
-                f"{self.num_agents} living controlled units, "
-                f"but contains {len(unit_ids)}: "
-                f"{list(unit_ids)}."
+                f"Found {len(unit_ids)} living controlled units, "
+                f"but only {self.num_agents} agent slots are configured: "
+                f"{unit_ids}."
             )
 
-        self.agent_unit_ids = unit_ids
+        # Keep the number of agent slots fixed.
+        # -1 represents a slot without a living controlled unit.
+        unit_ids.extend(
+            [-1] * (self.num_agents - len(unit_ids))
+        )
+
+        self.agent_unit_ids = tuple(unit_ids)
 
     def prepare(
         self,

@@ -41,7 +41,7 @@ class MAPPOPolicyRunner:
     Responsibilities:
 
     - construct the R-MAPPO policy,
-    - load checkpoints,
+    - load checkpoints (from other models),
     - run actor and critic inference,
     - convert sampled policy actions into bar_ai.Action objects.
     """
@@ -79,12 +79,9 @@ class MAPPOPolicyRunner:
         obs_dim: int,
         target_feature_dim: int,
     ) -> MAPPOPolicyRunner:
-        """
-        Construct a policy and runner from the training configuration.
+        training_config = config.get("training", {})
+        mappo_config = training_config.get("mappo", {})
 
-        Observation dimensions come from RMAPPOObservationAdapter
-        instead of being duplicated in the configuration.
-        """
         num_agents = int(
             config["number_of_agents"]
         )
@@ -95,16 +92,16 @@ class MAPPOPolicyRunner:
             config["training_team_id"]
         )
 
+        learing_rate = float(
+            mappo_config.get("learning_rate", 0.0001)
+        )
+
         policy = R_MAPPO_Policy(
             obs_dim,
             action_dim,
             device=device,
-            lr=float(
-                config["learning_rate"]
-            ),
-            target_feature_dim=(
-                target_feature_dim
-            ),
+            lr=learing_rate,
+            target_feature_dim=target_feature_dim,
         )
 
         return cls(
@@ -113,12 +110,8 @@ class MAPPOPolicyRunner:
             num_agents=num_agents,
             action_dim=action_dim,
             obs_dim=obs_dim,
-            target_feature_dim=(
-                target_feature_dim
-            ),
-            training_team_id=(
-                training_team_id
-            ),
+            target_feature_dim=target_feature_dim,
+            training_team_id=training_team_id,
         )
 
     def act(

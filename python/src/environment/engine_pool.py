@@ -5,9 +5,11 @@ import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable
+from typing import Callable, Mapping, Any
 
-from src.environment.engine_session import EngineSession
+from src.environment.engine_session import EngineSession, EngineSessionFactory
+from src.environment.startscript_builder import StartScriptConfig
+
 
 class SessionState(Enum):
     """
@@ -187,4 +189,22 @@ class EngineSessionPool:
                 logging.exception(f"Unhandeled maintenaced error for Engine at slot {slot_id}.")
 
         future.add_done_callback(maintenance_completed)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Mapping[str, Any],
+    ) -> "EngineSessionPool":
+        startscript_config = (
+            StartScriptConfig.from_config(config)
+        )
+
+        session_factory = EngineSessionFactory(
+            startscript_config=startscript_config
+        )
+
+        return cls(
+            pool_size=config["number_of_engines"],
+            session_factory=session_factory,
+        )
 

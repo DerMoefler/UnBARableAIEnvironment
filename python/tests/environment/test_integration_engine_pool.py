@@ -7,6 +7,7 @@ from pathlib import Path
 
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.engine_pool import EngineSessionPool, SessionState
+from src.environment.startscript_builder import EngineMode, StartScriptConfig
 from tests.src.helpers import wait_until
 
 def process_exists(pid: int) -> bool:
@@ -24,7 +25,15 @@ def test_pool_starts_publishes_and_closes_real_engines(tmp_path: Path) -> None:
     created_sessions: dict[int, EngineSession] = {}
 
     def session_factory(slot_id: int) -> EngineSession:
-        session = EngineSession(cfg=EngineSessionConfig(engine_id=slot_id))
+        session = EngineSession(
+            cfg=EngineSessionConfig(
+                engine_id=slot_id,
+                startscript_config=StartScriptConfig(
+                    mode=EngineMode.TRAINING,
+                    number_of_agents=3,
+                ),
+            )
+        )
 
         created_sessions[slot_id] = session
         return session
@@ -38,7 +47,7 @@ def test_pool_starts_publishes_and_closes_real_engines(tmp_path: Path) -> None:
             lambda: (
                 len(created_sessions) == 4
                 and all(
-                    pool._engine_slots[0].state
+                    pool._engine_slots[slot_id].state
                     is SessionState.AVAILABLE
                     for slot_id in range(4)
                 )

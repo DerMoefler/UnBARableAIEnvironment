@@ -1,0 +1,40 @@
+{
+    "run_name"              : "3v3Test",
+    "device"                : "auto",
+    "model_name"            : "r_mappo_latest.pt",
+
+    "number_of_agents"      : 3,
+    "number_of_enemies"     : 3,
+    "training_team_id"      : 0,
+    "action_dimension"      : 5,
+
+    "adapter": {
+        "position_scale": 1000.0
+    },
+
+    "engine": {
+        "mode": "play_against_human",
+        "unit": "armpw",
+        "spawn_spacing": 80,
+
+        "human_player": {
+            "name": "LukasOskar"
+        },
+
+        "ai_options": {
+            "update_interval_frames": 2,
+            "move_step_size": 100.0,
+            "first_update_frame": 2
+        }
+    },
+
+    "logging": {
+        "level": "INFO",
+        "modules": {
+            "src.environment.bar_environment": "INFO",
+            "src.environment.unit_data_memory": "INFO",
+            "src.environment.engine_session": "INFO"
+        }
+    }
+
+}

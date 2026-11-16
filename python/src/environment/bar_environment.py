@@ -2,9 +2,9 @@ from types import NoneType
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
-from src.environment.reward import RewardCalculator
-from src.environment.unit_data_memory import UnitMemory
+from src.environment.reward import RewardCalculator, RewardConfig
 from src.utils.logger_factory import get_file_logger, get_null_logger
+from src.environment.startscript_builder import StartScriptConfig
 
 import json
 import numpy as np
@@ -31,21 +31,61 @@ class BAR_Environment:
         config_path: Optional[Path] = None,
         environment_id: Optional[int] = 0
     ):
-        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0)
         self.session: Optional[EngineSession] = None
 
         logger_name = f"environment{environment_id}"
+        reward_config = RewardConfig()
+
         if config_path is not None:
-            with open(config_path,"r") as config_data:
+            with open(config_path, "r") as config_data:
                 self.data = json.load(config_data)
 
             run_name = self.data["run_name"]
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            self.logger = get_file_logger(logger_name, Path(f"src/train/experiments/{run_name}/{run_name}_environment{environment_id}_{timestamp}.log"))
+
+            self.logger = get_file_logger(
+                logger_name,
+                Path(
+                    f"src/train/experiments/{run_name}/"
+                    f"{run_name}_environment{environment_id}_{timestamp}.log"
+                )
+            )
+
+            reward_data = self.data.get("reward")
+
+            if reward_data is None:
+                self.logger.warning(
+                    "No reward configuration found. Using default values: %s",
+                    reward_config,
+                )
+            elif not isinstance(reward_data, dict):
+                self.logger.warning(
+                    "Invalid reward configuration. Expected a dictionary, got %s. "
+                    "Using default values: %s",
+                    type(reward_data).__name__,
+                    reward_config,
+                )
+            else:
+                try:
+                    reward_config = RewardConfig(**reward_data)
+                except TypeError as exc:
+                    raise ValueError(
+                        f"Invalid reward configuration in startconfig.json: {exc}"
+                    ) from exc
+            
+            self.logger.info(
+                "[REWARD CONFIG] Environment %s | Loaded values: %s",
+                environment_id,
+                reward_config,
+            )
+
+            startscript_config = StartScriptConfig.from_config(self.data)
+
         else:
             self.logger = get_null_logger(logger_name)
+            startscript_config = StartScriptConfig()
 
-
+        self.session_cfg = session_cfg or EngineSessionConfig(engine_id=0, startscript_config=(startscript_config))
         # Episode tracking
         # max_episode_steps begrenzt, wie viele RL-Steps eine Episode maximal laufen darf.
         # Wird dieses Limit erreicht, ist die Episode truncated.
@@ -58,16 +98,17 @@ class BAR_Environment:
 
 
         self.reward_calculator = (
-            reward_calculator if reward_calculator is not None else RewardCalculator()
+            reward_calculator
+            if reward_calculator is not None
+            else RewardCalculator(
+                training_team_id=self.training_team_id,
+                config=reward_config,
+            )
         )
 
         self.current_update_id = 0
         self.terminated = False
         self.truncated = False
-
-        self.unit_memory = UnitMemory(
-            self.training_team_id
-        )
 
 
     def reset(self) -> Tuple[Any, Dict[str, Any]]:
@@ -105,13 +146,7 @@ class BAR_Environment:
                 
         self.evaluate_engine_status(snapshot.status)
 
-        self.unit_memory.reset(
-            snapshot.units,
-            step=self.episode_step,
-        )
-
-        stats = self._get_team_stats(snapshot.units)
-        self.reward_calculator.reset(stats)
+        self.reward_calculator.reset(snapshot.units)
 
         info = {}
         # Zusätzliche Debug-Informationen zurückgeben
@@ -145,7 +180,6 @@ class BAR_Environment:
 
         self.current_update_id = next_update_id
 
-        # Ein RL-Step wurde ausgeführt
         self.episode_step += 1
 
         snapshot = self._read_engine_snapshot()
@@ -155,12 +189,6 @@ class BAR_Environment:
         if not self.terminated and self.episode_step >= self.max_episode_steps:
             self.truncated = True
 
-        self.unit_memory.update(
-            snapshot.units,
-            step=self.episode_step,
-        )
-
-        stats = self._get_team_stats(snapshot.units)
 
         # Natural episode end:
         # z. B. alle Gegner tot oder alle eigenen Units tot.
@@ -172,7 +200,7 @@ class BAR_Environment:
         truncated = False if terminated else self.truncated
 
         reward = self.reward_calculator.calculate(
-                    stats=stats,
+                    units=snapshot.units,
                     terminated=terminated,
                     truncated=truncated,
                     outcome=outcome,
@@ -186,8 +214,6 @@ class BAR_Environment:
 
         info = {
             "episode_step": self.episode_step,
-            "own_alive_count": stats["own_alive_count"],
-            "enemy_alive_count": len(self.unit_memory.get_alive_units()),
             "terminated": terminated,
             "truncated": truncated,
             "episode_outcome": (
@@ -231,44 +257,6 @@ class BAR_Environment:
             self.close()
         except Exception:
             pass
-
-    def _get_team_stats(
-        self,
-        current_units: List[bar_ai.UnitData],
-    ) -> Dict[str, Any]:
-
-        own_alive = [
-            unit
-            for unit in current_units
-            if int(unit.team_id) == self.training_team_id
-            and not bool(unit.is_dead)
-            and float(unit.health) > 0.0
-        ]
-
-        remembered_enemy_alive = self.unit_memory.get_alive_units()
-
-        return {
-            "own_health_sum": float(sum(
-                max(0.0, float(unit.health))
-                for unit in own_alive
-            )),
-            "enemy_health_sum": float(sum(
-                max(0.0, float(unit.health))
-                for unit in remembered_enemy_alive
-            )),
-            "own_alive_count": len(own_alive),
-            "enemy_alive_count": len(remembered_enemy_alive),
-
-            "enemy_visible_count": (
-                self.unit_memory.visible_enemy_count
-            ),
-            "enemy_hidden_count": (
-                self.unit_memory.hidden_enemy_count
-            ),
-            "enemy_remembered_count": (
-                self.unit_memory.remembered_enemy_count
-            ),
-        }
 
     def end_of_session(self, return_code: int):
         """
