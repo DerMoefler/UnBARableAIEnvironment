@@ -41,8 +41,9 @@ class EngineSessionConfig:
     startscript: Path = field(init=False)
 
     # TODO change to write_dir/engine_stdout/err.log
-    default_stdout: int | str | Path = Path("~/bar-data/engine_stdout.log").expanduser()
-    default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
+    default_stdout: int | str | Path = field(init=False)
+    default_stderr: int | str | Path = field(init=False)
+
     merge_stderr_to_stdout: bool = False
 
     def __post_init__(self) -> None:
@@ -56,6 +57,21 @@ class EngineSessionConfig:
             self,
             "write_dir",
             write_dir,
+        )
+
+        default_stdout = (write_dir / "stdout.log")
+        default_stderr = (write_dir / "stdout.log")
+
+        object.__setattr__(
+            self,
+            "default_stdout",
+            default_stdout,
+        )
+
+        object.__setattr__(
+            self,
+            "default_stderr",
+            default_stderr,
         )
 
         executable_name = self._get_executable_name()
