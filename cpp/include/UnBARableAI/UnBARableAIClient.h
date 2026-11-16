@@ -6,21 +6,28 @@
 #include <memory>
 #include <string>
 
+#include "UnBARableAI/grpc_connection.hpp"
+
 #include "UnBARableAI.grpc.pb.h"
 
 class UnBARableAIClient {
 public:
+    using GrpcConnection = UnBARableAINS::GrpcConnection;
+
     /**
      * @brief Erstellt einen gRPC-Client für den Python-Server.
      *
-     * @param target Zieladresse des gRPC-Servers, z. B. "127.0.0.1:50051".
+     * @param connection GrpcConnection containing the port.
+     * @param ip IP Address to connect to (defaults to localhost).
      */
-    explicit UnBARableAIClient(const std::string& target = "127.0.0.1:50051");
+    explicit UnBARableAIClient(const GrpcConnection& connection,
+                               const std::string& ip = "127.0.0.1");
 
     /**
      * @brief Sendet den RPC `handleEventUpdate` an den Python-Server.
      *
-     * @param timeout_ms Timeout in Millisekunden für den RPC. (maximale Zeit, die dein Client bereit ist zu warten, bis eine Antwort vom Server kommt)
+     * @param timeout_ms Timeout in Millisekunden für den RPC. (maximale Zeit, die dein Client
+     * bereit ist zu warten, bis eine Antwort vom Server kommt)
      * @return true, wenn der RPC erfolgreich war, sonst false.
      */
     bool HandleEventUpdate(int timeout_ms = 1000);

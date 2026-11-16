@@ -12,6 +12,7 @@ generated/
 # Python artifacts
 __pycache__/
 .venv/
+typings/
 
 # macOS
 .DS_Store

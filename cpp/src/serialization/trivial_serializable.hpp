@@ -163,6 +163,7 @@ using GetSerializableView_T = typename GetSerializableView_MF<S>::Type;
  * \returns The serialized representation of \p value.
  */
 template <TrivialSerializable S>
+[[nodiscard]]
 constexpr auto serialize(const S& value)
     -> std::array<std::byte, getSerializableSize(std::type_identity<S>{})> {
     // Base case
@@ -208,6 +209,7 @@ constexpr auto serialize(const S& value)
  * \returns The original value.
  */
 template <TrivialSerializable S>
+[[nodiscard]]
 constexpr S deserialize(const GetSerializableView_T<S> serialized) {
     // Base case
     if constexpr (detail::DeserializeMethodAvailable<S>) {

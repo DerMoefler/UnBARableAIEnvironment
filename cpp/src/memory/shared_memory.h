@@ -15,8 +15,10 @@
 #include "memory/shared_memory_types.h"
 #include "memory/shm_layout_update_context.hpp"
 #include "memory/shm_read_context.hpp"
-#include "serialization/serialize_information.h"
 #include "serialization/layout.h"
+#include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
+#include "serialization/debug/type_name.hpp"
 #include "utility/always_false.h"
 #include "utility/type_index.hpp"
 #include "utility/typelist.h"
@@ -110,7 +112,7 @@ public:
     /**
      * \ref Update the information about the shared-memory region.
      * \returns Whether or not any layout changes have been detected.
-     * \note Value changed are not reported, only changes in size.
+     * \note Value changes are not reported, only changes in size.
      */
     bool update(void) {
         bool change = m_sharedMemoryImpl.update();
@@ -166,10 +168,55 @@ public:
     }
 
     /**
+     * \brief Quick and dirty method for updating TrivialSerializables.
+     * \tparam S A supported TrivialSerializable.
+     * \param serializableId Id of the Serializable to update.
+     * \param value New value for the Serializable.
+     * \throws If the SerializableId does not exist.
+     */
+    template <serialization::TrivialSerializable S>
+    void updateSerializable(const id::id_t serializableId, const S& value) {
+        if (!containsType(std::type_identity<S>{}, serializableId)) {
+            const std::string message =
+                std::format("Type contained at id {} is not an {}", serializableId,
+                            serialization::debug::typeName<S>());
+            SPDLOG_LOGGER_ERROR(detail::shmLogger, message);
+            throw std::runtime_error(message);
+        }
+        const LayoutVariant& layout = getLayoutVariant(serializableId);
+        assert(layout == LayoutVariant{serialization::Layout<S>{value}} &&
+               "Layouts must be equal here");
+
+        const auto segmentId = std::visit(
+            [](auto&& layout) -> memory::id_t {
+                assert(layout.getSegmentId().has_value() && "SegmentId must be available here");
+                return layout.getSegmentId().value();
+            },
+            layout);
+        const auto serialized = serialization::serialize(value);
+        m_sharedMemoryImpl.writeToSegmentAt(segmentId, 0, serialized);
+    }
+
+    /**
      * \brief Get the number of Serializables in the shared-memory.
      * \returns Number of Serializables.
      */
     std::size_t serializablesCount(void) const { return m_layouts.size(); }
+
+    /**
+     * \brief Check if the contained type for the \p serializableId is \p S.
+     * \tparam S Type to check for containment at \p serializableId.
+     * \param serializableId Id assigned to the Serializable, e.g. by \ref write.
+     * \throws std::out_of_range if the serializableId is larger than the total number of
+     * Serializables.
+     */
+    template <serialization::Serializable S>
+        requires(Typelist::Contains_MF<SupportedTypelist, S>::value)
+    bool containsType(std::type_identity<S>, const id::id_t serializableId) const {
+        const LayoutVariant& layout = getLayoutVariant(serializableId);
+
+        return std::holds_alternative<serialization::Layout<S>>(layout);
+    }
 
     /**
      * \brief Get the Layout for an existing Serializable.
@@ -177,7 +224,11 @@ public:
      * \returns A \ref LayoutVariant containing the Layout.
      * \throws std::out_of_range if serializableId is outside of the range.
      */
-    LayoutVariant& getLayout(id::id_t serializableId) { return getLayoutVariant(serializableId); }
+    const LayoutVariant& getLayout(id::id_t serializableId) const {
+        return getLayoutVariant(serializableId);
+    }
+
+    inline const std::string& getName(void) const { return m_sharedMemoryImpl.getName(); }
 
 private:
     /// \brief Constant id for the SerializableTable.
