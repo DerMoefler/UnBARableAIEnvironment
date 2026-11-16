@@ -708,7 +708,7 @@ def main(
             # Reset
             # -----------------------------------------------------------
 
-            obs_raw, step_info = environment.reset()
+            obs_raw = pool.reset_environment(0)
 
             if not isinstance(obs_raw, dict):
                 raise TypeError(

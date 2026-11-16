@@ -26,12 +26,42 @@ class BarrierEnvironment:
         pass
 
 
+class ResetEnvironment:
+    def __init__(self, observation: Any) -> None:
+        self.observation = observation
+        self.reset_count = 0
+
+    def reset(self) -> Any:
+        self.reset_count += 1
+        return self.observation
+
+
 def _make_pool(environments: list[Any]) -> EnvironmentPool:
     pool = EnvironmentPool.__new__(EnvironmentPool)
     pool.environments = environments
     pool.logger = logging.getLogger(__name__)
     pool._step_executor = None
     return pool
+
+
+def test_reset_environment_resets_only_the_requested_environment() -> None:
+    environments = [
+        ResetEnvironment({"env": 0}),
+        ResetEnvironment({"env": 1}),
+    ]
+    pool = _make_pool(environments)
+
+    observation = pool.reset_environment(1)
+
+    assert observation == {"env": 1}
+    assert [environment.reset_count for environment in environments] == [0, 1]
+
+
+def test_reset_environment_rejects_out_of_range_id() -> None:
+    pool = _make_pool([ResetEnvironment({"env": 0})])
+
+    with pytest.raises(IndexError, match="Environment ID 1 is out of range"):
+        pool.reset_environment(1)
 
 
 def test_step_environments_steps_concurrently_and_keeps_order() -> None:
