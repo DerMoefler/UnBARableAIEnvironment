@@ -302,9 +302,6 @@ def _save_checkpoint(
         "num_agents": int(
             adapter.num_agents
         ),
-        "training_team_id": int(
-            adapter.training_team_id
-        ),
         "max_enemy_slots": int(
             adapter.max_enemy_slots
         ),
@@ -512,10 +509,9 @@ def main() -> None:
 
         logger.info(
             "Created policy runner: "
-            "agents=%d actions=%d team_id=%d",
+            "agents=%d actions=%d,
             adapter.num_agents,
             adapter.action_dim,
-            adapter.training_team_id,
         )
 
         
@@ -723,6 +719,10 @@ def main() -> None:
                         f"maximum_steps={maximum_steps}."
                     )
 
+                current_team_id = int(
+                    step_info["current_team_id"]
+                )
+
                 # -------------------------------------------------------
                 # Policy inference
                 # -------------------------------------------------------
@@ -783,6 +783,7 @@ def main() -> None:
                     runner.create_bar_actions(
                         policy_step,
                         prepared,
+                        team_id=adapter.training_team_id,
                     )
                 )
 

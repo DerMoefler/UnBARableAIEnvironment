@@ -55,7 +55,6 @@ class MAPPOPolicyRunner:
         action_dim: int,
         obs_dim: int,
         target_feature_dim: int,
-        training_team_id: int,
     ) -> None:
         self.policy = policy
         self.device = torch.device(device)
@@ -65,9 +64,6 @@ class MAPPOPolicyRunner:
         self.obs_dim = int(obs_dim)
         self.target_feature_dim = int(
             target_feature_dim
-        )
-        self.training_team_id = int(
-            training_team_id
         )
 
     @classmethod
@@ -87,9 +83,6 @@ class MAPPOPolicyRunner:
         )
         action_dim = int(
             config["action_dimension"]
-        )
-        training_team_id = int(
-            config["training_team_id"]
         )
 
         learing_rate = float(
@@ -111,7 +104,6 @@ class MAPPOPolicyRunner:
             action_dim=action_dim,
             obs_dim=obs_dim,
             target_feature_dim=target_feature_dim,
-            training_team_id=training_team_id,
         )
 
     def act(
@@ -211,6 +203,7 @@ class MAPPOPolicyRunner:
         self,
         policy_step: PolicyStep,
         prepared: PreparedStep,
+        team_id: int,
     ) -> list[bar_ai.Action]:
         """
         Convert policy actions into actions for living BAR units.
@@ -296,6 +289,7 @@ class MAPPOPolicyRunner:
                     target_unit_id=(
                         target_unit_id
                     ),
+                    team_id=team_id,
                 )
             )
 
@@ -444,6 +438,7 @@ class MAPPOPolicyRunner:
         action_index: Any,
         unit_id: Any,
         target_unit_id: Any,
+        team_id: int,
     ) -> bar_ai.Action:
         """
         Convert one policy action into a bar_ai.Action.
@@ -475,7 +470,8 @@ class MAPPOPolicyRunner:
             try:
                 action = bar_ai.Action(**kwargs)
                 self._set_optional_team_fields(
-                    action
+                    action,
+                    team_id=team_id,
                 )
                 return action
             except TypeError:
@@ -489,7 +485,8 @@ class MAPPOPolicyRunner:
             )
 
             self._set_optional_team_fields(
-                action
+                action,
+                team_id=team_id,
             )
 
             return action
@@ -536,7 +533,8 @@ class MAPPOPolicyRunner:
             )
 
         self._set_optional_team_fields(
-            action
+            action,
+            team_id=team_id,
         )
 
         return action
@@ -544,11 +542,12 @@ class MAPPOPolicyRunner:
     def _set_optional_team_fields(
         self,
         action: bar_ai.Action,
+        team_id: int,
     ) -> None:
         self._set_optional_field(
             action,
             ("team_id", "teamId"),
-            self.training_team_id,
+            int(team_id),
         )
 
         # Falls BAR getrennte AllyTeam-IDs verwendet, sollte dies
@@ -559,7 +558,7 @@ class MAPPOPolicyRunner:
                 "ally_team_id",
                 "allyTeamId",
             ),
-            self.training_team_id,
+            int(team_id),
         )
 
     @staticmethod
@@ -792,9 +791,6 @@ class MAPPOPolicyRunner:
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "num_agents": self.num_agents,
-            "training_team_id": (
-                self.training_team_id
-            ),
         }
 
         for key, expected_value in (
