@@ -83,12 +83,12 @@ class BAR_Environment:
             startscript_config = StartScriptConfig()  #TODO: later handled by engine pool
 
         if startscript_config.self_play: #TODO: later handled by engine pool
-            unbarable_ai_team_ids = (
+            self.unbarable_ai_team_ids = (
                 startscript_config.training_team_id,
                 startscript_config.opponent_team_id,
             )
         else:
-            unbarable_ai_team_ids = (
+            self.unbarable_ai_team_ids = (
                 startscript_config.training_team_id,
             )
 
@@ -101,7 +101,7 @@ class BAR_Environment:
         # Zähler für aktuelle Episode
         self.episode_step = 0
 
-        self.training_team_id = unbarable_ai_team_ids[0]
+        self.training_team_id = self.unbarable_ai_team_ids[0]
 
 
         self.reward_calculator = (

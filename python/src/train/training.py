@@ -444,15 +444,51 @@ def main() -> None:
     )
 
     try:
+
+        # ---------------------------------------------------------------
+        # Environment pool
+        # ---------------------------------------------------------------
+
+        logger.info(
+            "Creating EnvironmentPool"
+        )
+
+        pool.initialize_environements()
+
+        if not pool.environments:
+            raise RuntimeError(
+                "EnvironmentPool contains "
+                "no environments."
+            )
+
+        logger.info(
+            "EnvironmentPool created with "
+            "%d environment(s)",
+            len(pool.environments),
+        )
+
+        # Aktuell wird nur die erste Umgebung verwendet.
+        environment = pool.environments[0]
+
+        unbarable_ai_team_ids = (
+            environment.unbarable_ai_team_ids
+        )
         # ---------------------------------------------------------------
         # Observation adapter and policy
         # ---------------------------------------------------------------
 
-        adapter = (
-            RMAPPOObservationAdapter.from_config(
-                config
+        adapters: dict[
+            int,
+            RMAPPOObservationAdapter,
+        ] = {}
+
+        for team_id in unbarable_ai_team_ids:
+            adapters[team_id] = (
+                RMAPPOObservationAdapter.from_config(
+                    config,
+                    team_id=team_id,
+                )
             )
-        )
 
         runner = MAPPOPolicyRunner.from_config(
             config,
@@ -482,30 +518,7 @@ def main() -> None:
             adapter.training_team_id,
         )
 
-        # ---------------------------------------------------------------
-        # Environment pool
-        # ---------------------------------------------------------------
-
-        logger.info(
-            "Creating EnvironmentPool"
-        )
-
-        pool.initialize_environements()
-
-        if not pool.environments:
-            raise RuntimeError(
-                "EnvironmentPool contains "
-                "no environments."
-            )
-
-        logger.info(
-            "EnvironmentPool created with "
-            "%d environment(s)",
-            len(pool.environments),
-        )
-
-        # Aktuell wird nur die erste Umgebung verwendet.
-        environment = pool.environments[0]
+        
 
         # ---------------------------------------------------------------
         # Configuration validation
