@@ -40,21 +40,15 @@ class EnvironmentPool:
                 self.environments.pop()
                 self.logger.debug("removed environment from list")
 
-    def reset_environments(self) -> list[Any]:
+    def reset_environment(self, env_id: int) -> Any:
         if not self.environments:
             raise RuntimeError("No environments initialized")
-        observations = []
+        if not 0 <= env_id < len(self.environments):
+            raise IndexError(f"Environment ID {env_id} is out of range for {len(self.environments)} environments.")
 
-        for environment in self.environments:
-            obs_raw = environment.reset()
-            observations.append(obs_raw)
+        return self.environments[env_id].reset()
 
-        return observations
-
-    def step_environments(
-        self,
-        actions_by_environment: list[list[Any]],
-    ) -> list[Any]:
+    def step_environments(self, actions_by_environment: list[list[Any]]) -> list[Any]:
         if not self.environments:
             raise RuntimeError("No environments initialized")
         if len(actions_by_environment) != len(self.environments):
