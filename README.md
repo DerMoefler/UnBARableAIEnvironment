@@ -95,7 +95,7 @@ cd ~
 scp -r projekt@ki-vm:/home/projekt/bar-data-new080926/bar-data/ .
 ```
 
-## delete the whole Engine build
+## Delete the whole Engine build
 ```console
 cd RecoilEngine
 podman unshare rm -rf build-amd64-linux
