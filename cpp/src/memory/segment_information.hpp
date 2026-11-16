@@ -137,6 +137,12 @@ public:
      */
     constexpr void advanceHead(const std::size_t increment) { m_header.advanceHead(increment); }
 
+    /// \brief Get the reamining size of the segment.
+    constexpr std::size_t remainingSize(void) const { return m_header.remainingSize(); }
+
+    /// \brief Get data size of the segment, i.e. excluding its header.
+    constexpr std::size_t dataSize(void) const { return m_header.getDataSize(); }
+
     /// \brief Get total size the segment occupies in memory, i.e. including its header.
     constexpr std::size_t totalSize(void) const { return c_header_size + m_header.getDataSize(); }
 

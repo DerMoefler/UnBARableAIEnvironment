@@ -1,13 +1,19 @@
-from dataclasses import dataclass, field
 import logging
 import os
-from pathlib import Path
-from pprint import pformat
+import re
 import signal
-from src.environment.grpc_server import UnBARableAIGRPCServer
 import subprocess
 import threading
+import uuid
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from pprint import pformat
 from typing import Optional, Dict, Any, List, Callable
+
+import bar_ai
+from src.environment.grpc_server import UnBARableAIGRPCServer
+from bar_ai import SharedMemory
 from src.environment.startscript_builder import StartScriptConfig, EngineMode, StartScriptBuilder
 
 logger = logging.getLogger(__name__)
@@ -34,6 +40,7 @@ class EngineSessionConfig:
     config_file: Path = engine_root / "config" / "test_fast.cfg"
     startscript: Path = field(init=False)
 
+    # TODO change to write_dir/engine_stdout/err.log
     default_stdout: int | str | Path = Path("~/bar-data/engine_stdout.log").expanduser()
     default_stderr: int | str | Path = Path("~/bar-data/engine_stderr.log").expanduser()
     merge_stderr_to_stdout: bool = False
@@ -112,7 +119,7 @@ class EngineSession:
 
         self.on_exit = on_exit
 
-        self.proc: Optional[subprocess.Popen] = None
+        self.proc: subprocess.Popen | None = None
 
         self.stdout = self.cfg.default_stdout
         self.stderr = self.cfg.default_stderr
@@ -121,11 +128,14 @@ class EngineSession:
 
         self._monitor_thread: Optional[threading.Thread] = None
         self.grpc_server: UnBARableAIGRPCServer = UnBARableAIGRPCServer()
-        self.grpc_server.start()
+        self.shared_memory: SharedMemory | None = None
 
     def start(self):
         """
         Starts the engine process if it is not already running.
+
+        After creating the engine process, it starts the gRPC-Server and creates the shared-memory.
+        See _initialize_shm for an explanation on the shm creation.
 
         Returns
         -------
@@ -149,15 +159,25 @@ class EngineSession:
         if self.cfg.merge_stderr_to_stdout:
             stderr = subprocess.STDOUT
 
+        self.grpc_server.start()
+        self._initialize_shm()
+
+        assert self.shared_memory is not None
+        # Create environment for engine
+        env = os.environ.copy()
+        env["UNBARABLEAI_SHM_NAME"] = self.shared_memory.get_name()
+
         self.proc = subprocess.Popen(
             cmd,
             cwd=str(self.cfg.engine_root),
             stdout=stdout,
             stderr=stderr,
+            env=env,
             start_new_session=True,
             text=True if (stdout == subprocess.PIPE or stderr == subprocess.PIPE) else False,
             bufsize=1,
         )
+
 
         self._monitor_thread = threading.Thread(
             target=self._monitor_process,
@@ -223,6 +243,9 @@ class EngineSession:
             self.proc = None
             self._close_streams()
             self.grpc_server.stop()
+            if self.shared_memory is not None:
+                SharedMemory.remove(self.shared_memory.get_name())
+                self.shared_memory = None
             logger.info("Engine Session stop called, process terminated and streams closed.")
 
     def is_running(self) -> bool:
@@ -276,6 +299,40 @@ class EngineSession:
             "running": self.is_running(),
             "exit_code": self.exit_code(),
         }
+
+    def _initialize_shm(self) -> None:
+        """
+        Initializes the shared-memory.
+        """
+        assert self.grpc_server.port is not None
+
+        shared_memory_name = f"/bar_ai_{uuid.uuid4().hex}"
+
+        startscript: Path = self.cfg.startscript
+        if not startscript.is_file():
+            raise ValueError("Startscript file does not exist")
+
+        # Simple regex for scheme "{num_ally_units}vs{num_enemy_units}"
+        # vs is case insensitive and the number has dynamic extent, i.e. 1 but also 100 works
+        match = re.match(r"^(\d+)vs(\d+)", startscript.stem, re.IGNORECASE)
+        if not match:
+            raise ValueError(
+                f"Startscript name must start with '<numAllyUnits>vs<numEnemyUnits>', got"
+                "'{startscript.name}'")
+
+        num_ally_units = int(match.group(1))
+        num_enemy_units = int(match.group(2))
+
+
+        # TODO change status if enum supports state better
+        self.shared_memory = SharedMemory.create(
+            name=shared_memory_name,
+            status=bar_ai.EngineStatus.RUNNING,
+            connection=bar_ai.GrpcConnection(self.grpc_server.port),
+            initial_num_ally_units=num_ally_units,
+            initial_num_enemy_units=num_enemy_units,
+        )
+
 
     def _monitor_process(self, proc: subprocess.Popen) -> None:
         """

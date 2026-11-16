@@ -16,9 +16,9 @@ public:
     /// \brief Major version.
     static constexpr uint8_t c_version_major = 0x00;
     /// \brief Minor version.
-    static constexpr uint8_t c_version_minor = 0x00;
+    static constexpr uint8_t c_version_minor = 0x01;
     /// \brief Patch version.
-    static constexpr uint16_t c_version_patch = 0x0001;
+    static constexpr uint16_t c_version_patch = 0x0000;
 
     /// \brief Combines \ref c_version_major, \ref c_version_minor and \ref c_version_patch into one
     /// 32 bit version.
