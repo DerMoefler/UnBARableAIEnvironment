@@ -442,7 +442,7 @@ def main() -> None:
 
     try:
 
-        # ---------------------------------------------------------------
+              # ---------------------------------------------------------------
         # Environment pool
         # ---------------------------------------------------------------
 
@@ -470,8 +470,15 @@ def main() -> None:
         unbarable_ai_team_ids = (
             environment.unbarable_ai_team_ids
         )
+
+        if not unbarable_ai_team_ids:
+            raise RuntimeError(
+                "Environment contains no "
+                "UnBARableAI team IDs."
+            )
+
         # ---------------------------------------------------------------
-        # Observation adapter and policy
+        # Observation adapters and policy
         # ---------------------------------------------------------------
 
         adapters: dict[
@@ -487,34 +494,97 @@ def main() -> None:
                 )
             )
 
+        reference_team_id = (
+            unbarable_ai_team_ids[0]
+        )
+
+        reference_adapter = adapters[
+            reference_team_id
+        ]
+
+        for team_id, adapter in adapters.items():
+            if (
+                adapter.num_agents
+                != reference_adapter.num_agents
+            ):
+                raise ValueError(
+                    "All UnBARableAI teams must use "
+                    "the same number of agents: "
+                    f"team_id={team_id}, "
+                    f"num_agents={adapter.num_agents}, "
+                    f"expected="
+                    f"{reference_adapter.num_agents}."
+                )
+
+            if (
+                adapter.obs_dim
+                != reference_adapter.obs_dim
+            ):
+                raise ValueError(
+                    "All UnBARableAI teams must use "
+                    "the same observation dimension: "
+                    f"team_id={team_id}, "
+                    f"obs_dim={adapter.obs_dim}, "
+                    f"expected="
+                    f"{reference_adapter.obs_dim}."
+                )
+
+            if (
+                adapter.action_dim
+                != reference_adapter.action_dim
+            ):
+                raise ValueError(
+                    "All UnBARableAI teams must use "
+                    "the same action dimension: "
+                    f"team_id={team_id}, "
+                    f"action_dim={adapter.action_dim}, "
+                    f"expected="
+                    f"{reference_adapter.action_dim}."
+                )
+
+            if (
+                adapter.target_feature_dim
+                != reference_adapter.target_feature_dim
+            ):
+                raise ValueError(
+                    "All UnBARableAI teams must use "
+                    "the same target feature dimension: "
+                    f"team_id={team_id}, "
+                    f"target_feature_dim="
+                    f"{adapter.target_feature_dim}, "
+                    f"expected="
+                    f"{reference_adapter.target_feature_dim}."
+                )
+
         runner = MAPPOPolicyRunner.from_config(
             config,
             device,
-            obs_dim=adapter.obs_dim,
+            obs_dim=reference_adapter.obs_dim,
             target_feature_dim=(
-                adapter.target_feature_dim
+                reference_adapter.target_feature_dim
             ),
         )
 
         policy = runner.policy
 
-        logger.info(
-            "Created observation adapter: "
-            "obs_dim=%d target_feature_dim=%d "
-            "max_enemy_slots=%d",
-            adapter.obs_dim,
-            adapter.target_feature_dim,
-            adapter.max_enemy_slots,
-        )
+        for team_id, adapter in adapters.items():
+            logger.info(
+                "Created observation adapter: "
+                "team_id=%d obs_dim=%d "
+                "target_feature_dim=%d "
+                "max_enemy_slots=%d",
+                team_id,
+                adapter.obs_dim,
+                adapter.target_feature_dim,
+                adapter.max_enemy_slots,
+            )
 
         logger.info(
             "Created policy runner: "
-            "agents=%d actions=%d,
-            adapter.num_agents,
-            adapter.action_dim,
+            "agents=%d actions=%d",
+            reference_adapter.num_agents,
+            reference_adapter.action_dim,
         )
-
-        
 
         # ---------------------------------------------------------------
         # Configuration validation
@@ -581,25 +651,32 @@ def main() -> None:
             )
 
         # ---------------------------------------------------------------
-        # Buffer and trainer
+        # Buffers and trainer
         # ---------------------------------------------------------------
 
-        buffer = RolloutBuffer(
-            num_agents=adapter.num_agents,
-            obs_shape=(
-                adapter.obs_dim,
-            ),
-            action_shape=(2,),
-            buffer_size=buffer_size,
-            device=device,
-            action_dim=adapter.action_dim,
-        )
+        buffers: dict[
+            int,
+            RolloutBuffer,
+        ] = {}
 
-        logger.info(
-            "Created RolloutBuffer: "
-            "capacity=%d",
-            buffer_size,
-        )
+        for team_id, adapter in adapters.items():
+            buffers[team_id] = RolloutBuffer(
+                num_agents=adapter.num_agents,
+                obs_shape=(
+                    adapter.obs_dim,
+                ),
+                action_shape=(2,),
+                buffer_size=buffer_size,
+                device=device,
+                action_dim=adapter.action_dim,
+            )
+
+            logger.info(
+                "Created RolloutBuffer: "
+                "team_id=%d capacity=%d",
+                team_id,
+                buffer_size,
+            )
 
         trainer_args = TrainerArgs()
         trainer_args.num_mini_batch = int(
@@ -640,7 +717,7 @@ def main() -> None:
             # Reset
             # -----------------------------------------------------------
 
-            obs_raw, reset_info = environment.reset()
+            obs_raw, step_info = environment.reset()
 
             if not isinstance(obs_raw, dict):
                 raise TypeError(
@@ -648,58 +725,139 @@ def main() -> None:
                     f"as a dictionary, got {type(obs_raw).__name__}."
                 )
 
-            if not isinstance(reset_info, dict):
+            if not isinstance(step_info, dict):
                 raise TypeError(
                     "BAR_Environment.reset() must return info as a dictionary, "
-                    f"got {type(reset_info).__name__}."
+                    f"got {type(step_info).__name__}."
                 )
 
-            adapter.reset_episode(obs_raw)
+            if "current_team_id" not in step_info:
+                raise KeyError(
+                    "BAR_Environment.reset() info does not contain "
+                    "'current_team_id'."
+                )
 
-            prepared = adapter.prepare(
-                obs_raw=obs_raw,
+            current_team_id = int(
+                step_info["current_team_id"]
             )
 
+            if current_team_id not in adapters:
+                raise ValueError(
+                    "Environment returned an unknown team ID: "
+                    f"current_team_id={current_team_id}, "
+                    f"available_team_ids={sorted(adapters)}."
+                )
+
+            # Jeder Adapter hat eigenen zustandsbehafteten Unit-Slot-Speicher.
+            for adapter in adapters.values():
+                adapter.reset_episode({})
+
+            current_adapter = adapters[current_team_id]
+            current_adapter.reset_episode(obs_raw)
+
+            prepared_by_team: dict[int, PreparedStep] = {
+                current_team_id: current_adapter.prepare(
+                    obs_raw=obs_raw,
+                )
+            }
+
             logger.debug(
-                "Episode %d stable unit slots: %s",
+                "Episode %d initial team=%d stable unit slots=%s",
                 episode_number,
-                adapter.agent_unit_ids,
+                current_team_id,
+                current_adapter.agent_unit_ids,
             )
 
             episode_reward = 0.0
+
+            episode_rewards_by_team = {
+                team_id: 0.0
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
             done = False
             terminated = False
             truncated = False
             step_count = 0
 
-            action_counts = np.zeros(
-                adapter.action_dim,
-                dtype=np.int64,
-            )
-            action_trace: list[
-                list[int]
-            ] = []
+            action_counts_by_team = {
+                team_id: np.zeros(
+                    adapters[team_id].action_dim,
+                    dtype=np.int64,
+                )
+                for team_id in environment.unbarable_ai_team_ids
+            }
 
-            episode_won = False
-            episode_lost = False
-            final_ally_alive = None
-            final_enemy_alive = None
-            enemy_damage_done = 0.0
-            own_damage_taken = 0.0
+            action_trace_by_team: dict[
+                int,
+                list[list[int]],
+            ] = {
+                team_id: []
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
+            episode_won_by_team = {
+                team_id: False
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
+            episode_lost_by_team = {
+                team_id: False
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
+            final_ally_alive_by_team: dict[
+                int,
+                int | None,
+            ] = {
+                team_id: None
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
+            final_enemy_alive_by_team: dict[
+                int,
+                int | None,
+            ] = {
+                team_id: None
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
+            enemy_damage_done_by_team = {
+                team_id: 0.0
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
+            own_damage_taken_by_team = {
+                team_id: 0.0
+                for team_id in environment.unbarable_ai_team_ids
+            }
+
             last_info_keys: list[str] = []
+
             final_step_info: dict[
                 str,
                 Any,
             ] = {}
 
-            (
-                rnn_states,
-                rnn_states_critic,
-            ) = _make_rnn_state_arrays(
-                adapter.num_agents,
-                recurrent_n=recurrent_n,
-                hidden_size=hidden_size,
-            )
+            rnn_states_by_team: dict[
+                int,
+                np.ndarray,
+            ] = {}
+
+            rnn_states_critic_by_team: dict[
+                int,
+                np.ndarray,
+            ] = {}
+
+            for team_id in environment.unbarable_ai_team_ids:
+                (
+                    rnn_states_by_team[team_id],
+                    rnn_states_critic_by_team[team_id],
+                ) = _make_rnn_state_arrays(
+                    adapters[team_id].num_agents,
+                    recurrent_n=recurrent_n,
+                    hidden_size=hidden_size,
+                )
 
             trainer.prep_rollout()
             runner.set_evaluation_mode()
@@ -708,20 +866,63 @@ def main() -> None:
             # Step loop
             # -----------------------------------------------------------
 
+            initialized_teams: set[int] = {
+                current_team_id
+            }
+
             while not done:
                 if step_count > maximum_steps + 1:
                     raise RuntimeError(
-                        "Environment exceeded "
-                        "maximum_steps without returning "
+                        "Environment exceeded maximum_steps without returning "
                         "terminated=True or truncated=True: "
                         f"episode={episode_number}, "
                         f"step_count={step_count}, "
                         f"maximum_steps={maximum_steps}."
                     )
 
-                current_team_id = int(
+                if "current_team_id" not in step_info:
+                    raise KeyError(
+                        "Environment info does not contain "
+                        "'current_team_id'."
+                    )
+
+                acting_team_id = int(
                     step_info["current_team_id"]
                 )
+
+                if acting_team_id not in adapters:
+                    raise ValueError(
+                        "Environment selected an unknown acting team: "
+                        f"acting_team_id={acting_team_id}, "
+                        f"available_team_ids={sorted(adapters)}."
+                    )
+
+                if acting_team_id not in prepared_by_team:
+                    raise RuntimeError(
+                        "No prepared observation exists for the current team: "
+                        f"acting_team_id={acting_team_id}."
+                    )
+
+                adapter = adapters[acting_team_id]
+                buffer = buffers[acting_team_id]
+
+                prepared = prepared_by_team[
+                    acting_team_id
+                ]
+
+                rnn_states = rnn_states_by_team[
+                    acting_team_id
+                ]
+
+                rnn_states_critic = (
+                    rnn_states_critic_by_team[
+                        acting_team_id
+                    ]
+                )
+
+                action_counts = action_counts_by_team[
+                    acting_team_id
+                ]
 
                 # -------------------------------------------------------
                 # Policy inference
@@ -742,11 +943,12 @@ def main() -> None:
                     in policy_step.actions[:, 0]
                 ]
 
-                action_trace.append(
+                action_trace_by_team[
+                    acting_team_id
+                ].append(
                     action_types
                 )
 
-                # Nur aktive Agents in der Statistik zählen.
                 for row, action_type in enumerate(
                     action_types
                 ):
@@ -764,14 +966,13 @@ def main() -> None:
                         <= action_type
                         < adapter.action_dim
                     ):
-                        action_counts[
-                            action_type
-                        ] += 1
+                        action_counts[action_type] += 1
                     else:
                         logger.warning(
-                            "Sampled invalid action %d; "
+                            "Sampled invalid action %d for team %d; "
                             "expected range [0, %d]",
                             action_type,
+                            acting_team_id,
                             adapter.action_dim - 1,
                         )
 
@@ -779,12 +980,10 @@ def main() -> None:
                 # Convert policy output to BAR actions
                 # -------------------------------------------------------
 
-                bar_actions = (
-                    runner.create_bar_actions(
-                        policy_step,
-                        prepared,
-                        team_id=adapter.training_team_id,
-                    )
+                bar_actions = runner.create_bar_actions(
+                    policy_step,
+                    prepared,
+                    team_id=acting_team_id,
                 )
 
                 # -------------------------------------------------------
@@ -796,8 +995,10 @@ def main() -> None:
                     reward,
                     terminated,
                     truncated,
-                    step_info,
-                ) = environment.step(bar_actions)
+                    next_step_info,
+                ) = environment.step(
+                    bar_actions
+                )
 
                 if not isinstance(terminated, bool):
                     raise TypeError(
@@ -817,73 +1018,83 @@ def main() -> None:
                         "truncated=True simultaneously."
                     )
 
-                if not isinstance(step_info, dict):
+                if not isinstance(next_step_info, dict):
                     raise TypeError(
                         "BAR_Environment.step() must return info as a dictionary, "
-                        f"got {type(step_info).__name__}."
+                        f"got {type(next_step_info).__name__}."
+                    )
+
+                if not isinstance(next_obs_raw, dict):
+                    raise TypeError(
+                        "BAR_Environment.step() must return the observation "
+                        f"as a dictionary, got {type(next_obs_raw).__name__}."
+                    )
+
+                if (
+                    "acting_team_id" in next_step_info
+                    and int(
+                        next_step_info["acting_team_id"]
+                    ) != acting_team_id
+                ):
+                    raise RuntimeError(
+                        "Environment returned information for the wrong "
+                        "acting team: "
+                        f"expected={acting_team_id}, "
+                        f"received={next_step_info['acting_team_id']}."
                     )
 
                 done = bool(
                     terminated or truncated
                 )
 
-                final_step_info = step_info
+                final_step_info = next_step_info
 
                 # -------------------------------------------------------
-                # Episode metrics
+                # Episode metrics for the acting team
                 # -------------------------------------------------------
 
                 metrics = _episode_metrics(
-                    step_info
+                    next_step_info
                 )
 
-                episode_won = (
-                    episode_won
+                episode_won_by_team[acting_team_id] = (
+                    episode_won_by_team[acting_team_id]
                     or metrics["won"]
                 )
-                episode_lost = (
-                    episode_lost
+
+                episode_lost_by_team[acting_team_id] = (
+                    episode_lost_by_team[acting_team_id]
                     or metrics["lost"]
                 )
 
-                if (
-                    metrics[
-                        "own_alive_count"
-                    ]
-                    is not None
-                ):
-                    final_ally_alive = metrics[
-                        "own_alive_count"
-                    ]
+                if metrics["own_alive_count"] is not None:
+                    final_ally_alive_by_team[
+                        acting_team_id
+                    ] = metrics["own_alive_count"]
 
-                if (
-                    metrics[
-                        "enemy_alive_count"
-                    ]
-                    is not None
-                ):
-                    final_enemy_alive = metrics[
-                        "enemy_alive_count"
-                    ]
+                if metrics["enemy_alive_count"] is not None:
+                    final_enemy_alive_by_team[
+                        acting_team_id
+                    ] = metrics["enemy_alive_count"]
 
-                enemy_damage_done += metrics[
-                    "enemy_damage_done"
-                ]
-                own_damage_taken += metrics[
-                    "own_damage_taken"
-                ]
+                enemy_damage_done_by_team[
+                    acting_team_id
+                ] += metrics["enemy_damage_done"]
+
+                own_damage_taken_by_team[
+                    acting_team_id
+                ] += metrics["own_damage_taken"]
+
                 last_info_keys = metrics[
                     "info_keys"
                 ]
 
                 # -------------------------------------------------------
-                # Reward and masks
+                # Reward and masks for the acting team
                 # -------------------------------------------------------
 
-                reward_array = (
-                    adapter.prepare_reward(
-                        reward
-                    )
+                reward_array = adapter.prepare_reward(
+                    reward
                 )
 
                 masks = np.ones(
@@ -894,33 +1105,25 @@ def main() -> None:
                     dtype=np.float32,
                 )
 
-                # Nur ein natürliches Ende verhindert
-                # Value-Bootstrapping.
                 if terminated:
                     masks[:] = 0.0
 
-                # active_mask gehört zum aktuellen PreparedStep,
-                # für das die Action gewählt wurde.
                 active_masks = (
                     prepared.active_mask.copy()
                 )
 
                 # -------------------------------------------------------
-                # Store transition
+                # Store transition in the acting team's buffer
                 # -------------------------------------------------------
 
                 buffer.insert(
-                    share_obs=(
-                        prepared.share_obs
-                    ),
+                    share_obs=prepared.share_obs,
                     obs=prepared.obs,
                     rnn_states=rnn_states,
                     rnn_states_critic=(
                         rnn_states_critic
                     ),
-                    actions=(
-                        policy_step.actions
-                    ),
+                    actions=policy_step.actions,
                     action_log_probs=(
                         policy_step.action_log_probs
                     ),
@@ -931,8 +1134,7 @@ def main() -> None:
                     masks=masks,
                     active_masks=active_masks,
                     available_actions=(
-                        prepared
-                        .available_actions
+                        prepared.available_actions
                     ),
                     candidate_target_features=(
                         prepared.target_features
@@ -942,28 +1144,84 @@ def main() -> None:
                     ),
                 )
 
-                episode_reward += float(
+                step_reward = float(
                     reward_array.mean()
                 )
+
+                episode_reward += step_reward
+
+                episode_rewards_by_team[
+                    acting_team_id
+                ] += step_reward
+
                 step_count += 1
 
                 # -------------------------------------------------------
-                # Prepare next state
+                # Episode end
                 # -------------------------------------------------------
 
-                if not isinstance(next_obs_raw, dict):
-                    raise TypeError(
-                        "BAR_Environment.step() must return the observation "
-                        f"as a dictionary, got {type(next_obs_raw).__name__}."
+                if done:
+                    for team_id in environment.unbarable_ai_team_ids:
+                        rnn_states_by_team[
+                            team_id
+                        ][:] = 0.0
+
+                        rnn_states_critic_by_team[
+                            team_id
+                        ][:] = 0.0
+
+                    step_info = next_step_info
+                    break
+
+                # -------------------------------------------------------
+                # Prepare observation for the next acting team
+                # -------------------------------------------------------
+
+                if "current_team_id" not in next_step_info:
+                    raise KeyError(
+                        "BAR_Environment.step() info does not contain "
+                        "'current_team_id'."
                     )
 
-                prepared = adapter.prepare(
-                    obs_raw=next_obs_raw,
+                next_team_id = int(
+                    next_step_info["current_team_id"]
                 )
 
-                if done:
-                    rnn_states[:] = 0.0
-                    rnn_states_critic[:] = 0.0
+                if next_team_id not in adapters:
+                    raise ValueError(
+                        "Environment returned an unknown next team: "
+                        f"next_team_id={next_team_id}, "
+                        f"available_team_ids={sorted(adapters)}."
+                    )
+
+                next_adapter = adapters[
+                    next_team_id
+                ]
+
+                if next_team_id not in initialized_teams:
+                    next_adapter.reset_episode(
+                        next_obs_raw
+                    )
+
+                    initialized_teams.add(
+                        next_team_id
+                    )
+
+                    logger.debug(
+                        "Episode %d initialized team=%d "
+                        "stable unit slots=%s",
+                        episode_number,
+                        next_team_id,
+                        next_adapter.agent_unit_ids,
+                    )
+
+                prepared_by_team[next_team_id] = (
+                    next_adapter.prepare(
+                        obs_raw=next_obs_raw,
+                    )
+                )
+
+                step_info = next_step_info
 
             # -----------------------------------------------------------
             # Validate episode end
@@ -975,43 +1233,76 @@ def main() -> None:
                     "ended without executing a step."
                 )
 
-            if (
-                final_enemy_alive is not None
-                and int(final_enemy_alive) <= 0
-            ):
-                episode_won = True
+            for team_id in unbarable_ai_team_ids:
+                final_enemy_alive = (
+                    final_enemy_alive_by_team[
+                        team_id
+                    ]
+                )
 
-            if (
-                final_ally_alive is not None
-                and int(final_ally_alive) <= 0
-            ):
-                episode_lost = True
+                final_ally_alive = (
+                    final_ally_alive_by_team[
+                        team_id
+                    ]
+                )
+
+                if (
+                    final_enemy_alive is not None
+                    and int(final_enemy_alive) <= 0
+                ):
+                    episode_won_by_team[
+                        team_id
+                    ] = True
+
+                if (
+                    final_ally_alive is not None
+                    and int(final_ally_alive) <= 0
+                ):
+                    episode_lost_by_team[
+                        team_id
+                    ] = True
 
             # -----------------------------------------------------------
             # Bootstrap and returns
             # -----------------------------------------------------------
 
-            if terminated:
-                next_value = np.zeros(
-                    (
-                        adapter.num_agents,
-                        1,
-                    ),
-                    dtype=np.float32,
-                )
-            else:
-                # Truncated Episode:
-                # Bootstrap aus finaler Observation.
-                next_value = (
-                    runner.predict_values(
-                        prepared.share_obs
-                    )
-                )
+            for team_id in unbarable_ai_team_ids:
+                adapter = adapters[team_id]
+                buffer = buffers[team_id]
 
-            buffer.compute_returns(
-                next_value,
-                gamma=float(mappo_config["gamma"]),
-            )
+                if terminated:
+                    next_value = np.zeros(
+                        (
+                            adapter.num_agents,
+                            1,
+                        ),
+                        dtype=np.float32,
+                    )
+                else:
+                    # Truncated Episode:
+                    # Bootstrap aus der letzten verfügbaren
+                    # Observation des jeweiligen Teams.
+                    if team_id not in prepared_by_team:
+                        raise RuntimeError(
+                            "No prepared observation is available "
+                            "for truncated-episode bootstrapping: "
+                            f"team_id={team_id}."
+                        )
+
+                    next_value = (
+                        runner.predict_values(
+                            prepared_by_team[
+                                team_id
+                            ].share_obs
+                        )
+                    )
+
+                buffer.compute_returns(
+                    next_value,
+                    gamma=float(
+                        mappo_config["gamma"]
+                    ),
+                )
 
             # -----------------------------------------------------------
             # PPO update
@@ -1020,17 +1311,72 @@ def main() -> None:
             trainer.prep_training()
             runner.set_training_mode()
 
-            train_info = trainer.train(
-                buffer,
-                update_actor=True,
-            )
+            train_info_by_team: dict[
+                int,
+                dict[str, Any],
+            ] = {}
 
-            if device.type == "cuda":
-                torch.cuda.synchronize(
-                    device
+            for team_id in unbarable_ai_team_ids:
+                train_info_by_team[
+                    team_id
+                ] = trainer.train(
+                    buffers[team_id],
+                    update_actor=True,
                 )
 
-            buffer.reset()
+                if device.type == "cuda":
+                    torch.cuda.synchronize(
+                        device
+                    )
+
+                buffers[team_id].reset()
+
+            # Ein gemeinsamer Logging-Wert als Mittelwert
+            # über alle trainierten Teams.
+            value_loss = float(
+                np.mean(
+                    [
+                        float(
+                            train_info.get(
+                                "value_loss",
+                                0.0,
+                            )
+                        )
+                        for train_info
+                        in train_info_by_team.values()
+                    ]
+                )
+            )
+
+            policy_loss = float(
+                np.mean(
+                    [
+                        float(
+                            train_info.get(
+                                "policy_loss",
+                                0.0,
+                            )
+                        )
+                        for train_info
+                        in train_info_by_team.values()
+                    ]
+                )
+            )
+
+            entropy = float(
+                np.mean(
+                    [
+                        float(
+                            train_info.get(
+                                "dist_entropy",
+                                0.0,
+                            )
+                        )
+                        for train_info
+                        in train_info_by_team.values()
+                    ]
+                )
+            )
 
             # -----------------------------------------------------------
             # Episode logging
@@ -1046,15 +1392,15 @@ def main() -> None:
                 final_episode,
             )
             logger.info(
-                "Average Reward per Step: %.4f",
+                "Average Reward per Turn: %.4f",
                 average_reward_per_step,
             )
             logger.info(
-                "Episode Reward: %.4f",
+                "Total Episode Reward: %.4f",
                 episode_reward,
             )
             logger.info(
-                "Steps: %d",
+                "Player Turns: %d",
                 step_count,
             )
             logger.info(
@@ -1065,38 +1411,79 @@ def main() -> None:
                 "Truncated: %s",
                 truncated,
             )
-            logger.info(
-                "Won: %s",
-                episode_won,
-            )
-            logger.info(
-                "Lost: %s",
-                episode_lost,
-            )
-            logger.info(
-                "Final Ally Alive: %s",
-                final_ally_alive,
-            )
-            logger.info(
-                "Final Enemy Alive: %s",
-                final_enemy_alive,
-            )
-            logger.info(
-                "Enemy Damage Done: %.4f",
-                enemy_damage_done,
-            )
-            logger.info(
-                "Own Damage Taken: %.4f",
-                own_damage_taken,
-            )
-            logger.info(
-                "Action Counts: %s",
-                action_counts.tolist(),
-            )
-            logger.debug(
-                "Action Trace: %s",
-                action_trace,
-            )
+
+            for team_id in unbarable_ai_team_ids:
+                logger.info(
+                    "Team %d Episode Reward: %.4f",
+                    team_id,
+                    episode_rewards_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Won: %s",
+                    team_id,
+                    episode_won_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Lost: %s",
+                    team_id,
+                    episode_lost_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Final Ally Alive: %s",
+                    team_id,
+                    final_ally_alive_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Final Enemy Alive: %s",
+                    team_id,
+                    final_enemy_alive_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Enemy Damage Done: %.4f",
+                    team_id,
+                    enemy_damage_done_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Own Damage Taken: %.4f",
+                    team_id,
+                    own_damage_taken_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Action Counts: %s",
+                    team_id,
+                    action_counts_by_team[
+                        team_id
+                    ].tolist(),
+                )
+                logger.debug(
+                    "Team %d Action Trace: %s",
+                    team_id,
+                    action_trace_by_team[
+                        team_id
+                    ],
+                )
+                logger.info(
+                    "Team %d Train Info: %s",
+                    team_id,
+                    train_info_by_team[
+                        team_id
+                    ],
+                )
+
             logger.info(
                 "Last Info Keys: %s",
                 last_info_keys,
@@ -1106,31 +1493,16 @@ def main() -> None:
                 final_step_info,
             )
             logger.info(
-                "Value Loss: %.6f",
-                float(
-                    train_info.get(
-                        "value_loss",
-                        0.0,
-                    )
-                ),
+                "Mean Value Loss: %.6f",
+                value_loss,
             )
             logger.info(
-                "Policy Loss: %.6f",
-                float(
-                    train_info.get(
-                        "policy_loss",
-                        0.0,
-                    )
-                ),
+                "Mean Policy Loss: %.6f",
+                policy_loss,
             )
             logger.info(
-                "Entropy: %.6f",
-                float(
-                    train_info.get(
-                        "dist_entropy",
-                        0.0,
-                    )
-                ),
+                "Mean Entropy: %.6f",
+                entropy,
             )
 
             # -----------------------------------------------------------
@@ -1138,7 +1510,9 @@ def main() -> None:
             # -----------------------------------------------------------
 
             save_interval = int(
-                training_config["save_every_x_episode"]
+                training_config[
+                    "save_every_x_episode"
+                ]
             )
 
             if (
@@ -1146,11 +1520,10 @@ def main() -> None:
                 and episode_number
                 % save_interval == 0
             ):
-
                 checkpoint_path = (
                     _save_checkpoint(
                         policy,
-                        adapter,
+                        reference_adapter,
                         episode_number,
                         run_directory,
                     )
@@ -1167,7 +1540,7 @@ def main() -> None:
 
         final_checkpoint = _save_checkpoint(
             policy,
-            adapter,
+            reference_adapter,
             final_episode,
             run_directory,
         )
@@ -1211,6 +1584,7 @@ def main() -> None:
                 "aborted due to an error.",
                 flush=True,
             )
+
 
 if __name__ == "__main__":
     main()
