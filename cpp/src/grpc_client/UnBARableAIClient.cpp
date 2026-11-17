@@ -11,7 +11,10 @@ bool UnBARableAIClient::HandleEventUpdate(int timeout_ms) {
     last_error_.clear();
 
     grpc::ClientContext context;
-    context.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(timeout_ms));
+    if (timeout_ms != c_infinite_timeout) {
+        context.set_deadline(std::chrono::system_clock::now() +
+                             std::chrono::milliseconds(timeout_ms));
+    }
 
     google::protobuf::Empty request;
     google::protobuf::Empty response;
