@@ -324,8 +324,12 @@ class BAR_Environment:
         assert self.session is not None
         assert self.session.shared_memory is not None
 
-        units = self.session.shared_memory.read_all_units()
-        status = self.session.shared_memory.get_engine_status()
+        shared_memory = self.session.get_shared_memory(
+            team_id=team_id
+        )
+
+        units = shared_memory.read_all_units()
+        status = shared_memory.get_engine_status()
 
         return EngineSnapshot(
             units=units,

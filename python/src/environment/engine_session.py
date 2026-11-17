@@ -148,8 +148,8 @@ class EngineSession:
         self._stderr_handle: Optional[Any] = None
 
         self._monitor_thread: Optional[threading.Thread] = None
-        self.shared_memory: SharedMemory | None = None
 
+        self.shared_memories: Dict[int, SharedMemory] = {}
         self.grpc_servers: Dict[int, UnBARableAIGRPCServer] = {}
 
         for team_id in cfg.unbarable_ai_team_ids:
@@ -225,13 +225,15 @@ class EngineSession:
         if self.cfg.merge_stderr_to_stdout:
             stderr = subprocess.STDOUT
 
-        self.grpc_server.start()
-        self._initialize_shm()
+        self._initialize_shms()
 
-        assert self.shared_memory is not None
         # Create environment for engine
         env = os.environ.copy()
-        env["UNBARABLEAI_SHM_NAME"] = self.shared_memory.get_name()
+
+        for team_id, shared_memory in self.shared_memories.items():
+            env[
+                f"UNBARABLEAI_SHM_NAME_{team_id}"
+            ] = shared_memory.get_name()
 
         self.proc = subprocess.Popen(
             cmd,
@@ -311,9 +313,12 @@ class EngineSession:
             for grpc_server in self.grpc_servers.values():
                 grpc_server.stop()
 
-            if self.shared_memory is not None:
-                SharedMemory.remove(self.shared_memory.get_name())
-                self.shared_memory = None
+            for shared_memory in self.shared_memories.values():
+                SharedMemory.remove(
+                    shared_memory.get_name()
+                )
+
+            self.shared_memories.clear()
             logger.info("Engine Session stop called, process terminated and streams closed.")
 
     def is_running(self) -> bool:
@@ -368,26 +373,58 @@ class EngineSession:
             "exit_code": self.exit_code(),
         }
 
-    def _initialize_shm(self) -> None:
-        """
-        Initializes the shared-memory.
-        """
-        assert self.grpc_server.port is not None
+    def get_shared_memory(
+        self,
+        team_id: int,
+    ) -> SharedMemory:
+        if team_id not in self.shared_memories:
+            raise ValueError(
+                "No shared memory configured for "
+                f"team_id={team_id}"
+            )
 
-        shared_memory_name = f"/bar_ai_{uuid.uuid4().hex}"
+        return self.shared_memories[
+            team_id
+        ]
+    
+    def _initialize_shms(self) -> None:
+        for team_id in self.cfg.unbarable_ai_team_ids:
+            grpc_server = self.grpc_servers[team_id]
 
-        num_ally_units = self.cfg.startscript_config.number_of_agents
-        num_enemy_units = self.cfg.startscript_config.number_of_enemies
+            assert grpc_server.port is not None
 
+            shared_memory_name = f"/bar_ai_{uuid.uuid4().hex}"
 
-        # TODO change status if enum supports state better
-        self.shared_memory = SharedMemory.create(
-            name=shared_memory_name,
-            status=bar_ai.EngineStatus.RUNNING,
-            connection=bar_ai.GrpcConnection(self.grpc_server.port),
-            initial_num_ally_units=num_ally_units,
-            initial_num_enemy_units=num_enemy_units,
-        )
+            training_team_id = (
+                self.cfg.startscript_config.training_team_id
+            )
+
+            if team_id == training_team_id:
+                num_ally_units = (
+                    self.cfg.startscript_config.number_of_agents
+                )
+                num_enemy_units = (
+                    self.cfg.startscript_config.number_of_enemies
+                )
+            else:
+                num_ally_units = (
+                    self.cfg.startscript_config.number_of_enemies
+                )
+                num_enemy_units = (
+                    self.cfg.startscript_config.number_of_agents
+                )
+
+            self.shared_memories[team_id] = (
+                SharedMemory.create(
+                    name=shared_memory_name,
+                    status=bar_ai.EngineStatus.RUNNING,
+                    connection=bar_ai.GrpcConnection(
+                        grpc_server.port
+                    ),
+                    initial_num_ally_units= num_ally_units,
+                    initial_num_enemy_units= num_enemy_units,
+                )
+            )
 
 
     def _monitor_process(self, proc: subprocess.Popen) -> None:
