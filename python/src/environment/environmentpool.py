@@ -78,7 +78,14 @@ class EnvironmentPool:
         futures = [
             (
                 None
-                if environment.episode_step >= self.maximum_steps
+                if (
+                    environment.episode_step >= self.maximum_steps
+                    or getattr(
+                        getattr(environment, "stepinfo", None),
+                        "done",
+                        False,
+                    )
+                )
                 else self._step_executor.submit(
                     environment.step,
                     actions,

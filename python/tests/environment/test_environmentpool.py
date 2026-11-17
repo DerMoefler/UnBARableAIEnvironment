@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -117,5 +118,17 @@ def test_step_environments_skips_environment_at_maximum_steps() -> None:
             None,
         ]
         assert [environment.episode_step for environment in environments] == [1, 1]
+    finally:
+        pool.close_environements()
+
+
+def test_step_environments_skips_environment_marked_done() -> None:
+    environment = BarrierEnvironment(0, threading.Barrier(1))
+    environment.stepinfo = SimpleNamespace(done=True)
+    pool = _make_pool([environment])
+
+    try:
+        assert pool.step_environments([["unused-action"]]) == [None]
+        assert environment.episode_step == 0
     finally:
         pool.close_environements()

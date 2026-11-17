@@ -1,3 +1,4 @@
+import json
 from contextlib import ExitStack, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -9,13 +10,72 @@ import torch
 
 import bar_ai
 #from src.train import train_fixed_v7
+from src.environment import environmentpool
+from src.environment.stepinfo import StepInfo
 from src.train import training
 from src.train.mappo import trainerargs
+from src.train.rollout_buffer import RolloutBuffer
 
 MOVEMENT_TARGET_ID = 4211
 
 # Unit 0 existiert in diesem Testszenario nicht mehr.
 OWN_UNIT_IDS = {1, 2, 3}
+
+
+def test_combined_rollout_buffers_keep_environment_returns_independent():
+    def make_buffer(action_value, reward, mask, next_value):
+        buffer = RolloutBuffer(
+            num_agents=1,
+            obs_shape=(2,),
+            action_shape=(2,),
+            buffer_size=1,
+            action_dim=3,
+        )
+        buffer.insert(
+            share_obs=np.zeros(2, dtype=np.float32),
+            obs=np.zeros((1, 2), dtype=np.float32),
+            rnn_states=np.zeros((1, 1, 1), dtype=np.float32),
+            rnn_states_critic=np.zeros((1, 1, 1), dtype=np.float32),
+            actions=np.asarray([[action_value, 0]], dtype=np.float32),
+            action_log_probs=np.zeros((1, 1), dtype=np.float32),
+            value_preds=np.zeros((1, 1), dtype=np.float32),
+            rewards=np.asarray([[reward]], dtype=np.float32),
+            masks=np.asarray([[mask]], dtype=np.float32),
+            active_masks=np.ones((1, 1), dtype=np.float32),
+            available_actions=np.ones((1, 3), dtype=np.float32),
+        )
+        buffer.compute_returns(
+            np.asarray([[next_value]], dtype=np.float32)
+        )
+        return buffer
+
+    terminated_buffer = make_buffer(
+        action_value=1,
+        reward=1.0,
+        mask=0.0,
+        next_value=0.0,
+    )
+    truncated_buffer = make_buffer(
+        action_value=2,
+        reward=2.0,
+        mask=1.0,
+        next_value=3.0,
+    )
+
+    combined = training._combine_rollout_buffers(
+        [terminated_buffer, truncated_buffer],
+        device=torch.device("cpu"),
+    )
+
+    assert combined.step == 2
+    np.testing.assert_allclose(
+        combined.returns[:2, 0, 0],
+        [1.0, 2.0 + 0.99 * 3.0],
+    )
+    np.testing.assert_array_equal(
+        combined.actions[:2, 0, 0],
+        [1.0, 2.0],
+    )
 
 
 def _bar_observation_dict(enemy_count=3):
@@ -96,17 +156,32 @@ def test_training_dataflow_one_mappo_update():
     expected_enemy_ids = {4, 5, 6}
 
     class SimulatedBAREnvironment:
-        def __init__(self, engine_id=0, port=50051):
+        def __init__(
+            self,
+            *,
+            training_team_id,
+            environment_id,
+            config_path,
+            max_episode_steps,
+        ):
+            self.environment_id = environment_id
             self.observations = _bar_observation_dict(
-            enemy_count=enemy_count
+                enemy_count=enemy_count
             )
             self.received_actions = []
             self.actions_per_step = []
             self.step_calls = 0
+            self.episode_step = 0
+            self.max_episode_steps = max_episode_steps
+            config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+            self.action_dim = config["action_dimension"]
+            self.stepinfo = StepInfo(self.action_dim)
             env_instances.append(self)
 
         def reset(self):
-            return self.observations, {"simulated": True}
+            self.episode_step = 0
+            self.stepinfo = StepInfo(self.action_dim)
+            return self.observations
 
         def step(self, actions):
             assert isinstance(actions, list)
@@ -116,13 +191,14 @@ def test_training_dataflow_one_mappo_update():
             )
 
             self.step_calls += 1
+            self.episode_step += 1
             self.actions_per_step.append(list(actions))
             self.received_actions.extend(actions)
 
             return (
                 self.observations,
                 0.1,
-                False,
+                True,
                 False,
                 {
                     "own_alive_count": len(OWN_UNIT_IDS),
@@ -144,10 +220,12 @@ def test_training_dataflow_one_mappo_update():
             super().__init__(*args, **kwargs)
             self.train_calls = 0
             self.train_info = None
+            self.train_buffer_steps = []
             trainers.append(self)
 
         def train(self, buffer, update_actor=True):
             self.train_calls += 1
+            self.train_buffer_steps.append(buffer.step)
             self.train_info = super().train(
                 buffer,
                 update_actor=update_actor,
@@ -157,9 +235,23 @@ def test_training_dataflow_one_mappo_update():
     with ExitStack() as patches:
         patches.enter_context(
             patch.object(
-                training,
+                environmentpool,
                 "BAR_Environment",
                 SimulatedBAREnvironment,
+            )
+        )
+        original_json_load = json.load
+
+        def load_config_with_two_environments(config_file):
+            loaded_config = original_json_load(config_file)
+            loaded_config["number_of_environments"] = 2
+            return loaded_config
+
+        patches.enter_context(
+            patch.object(
+                environmentpool.json,
+                "load",
+                side_effect=load_config_with_two_environments,
             )
         )
         patches.enter_context(
@@ -202,13 +294,16 @@ def test_training_dataflow_one_mappo_update():
             )
         )
 
-        config = training.load_training_config().copy()
+        config = training.load_training_config(
+            Path("src/train/experiments/3v3Test/3v3Test.json")
+        ).copy()
         config.update({
             "run_name": "dataflow_test",
             "device": "cpu",
             "number_of_agents": 3,
-            "number_of_environments": 1,
+            "number_of_environments": 2,
             "buffer_size": 1,
+            "maximum_steps": 1,
             "mini_batch": 1,
             "episodes": 1,
             "save_every_x_episode": 0,
@@ -225,45 +320,41 @@ def test_training_dataflow_one_mappo_update():
         # ------------------------------------------------------------
         # Training/dataflow assertions
         # ------------------------------------------------------------
-        assert len(env_instances) == 1
+        assert len(env_instances) == 2
+        env_steps = sum(env.step_calls for env in env_instances)
+        received_actions = [
+            action
+            for env in env_instances
+            for action in env.received_actions
+        ]
 
-        env = env_instances[0]
+        assert env_steps == 2
+        for env in env_instances:
+            assert len(env.observations) == len(OWN_UNIT_IDS) + enemy_count
+            assert set(
+                int(np.asarray(obs).item().unit_id)
+                for obs in env.observations.values()
+            ) == OWN_UNIT_IDS | expected_enemy_ids
+            assert env.step_calls == 1
+            assert len(env.actions_per_step) == env.step_calls
 
-        print(f"Environment steps: {env.step_calls}")
-        print(f"Total actions: {len(env.received_actions)}")
-        print(
-            "Actions per step:",
-            len(env.received_actions) / max(env.step_calls, 1),
-        )
+            for step_index, actions in enumerate(env.actions_per_step):
+                assert len(actions) == len(OWN_UNIT_IDS), (
+                    f"Environment {env.environment_id}, step {step_index}: "
+                    f"expected {len(OWN_UNIT_IDS)} actions, received {len(actions)}"
+                )
 
-        assert len(env.observations) == len(OWN_UNIT_IDS) + enemy_count
-        assert set(
-            int(np.asarray(obs).item().unit_id)
-            for obs in env.observations.values()
-        ) == OWN_UNIT_IDS | expected_enemy_ids
+                action_unit_ids = [int(action.unit_id) for action in actions]
 
-        assert env.step_calls >= 1
+                assert set(action_unit_ids) == OWN_UNIT_IDS, (
+                    f"Unexpected unit IDs in environment "
+                    f"{env.environment_id}: {action_unit_ids}"
+                )
 
-        # Exactly three actions are expected: one for each controlled unit.
-        assert env.step_calls >= 1
-
-        assert len(env.actions_per_step) == env.step_calls
-
-        for step_index, actions in enumerate(env.actions_per_step):
-            assert len(actions) == len(OWN_UNIT_IDS), (
-                f"Step {step_index}: expected {len(OWN_UNIT_IDS)} actions, "
-                f"received {len(actions)}"
-            )
-
-            action_unit_ids = [int(action.unit_id) for action in actions]
-
-            assert set(action_unit_ids) == OWN_UNIT_IDS, (
-                f"Step {step_index}: unexpected unit IDs {action_unit_ids}"
-            )
-
-            assert len(action_unit_ids) == len(set(action_unit_ids)), (
-                f"Step {step_index}: duplicate unit actions {action_unit_ids}"
-            )
+                assert len(action_unit_ids) == len(set(action_unit_ids)), (
+                    f"Duplicate unit actions in environment "
+                    f"{env.environment_id}: {action_unit_ids}"
+                )
 
         assert len(trainers) == 1
         trainer = trainers[0]
@@ -272,16 +363,16 @@ def test_training_dataflow_one_mappo_update():
 
         assert trainer.train_calls == 1
         assert trainer.ppo_epoch == 1
+        assert trainer.train_buffer_steps == [2]
 
         assert all(
             isinstance(action.action_id, bar_ai.ActionId)
-            for action in env.received_actions
+            for action in received_actions
         )
 
-       
         action_unit_ids = [
             int(action.unit_id)
-            for action in env.received_actions
+            for action in received_actions
         ]
 
         # Unit 0 must never receive an action.
@@ -293,11 +384,11 @@ def test_training_dataflow_one_mappo_update():
         assert set(action_unit_ids) == OWN_UNIT_IDS
 
         # Exactly one action per controlled unit and environment step.
-        expected_action_count = env.step_calls * len(OWN_UNIT_IDS)
+        expected_action_count = env_steps * len(OWN_UNIT_IDS)
 
         assert len(action_unit_ids) == expected_action_count, (
             f"Expected {expected_action_count} total actions "
-            f"({env.step_calls} steps x {len(OWN_UNIT_IDS)} units), "
+            f"({env_steps} steps x {len(OWN_UNIT_IDS)} units), "
             f"received {len(action_unit_ids)}."
         )
 
@@ -308,7 +399,7 @@ def test_training_dataflow_one_mappo_update():
         attack_count = 0
         movement_count = 0
 
-        for action in env.received_actions:
+        for action in received_actions:
             target_id = int(action.target_unit_id)
 
             if _is_attack_action(action):
@@ -353,12 +444,12 @@ def test_training_dataflow_one_mappo_update():
 
         print("\n[1] ENVIRONMENT")
         print(line)
-        print(f"  Environment       : {type(env).__name__}")
-        print(f"  Total units       : {len(env.observations)}")
+        print(f"  Environment       : {type(env_instances[0]).__name__}")
+        print(f"  Total units       : {len(env_instances[0].observations)}")
         print(f"  Controlled units  : {sorted(OWN_UNIT_IDS)}")
         print(f"  Removed unit      : 0")
         print(f"  Enemy units       : {sorted(expected_enemy_ids)}")
-        print(f"  Environment steps : {env.step_calls}")
+        print(f"  Environment steps : {env_steps}")
 
         print("\n[2] TRAINING")
         print(line)
@@ -373,13 +464,13 @@ def test_training_dataflow_one_mappo_update():
 
         print("\n[3] ACTION OUTPUT")
         print(line)
-        print(f"  Total actions     : {len(env.received_actions)}")
+        print(f"  Total actions     : {len(received_actions)}")
         print(f"  Attack actions    : {attack_count}")
         print(f"  Movement actions  : {movement_count}")
 
         print("\n  Actions received by the environment:")
 
-        for index, action in enumerate(env.received_actions):
+        for index, action in enumerate(received_actions):
             action_name = getattr(
                 action.action_id,
                 "name",

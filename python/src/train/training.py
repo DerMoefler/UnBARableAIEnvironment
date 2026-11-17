@@ -60,54 +60,6 @@ def _make_rnn_state_arrays(
     )
 
 
-def _episode_metrics(
-    info: dict[str, Any],
-) -> dict[str, Any]:
-    """
-    Extract episode metrics from BAR_Environment info.
-    """
-    outcome = info.get("episode_outcome")
-
-    return {
-        "won": outcome == "won",
-        "lost": outcome == "lost",
-        "own_alive_count": info.get(
-            "own_alive_count"
-        ),
-        "enemy_alive_count": info.get(
-            "enemy_alive_count"
-        ),
-        "enemy_damage_done": float(
-            info.get(
-                "reward_info",
-                {},
-            ).get(
-                "enemy_damage_done",
-                0.0,
-            )
-            if isinstance(
-                info.get("reward_info"),
-                dict,
-            )
-            else 0.0
-        ),
-        "own_damage_taken": float(
-            info.get(
-                "reward_info",
-                {},
-            ).get(
-                "own_damage_taken",
-                0.0,
-            )
-            if isinstance(
-                info.get("reward_info"),
-                dict,
-            )
-            else 0.0
-        ),
-        "info_keys": sorted(info.keys()),
-    }
-
 # ---------------------------------------------------------------------------
 # Creating Adapters, rn just mappo specific
 # ---------------------------------------------------------------------------
@@ -128,6 +80,85 @@ def create_mappo_adapters(number_of_environments: int, data):
                 )
 
     return adapters
+
+
+def _combine_rollout_buffers(
+    buffers: list[RolloutBuffer],
+    *,
+    device: torch.device,
+) -> RolloutBuffer:
+    populated_buffers = [
+        buffer
+        for buffer in buffers
+        if buffer.step > 0
+    ]
+    if not populated_buffers:
+        raise RuntimeError(
+            "Cannot combine empty environment rollout buffers."
+        )
+
+    template = populated_buffers[0]
+    for buffer in populated_buffers[1:]:
+        if (
+            buffer.num_agents != template.num_agents
+            or buffer.share_obs.shape[1:] != template.share_obs.shape[1:]
+            or buffer.obs.shape[2:] != template.obs.shape[2:]
+            or buffer.actions.shape[2:] != template.actions.shape[2:]
+            or buffer.action_dim != template.action_dim
+        ):
+            raise ValueError(
+                "Environment rollout buffers have incompatible shapes."
+            )
+
+    combined = RolloutBuffer(
+        num_agents=template.num_agents,
+        obs_shape=template.share_obs.shape[1:],
+        action_shape=template.actions.shape[2:],
+        buffer_size=sum(buffer.step for buffer in populated_buffers),
+        device=device,
+        action_dim=template.action_dim,
+    )
+
+    for source in populated_buffers:
+        for source_step in range(source.step):
+            combined.insert(
+                share_obs=source.share_obs[source_step],
+                obs=source.obs[source_step],
+                rnn_states=source.rnn_states[source_step],
+                rnn_states_critic=(
+                    source.rnn_states_critic[source_step]
+                ),
+                actions=source.actions[source_step],
+                action_log_probs=(
+                    source.action_log_probs[source_step]
+                ),
+                value_preds=source.value_preds[source_step],
+                rewards=source.rewards[source_step],
+                masks=source.masks[source_step + 1],
+                active_masks=source.active_masks[source_step + 1],
+                available_actions=(
+                    source.available_actions[source_step]
+                ),
+                candidate_target_features=(
+                    None
+                    if source.candidate_target_features is None
+                    else source.candidate_target_features[source_step]
+                ),
+                candidate_target_mask=(
+                    None
+                    if source.candidate_target_mask is None
+                    else source.candidate_target_mask[source_step]
+                ),
+            )
+            combined_step = combined.step - 1
+            combined.value_preds[combined_step] = (
+                source.value_preds[source_step]
+            )
+            combined.returns[combined_step] = (
+                source.returns[source_step]
+            )
+
+    return combined
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +506,7 @@ def main() -> None:
             runner = MAPPOPolicyRunner.from_config(
                 data,
                 device,
-                obs_dim=data["obs_dim"],
+                obs_dim=adapters[0].obs_dim,
                 target_feature_dim=(
                     adapters[0].target_feature_dim
                 ),
@@ -486,8 +517,8 @@ def main() -> None:
             logger.info(
                         "Created policy runner: "
                         "agents=%d actions=%d team_id=%d",
-                        data["num_agents"],
-                        data["action_dim"],
+                        data["number_of_agents"],
+                        data["action_dimension"],
                         data["training_team_id"],
                     )
         else:
@@ -561,20 +592,9 @@ def main() -> None:
         # Buffer and trainer
         # ---------------------------------------------------------------
 
-        buffer = RolloutBuffer(
-            num_agents=data["number_of_agents"],
-            obs_shape=(
-                data["obs_dim"],
-            ),
-            action_shape=(2,),
-            buffer_size=buffer_size,
-            device=device,
-            action_dim=data["action_dimension"],
-        )
-
         logger.info(
-            "Created RolloutBuffer: "
-            "capacity=%d",
+            "Creating per-environment RolloutBuffers: "
+            "capacity=%d each",
             buffer_size,
         )
 
@@ -626,31 +646,45 @@ def main() -> None:
                         f"as a dictionary, got {type(obs_raw).__name__}."
                     )
 
-                pool.environments[i].stepinfo.receive_prepared(adapters[i].prepare(obs_raw=obs_raw))
-
-            (
-                rnn_states,
-                rnn_states_critic,
-            ) = _make_rnn_state_arrays(
-                data["number_of_agents"],
-                recurrent_n=recurrent_n,
-                hidden_size=hidden_size,
-            )
+                adapters[i].reset_episode(obs_raw)
+                pool.environments[i].stepinfo.receive_prepared(
+                    adapters[i].prepare(obs_raw=obs_raw)
+                )
 
             trainer.prep_rollout()
             runner.set_evaluation_mode()
 
+            environment_buffers = [
+                RolloutBuffer(
+                    num_agents=adapters[env_id].num_agents,
+                    obs_shape=(adapters[env_id].obs_dim,),
+                    action_shape=(2,),
+                    buffer_size=buffer_size,
+                    device=device,
+                    action_dim=adapters[env_id].action_dim,
+                )
+                for env_id in range(len(pool.environments))
+            ]
+            recurrent_states = [
+                _make_rnn_state_arrays(
+                    adapters[env_id].num_agents,
+                    recurrent_n=recurrent_n,
+                    hidden_size=hidden_size,
+                )
+                for env_id in range(len(pool.environments))
+            ]
             # -----------------------------------------------------------
             # Step loop
             # -----------------------------------------------------------
 
-            while pool.check_done() == False:
+            while not pool.check_done():
 
                 # -------------------------------------------------------
                 # Policy inference
                 # -------------------------------------------------------
 
-                policy_steps = [None] * len(pool.environments)
+                policy_steps: list[Any] = [None] * len(pool.environments)
+                bar_actions: list[Any] = [None] * len(pool.environments)
 
                 for env_id, env in enumerate(pool.environments):
                     if env.stepinfo.done or env.episode_step >= pool.maximum_steps:
@@ -662,256 +696,272 @@ def main() -> None:
 
                     policy_steps[env_id] = runner.act(prepared)
 
-                if device.type == "cuda":
-                    torch.cuda.synchronize(
-                        device
-                    )
-
-                action_types = [
-                    int(action)
-                    for action
-                    in policy_step.actions[:, 0]
-                ]
-
-                # Nur aktive Agents in der Statistik zählen.
-                for row, action_type in enumerate(
-                    action_types
-                ):
-                    if (
-                        prepared.active_mask[
-                            row,
-                            0,
-                        ]
-                        <= 0.0
-                    ):
-                        continue
-
-                    if (
-                        0
-                        <= action_type
-                        < adapter.action_dim
-                    ):
-                        action_counts[
-                            action_type
-                        ] += 1
-                    else:
-                        logger.warning(
-                            "Sampled invalid action %d; "
-                            "expected range [0, %d]",
-                            action_type,
-                            adapter.action_dim - 1,
+                    if device.type == "cuda":
+                        torch.cuda.synchronize(
+                            device
                         )
+
+                    action_types = [
+                        int(action)
+                        for action
+                        in policy_steps[env_id].actions[:, 0]
+                    ]
+
+                    for row, action_type in enumerate(action_types):
+                        if (
+                            prepared.active_mask[
+                                row,
+                                0,
+                            ]
+                            <= 0.0
+                        ):
+                            continue
+
+                        if not 0 <= action_type < adapters[env_id].action_dim:
+                            logger.warning(
+                                "Sampled invalid action %d; "
+                                "expected range [0, %d]",
+                                action_type,
+                                adapters[env_id].action_dim - 1,
+                            )
 
                 # -------------------------------------------------------
                 # Convert policy output to BAR actions
                 # -------------------------------------------------------
 
-                bar_actions = (
-                    runner.create_bar_actions(
-                        policy_step,
-                        prepared,
+                    bar_actions[env_id] = (
+                        runner.create_bar_actions(
+                            policy_steps[env_id],
+                            prepared,
+                        )
                     )
-                )
 
                 # -------------------------------------------------------
                 # Environment step
                 # -------------------------------------------------------
 
-                (
-                    next_obs_raw,
-                    reward,
-                    terminated,
-                    truncated,
-                    step_info,
-                ) = environment.step(bar_actions)
-
-                if not isinstance(terminated, bool):
-                    raise TypeError(
-                        "BAR_Environment.step() must return terminated as bool, "
-                        f"got {type(terminated).__name__}."
-                    )
-
-                if not isinstance(truncated, bool):
-                    raise TypeError(
-                        "BAR_Environment.step() must return truncated as bool, "
-                        f"got {type(truncated).__name__}."
-                    )
-
-                if terminated and truncated:
+                step_results = pool.step_environments(bar_actions)
+                if len(step_results) != len(pool.environments):
                     raise RuntimeError(
-                        "BAR_Environment.step() returned terminated=True and "
-                        "truncated=True simultaneously."
+                        "EnvironmentPool returned a different number of "
+                        "results than environments."
                     )
 
-                if not isinstance(step_info, dict):
-                    raise TypeError(
-                        "BAR_Environment.step() must return info as a dictionary, "
-                        f"got {type(step_info).__name__}."
-                    )
+                for env_id, result in enumerate(step_results):
+                    environment = pool.environments[env_id]
+                    stepinfo = environment.stepinfo
+                    if result is None:
+                        if not stepinfo.done:
+                            raise RuntimeError(
+                                f"Environment {env_id} did not step and is "
+                                "not marked done."
+                            )
+                        continue
 
-                done = bool(
-                    terminated or truncated
-                )
-
-                final_step_info = step_info
-
-                # -------------------------------------------------------
-                # Episode metrics
-                # -------------------------------------------------------
-
-                metrics = _episode_metrics(
-                    step_info
-                )
-
-                episode_won = (
-                    episode_won
-                    or metrics["won"]
-                )
-                episode_lost = (
-                    episode_lost
-                    or metrics["lost"]
-                )
-
-                if (
-                    metrics[
-                        "own_alive_count"
-                    ]
-                    is not None
-                ):
-                    final_ally_alive = metrics[
-                        "own_alive_count"
-                    ]
-
-                if (
-                    metrics[
-                        "enemy_alive_count"
-                    ]
-                    is not None
-                ):
-                    final_enemy_alive = metrics[
-                        "enemy_alive_count"
-                    ]
-
-                enemy_damage_done += metrics[
-                    "enemy_damage_done"
-                ]
-                own_damage_taken += metrics[
-                    "own_damage_taken"
-                ]
-                last_info_keys = metrics[
-                    "info_keys"
-                ]
-
-                # -------------------------------------------------------
-                # Reward and masks
-                # -------------------------------------------------------
-
-                reward_array = (
-                    adapter.prepare_reward(
-                        reward
-                    )
-                )
-
-                masks = np.ones(
                     (
-                        adapter.num_agents,
-                        1,
-                    ),
-                    dtype=np.float32,
-                )
+                        next_obs_raw,
+                        reward,
+                        terminated,
+                        truncated,
+                        step_info,
+                    ) = result
 
-                # Nur ein natürliches Ende verhindert
-                # Value-Bootstrapping.
-                if terminated:
-                    masks[:] = 0.0
+                    if not isinstance(terminated, bool):
+                        raise TypeError(
+                            "BAR_Environment.step() must return terminated "
+                            f"as bool, got {type(terminated).__name__}."
+                        )
+                    if not isinstance(truncated, bool):
+                        raise TypeError(
+                            "BAR_Environment.step() must return truncated "
+                            f"as bool, got {type(truncated).__name__}."
+                        )
+                    if terminated and truncated:
+                        raise RuntimeError(
+                            "BAR_Environment.step() returned terminated=True "
+                            "and truncated=True simultaneously."
+                        )
+                    if not isinstance(step_info, dict):
+                        raise TypeError(
+                            "BAR_Environment.step() must return info as a "
+                            f"dictionary, got {type(step_info).__name__}."
+                        )
 
-                # active_mask gehört zum aktuellen PreparedStep,
-                # für das die Action gewählt wurde.
-                active_masks = (
-                    prepared.active_mask.copy()
-                )
+                    policy_step = policy_steps[env_id]
+                    prepared = stepinfo.prepared
+                    if policy_step is None or prepared is None:
+                        raise RuntimeError(
+                            f"Environment {env_id} returned a step result "
+                            "without a corresponding policy action."
+                        )
 
-                # -------------------------------------------------------
-                # Store transition
-                # -------------------------------------------------------
-
-                buffer.insert(
-                    share_obs=(
-                        prepared.share_obs
-                    ),
-                    obs=prepared.obs,
-                    rnn_states=rnn_states,
-                    rnn_states_critic=(
-                        rnn_states_critic
-                    ),
-                    actions=(
-                        policy_step.actions
-                    ),
-                    action_log_probs=(
-                        policy_step.action_log_probs
-                    ),
-                    value_preds=(
-                        policy_step.value_predictions
-                    ),
-                    rewards=reward_array,
-                    masks=masks,
-                    active_masks=active_masks,
-                    available_actions=(
-                        prepared
-                        .available_actions
-                    ),
-                    candidate_target_features=(
-                        prepared.target_features
-                    ),
-                    candidate_target_mask=(
-                        prepared.target_mask
-                    ),
-                )
-
-                episode_reward += float(
-                    reward_array.mean()
-                )
-                step_count += 1
-
-                # -------------------------------------------------------
-                # Prepare next state
-                # -------------------------------------------------------
-
-                next_prepared: (
-                    PreparedStep | None
-                ) = None
-
-                if next_obs_raw is not None:
-                    next_prepared = adapter.prepare(
-                        obs_raw=next_obs_raw,
+                    action_types = [
+                        int(action)
+                        for action in policy_step.actions[:, 0]
+                    ]
+                    stepinfo.update_stepinfo(
+                        episode_number=episode_number,
+                        action_types=action_types,
+                        reward=reward,
+                        terminated=terminated,
+                        truncated=truncated,
+                        info=step_info,
+                        active_mask=prepared.active_mask,
                     )
 
-                if not done:
-                    if next_prepared is None:
-                        raise RuntimeError(
-                            "Environment returned no "
-                            "observation while the episode "
-                            "is still running."
+                    next_prepared: PreparedStep | None = None
+                    if next_obs_raw is not None:
+                        if not isinstance(next_obs_raw, dict):
+                            raise TypeError(
+                                "BAR_Environment.step() must return the "
+                                "observation as a dictionary, got "
+                                f"{type(next_obs_raw).__name__}."
+                            )
+                        next_prepared = adapters[env_id].prepare(
+                            obs_raw=next_obs_raw,
                         )
 
-                    prepared = next_prepared
-
-                elif truncated:
-                    # Für korrektes Bootstrap bei Truncation
-                    # wird der Zustand nach dem letzten Step
-                    # benötigt.
-                    if next_prepared is None:
+                    if not stepinfo.done and next_prepared is None:
                         raise RuntimeError(
-                            "A truncated episode must "
-                            "return a final observation "
-                            "for value bootstrapping."
+                            f"Environment {env_id} returned no observation "
+                            "while its episode is still running."
                         )
+                    if truncated and next_prepared is None:
+                        raise RuntimeError(
+                            f"Truncated environment {env_id} must return its "
+                            "final observation for value bootstrapping."
+                        )
+                    if next_prepared is not None:
+                        stepinfo.receive_prepared(next_prepared)
 
-                    prepared = next_prepared
+                    reward_array = adapters[env_id].prepare_reward(reward)
+                    masks = np.ones(
+                        (adapters[env_id].num_agents, 1),
+                        dtype=np.float32,
+                    )
+                    if terminated:
+                        masks[:] = 0.0
 
-                if done:
-                    rnn_states[:] = 0.0
-                    rnn_states_critic[:] = 0.0
+                    rnn_states, rnn_states_critic = recurrent_states[env_id]
+                    environment_buffers[env_id].insert(
+                        share_obs=prepared.share_obs,
+                        obs=prepared.obs,
+                        rnn_states=rnn_states,
+                        rnn_states_critic=rnn_states_critic,
+                        actions=policy_step.actions,
+                        action_log_probs=policy_step.action_log_probs,
+                        value_preds=policy_step.value_predictions,
+                        rewards=reward_array,
+                        masks=masks,
+                        active_masks=prepared.active_mask.copy(),
+                        available_actions=prepared.available_actions,
+                        candidate_target_features=prepared.target_features,
+                        candidate_target_mask=prepared.target_mask,
+                    )
+
+            # Each environment's returns are computed independently so GAE
+            # never follows a transition from a different environment.
+            for env_id, environment in enumerate(pool.environments):
+                stepinfo = environment.stepinfo
+                if not stepinfo.done:
+                    raise RuntimeError(
+                        f"Environment {env_id} ended the batch without "
+                        "terminating or truncating its episode."
+                    )
+                if environment_buffers[env_id].step <= 0:
+                    raise RuntimeError(
+                        f"Environment {env_id} ended without executing a step."
+                    )
+
+                if stepinfo.terminated:
+                    next_value = np.zeros(
+                        (adapters[env_id].num_agents, 1),
+                        dtype=np.float32,
+                    )
+                else:
+                    final_prepared = stepinfo.prepared
+                    if final_prepared is None:
+                        raise RuntimeError(
+                            f"Truncated environment {env_id} has no final "
+                            "observation for value bootstrapping."
+                        )
+                    next_value = runner.predict_values(
+                        final_prepared.share_obs
+                    )
+
+                environment_buffers[env_id].compute_returns(
+                    next_value,
+                    gamma=float(data["gamma"]),
+                )
+
+            buffer = _combine_rollout_buffers(
+                environment_buffers,
+                device=device,
+            )
+
+            episode_reward = sum(
+                environment.stepinfo.episode_reward
+                for environment in pool.environments
+            )
+            step_count = sum(
+                environment.stepinfo.step_count
+                for environment in pool.environments
+            )
+            episode_won = any(
+                environment.stepinfo.episode_won
+                for environment in pool.environments
+            )
+            episode_lost = any(
+                environment.stepinfo.episode_lost
+                for environment in pool.environments
+            )
+            ally_counts = [
+                environment.stepinfo.final_ally_alive
+                for environment in pool.environments
+                if environment.stepinfo.final_ally_alive is not None
+            ]
+            enemy_counts = [
+                environment.stepinfo.final_enemy_alive
+                for environment in pool.environments
+                if environment.stepinfo.final_enemy_alive is not None
+            ]
+            final_ally_alive = sum(ally_counts) if ally_counts else None
+            final_enemy_alive = sum(enemy_counts) if enemy_counts else None
+            enemy_damage_done = sum(
+                environment.stepinfo.enemy_damage_done
+                for environment in pool.environments
+            )
+            own_damage_taken = sum(
+                environment.stepinfo.own_damage_taken
+                for environment in pool.environments
+            )
+            action_counts = np.sum(
+                [
+                    environment.stepinfo.action_counts
+                    for environment in pool.environments
+                ],
+                axis=0,
+            )
+            action_trace = {
+                env_id: environment.stepinfo.action_trace
+                for env_id, environment in enumerate(pool.environments)
+            }
+            last_info_keys = {
+                env_id: environment.stepinfo.last_info_keys
+                for env_id, environment in enumerate(pool.environments)
+            }
+            final_step_info = {
+                env_id: environment.stepinfo.final_step_info
+                for env_id, environment in enumerate(pool.environments)
+            }
+            terminated = {
+                env_id: environment.stepinfo.terminated
+                for env_id, environment in enumerate(pool.environments)
+            }
+            truncated = {
+                env_id: environment.stepinfo.truncated
+                for env_id, environment in enumerate(pool.environments)
+            }
 
             # -----------------------------------------------------------
             # Validate episode end
@@ -936,41 +986,6 @@ def main() -> None:
                 episode_lost = True
 
             # -----------------------------------------------------------
-            # Bootstrap and returns
-            # -----------------------------------------------------------
-
-            if terminated:
-                next_value = np.zeros(
-                    (
-                        adapter.num_agents,
-                        1,
-                    ),
-                    dtype=np.float32,
-                )
-            else:
-                # Truncated Episode:
-                # Bootstrap aus finaler Observation.
-                next_value = (
-                    runner.predict_values(
-                        prepared.share_obs
-                    )
-                )
-
-            try:
-                buffer.compute_returns(
-                    next_value,
-                    gamma=float(
-                        data["gamma"]
-                    ),
-                )
-            except TypeError:
-                # Kompatibilität mit älterer
-                # RolloutBuffer-Signatur.
-                buffer.compute_returns(
-                    next_value
-                )
-
-            # -----------------------------------------------------------
             # PPO update
             # -----------------------------------------------------------
 
@@ -986,8 +1001,6 @@ def main() -> None:
                 torch.cuda.synchronize(
                     device
                 )
-
-            buffer.reset()
 
             # -----------------------------------------------------------
             # Episode logging
@@ -1107,7 +1120,7 @@ def main() -> None:
                 checkpoint_path = (
                     _save_checkpoint(
                         policy,
-                        adapter,
+                        adapters[0],
                         episode_number,
                         run_directory,
                     )
@@ -1124,7 +1137,7 @@ def main() -> None:
 
         final_checkpoint = _save_checkpoint(
             policy,
-            adapter,
+            adapters[0],
             final_episode,
             run_directory,
         )
