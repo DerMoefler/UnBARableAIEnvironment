@@ -140,17 +140,17 @@ PYBIND11_MODULE(bar_ai, m) {
 
                  return result;
              })
-        //
-        //        .def("write_engine_status", &BarSharedMemory::writeEngineStatus,
-        //        py::arg("status"))
-        //
-        //
-        //        .def("read_all_engine_statuses",
-        //             [](BarSharedMemory& sharedMemory) { return
-        //             sharedMemory.readAll<EngineStatus>();
-        //             })
-        //
-        //        .def("get_own_team_id", &BarSharedMemory::getOwnTeamId);
+        .def("get_own_team_id", &BarSharedMemory::getOwnTeamId);
+    //
+    //        .def("write_engine_status", &BarSharedMemory::writeEngineStatus,
+    //        py::arg("status"))
+    //
+    //
+    //        .def("read_all_engine_statuses",
+    //             [](BarSharedMemory& sharedMemory) { return
+    //             sharedMemory.readAll<EngineStatus>();
+    //             })
+    //
 
-        ;
+    ;
 }
