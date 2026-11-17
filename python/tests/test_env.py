@@ -46,7 +46,7 @@ def env():
     Erstellt eine Environment-Instanz für den vollständigen
     Mehr-Episoden-Test.
     """
-    environment = BAR_Environment(training_team_id = 0)
+    environment = BAR_Environment()
 
     try:
         yield environment
