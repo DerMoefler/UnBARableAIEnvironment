@@ -42,15 +42,11 @@ PYBIND11_MODULE(bar_ai, m) {
     // -------------------------
 
     py::enum_<EngineStatus>(m, "EngineStatus")
-        .value("UNSPECIFIED_ERROR", EngineStatus::UNSPECIFIED_ERROR)
-        .value("GAME_ENDED", EngineStatus::GAME_ENDED)
-        .value("TEAM_DIED", EngineStatus::TEAM_DIED)
-        .value("AI_KILLED", EngineStatus::AI_KILLED)
-        .value("AI_CRASHED", EngineStatus::AI_CRASHED)
-        .value("AI_FAILED_TO_INIT", EngineStatus::AI_FAILED_TO_INIT)
-        .value("CONNECTION_LOST", EngineStatus::CONNECTION_LOST)
-        .value("OTHER_REASON_ERROR", EngineStatus::OTHER_REASON_ERROR)
+        .value("STARTING", EngineStatus::STARTING)
+        .value("READY", EngineStatus::READY)
         .value("RUNNING", EngineStatus::RUNNING)
+        .value("GAME_WON", EngineStatus::GAME_WON)
+        .value("GAME_LOST", EngineStatus::GAME_LOST)
         .export_values();
 
     // -------------------------
