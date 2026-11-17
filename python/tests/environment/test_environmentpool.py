@@ -17,9 +17,11 @@ class BarrierEnvironment:
     ) -> None:
         self.environment_id = environment_id
         self.barrier = barrier
+        self.episode_step = 0
 
     def step(self, actions: list[Any]) -> tuple[int, list[Any]]:
         self.barrier.wait(timeout=2.0)
+        self.episode_step += 1
         return self.environment_id, actions
 
     def close(self) -> None:
@@ -41,6 +43,7 @@ def _make_pool(environments: list[Any]) -> EnvironmentPool:
     pool.environments = environments
     pool.logger = logging.getLogger(__name__)
     pool._step_executor = None
+    pool.maximum_steps = 512
     return pool
 
 
@@ -93,3 +96,26 @@ def test_step_environments_requires_actions_for_every_environment() -> None:
         pool.step_environments([])
 
     pool.close_environements()
+
+
+def test_step_environments_skips_environment_at_maximum_steps() -> None:
+    environments = [
+        BarrierEnvironment(0, threading.Barrier(1)),
+        BarrierEnvironment(1, threading.Barrier(1)),
+    ]
+    pool = _make_pool(environments)
+    pool.maximum_steps = 1
+    environments[1].episode_step = 1
+
+    try:
+        results = pool.step_environments(
+            [["env-0-action"], ["env-1-action"]]
+        )
+
+        assert results == [
+            (0, ["env-0-action"]),
+            None,
+        ]
+        assert [environment.episode_step for environment in environments] == [1, 1]
+    finally:
+        pool.close_environements()

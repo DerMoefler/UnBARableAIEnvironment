@@ -617,15 +617,15 @@ def main() -> None:
             # Reset
             # -----------------------------------------------------------
 
-            obs_raw = pool.reset_environment(0)
-
-            if not isinstance(obs_raw, dict):
-                raise TypeError(
-                    "BAR_Environment.reset() must return the observation "
-                    f"as a dictionary, got {type(obs_raw).__name__}."
-                )
-
             for i in range(len(pool.environments)):
+                obs_raw = pool.reset_environment(i)
+
+                if not isinstance(obs_raw, dict):
+                    raise TypeError(
+                        "BAR_Environment.reset() must return the observation "
+                        f"as a dictionary, got {type(obs_raw).__name__}."
+                    )
+
                 pool.environments[i].stepinfo.receive_prepared(adapters[i].prepare(obs_raw=obs_raw))
 
             (
@@ -644,24 +644,23 @@ def main() -> None:
             # Step loop
             # -----------------------------------------------------------
 
-            while not done:
-                if step_count > maximum_steps + 1:
-                    raise RuntimeError(
-                        "Environment exceeded "
-                        "maximum_steps without returning "
-                        "terminated=True or truncated=True: "
-                        f"episode={episode_number}, "
-                        f"step_count={step_count}, "
-                        f"maximum_steps={maximum_steps}."
-                    )
+            while pool.check_done() == False:
 
                 # -------------------------------------------------------
                 # Policy inference
                 # -------------------------------------------------------
 
-                policy_step = runner.act(
-                    prepared
-                )
+                policy_steps = [None] * len(pool.environments)
+
+                for env_id, env in enumerate(pool.environments):
+                    if env.stepinfo.done or env.episode_step >= pool.maximum_steps:
+                        continue
+
+                    prepared = env.stepinfo.prepared
+                    if prepared is None:
+                        raise RuntimeError(f"Environment {env_id} has no prepared observation.")
+
+                    policy_steps[env_id] = runner.act(prepared)
 
                 if device.type == "cuda":
                     torch.cuda.synchronize(
@@ -673,10 +672,6 @@ def main() -> None:
                     for action
                     in policy_step.actions[:, 0]
                 ]
-
-                action_trace.append(
-                    action_types
-                )
 
                 # Nur aktive Agents in der Statistik zählen.
                 for row, action_type in enumerate(
