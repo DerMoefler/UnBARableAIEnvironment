@@ -60,54 +60,6 @@ def _make_rnn_state_arrays(
     )
 
 
-def _episode_metrics(
-    info: dict[str, Any],
-) -> dict[str, Any]:
-    """
-    Extract episode metrics from BAR_Environment info.
-    """
-    outcome = info.get("episode_outcome")
-
-    return {
-        "won": outcome == "won",
-        "lost": outcome == "lost",
-        "own_alive_count": info.get(
-            "own_alive_count"
-        ),
-        "enemy_alive_count": info.get(
-            "enemy_alive_count"
-        ),
-        "enemy_damage_done": float(
-            info.get(
-                "reward_info",
-                {},
-            ).get(
-                "enemy_damage_done",
-                0.0,
-            )
-            if isinstance(
-                info.get("reward_info"),
-                dict,
-            )
-            else 0.0
-        ),
-        "own_damage_taken": float(
-            info.get(
-                "reward_info",
-                {},
-            ).get(
-                "own_damage_taken",
-                0.0,
-            )
-            if isinstance(
-                info.get("reward_info"),
-                dict,
-            )
-            else 0.0
-        ),
-        "info_keys": sorted(info.keys()),
-    }
-
 # ---------------------------------------------------------------------------
 # Creating Adapters, rn just mappo specific
 # ---------------------------------------------------------------------------
@@ -128,6 +80,85 @@ def create_mappo_adapters(number_of_environments: int, data):
                 )
 
     return adapters
+
+
+def _combine_rollout_buffers(
+    buffers: list[RolloutBuffer],
+    *,
+    device: torch.device,
+) -> RolloutBuffer:
+    populated_buffers = [
+        buffer
+        for buffer in buffers
+        if buffer.step > 0
+    ]
+    if not populated_buffers:
+        raise RuntimeError(
+            "Cannot combine empty environment rollout buffers."
+        )
+
+    template = populated_buffers[0]
+    for buffer in populated_buffers[1:]:
+        if (
+            buffer.num_agents != template.num_agents
+            or buffer.share_obs.shape[1:] != template.share_obs.shape[1:]
+            or buffer.obs.shape[2:] != template.obs.shape[2:]
+            or buffer.actions.shape[2:] != template.actions.shape[2:]
+            or buffer.action_dim != template.action_dim
+        ):
+            raise ValueError(
+                "Environment rollout buffers have incompatible shapes."
+            )
+
+    combined = RolloutBuffer(
+        num_agents=template.num_agents,
+        obs_shape=template.share_obs.shape[1:],
+        action_shape=template.actions.shape[2:],
+        buffer_size=sum(buffer.step for buffer in populated_buffers),
+        device=device,
+        action_dim=template.action_dim,
+    )
+
+    for source in populated_buffers:
+        for source_step in range(source.step):
+            combined.insert(
+                share_obs=source.share_obs[source_step],
+                obs=source.obs[source_step],
+                rnn_states=source.rnn_states[source_step],
+                rnn_states_critic=(
+                    source.rnn_states_critic[source_step]
+                ),
+                actions=source.actions[source_step],
+                action_log_probs=(
+                    source.action_log_probs[source_step]
+                ),
+                value_preds=source.value_preds[source_step],
+                rewards=source.rewards[source_step],
+                masks=source.masks[source_step + 1],
+                active_masks=source.active_masks[source_step + 1],
+                available_actions=(
+                    source.available_actions[source_step]
+                ),
+                candidate_target_features=(
+                    None
+                    if source.candidate_target_features is None
+                    else source.candidate_target_features[source_step]
+                ),
+                candidate_target_mask=(
+                    None
+                    if source.candidate_target_mask is None
+                    else source.candidate_target_mask[source_step]
+                ),
+            )
+            combined_step = combined.step - 1
+            combined.value_preds[combined_step] = (
+                source.value_preds[source_step]
+            )
+            combined.returns[combined_step] = (
+                source.returns[source_step]
+            )
+
+    return combined
 
 
 # ---------------------------------------------------------------------------
@@ -559,7 +590,7 @@ def main(
             runner = MAPPOPolicyRunner.from_config(
                 data,
                 device,
-                obs_dim=data["obs_dim"],
+                obs_dim=adapters[0].obs_dim,
                 target_feature_dim=(
                     adapters[0].target_feature_dim
                 ),
@@ -570,8 +601,8 @@ def main(
             logger.info(
                         "Created policy runner: "
                         "agents=%d actions=%d team_id=%d",
-                        data["num_agents"],
-                        data["action_dim"],
+                        data["number_of_agents"],
+                        data["action_dimension"],
                         data["training_team_id"],
                     )
         else:
@@ -717,20 +748,33 @@ def main(
                         f"as a dictionary, got {type(obs_raw).__name__}."
                     )
 
-                pool.environments[i].stepinfo.receive_prepared(adapters[i].prepare(obs_raw=obs_raw))
-
-            (
-                rnn_states,
-                rnn_states_critic,
-            ) = _make_rnn_state_arrays(
-                data["number_of_agents"],
-                recurrent_n=recurrent_n,
-                hidden_size=hidden_size,
-            )
+                adapters[i].reset_episode(obs_raw)
+                pool.environments[i].stepinfo.receive_prepared(
+                    adapters[i].prepare(obs_raw=obs_raw)
+                )
 
             trainer.prep_rollout()
             runner.set_evaluation_mode()
 
+            environment_buffers = [
+                RolloutBuffer(
+                    num_agents=adapters[env_id].num_agents,
+                    obs_shape=(adapters[env_id].obs_dim,),
+                    action_shape=(2,),
+                    buffer_size=buffer_size,
+                    device=device,
+                    action_dim=adapters[env_id].action_dim,
+                )
+                for env_id in range(len(pool.environments))
+            ]
+            recurrent_states = [
+                _make_rnn_state_arrays(
+                    adapters[env_id].num_agents,
+                    recurrent_n=recurrent_n,
+                    hidden_size=hidden_size,
+                )
+                for env_id in range(len(pool.environments))
+            ]
             # -----------------------------------------------------------
             # Step loop
             # -----------------------------------------------------------
@@ -750,7 +794,8 @@ def main(
                 # Policy inference
                 # -------------------------------------------------------
 
-                policy_steps = [None] * len(pool.environments)
+                policy_steps: list[Any] = [None] * len(pool.environments)
+                bar_actions: list[Any] = [None] * len(pool.environments)
 
                 for env_id, env in enumerate(pool.environments):
                     if env.stepinfo.done or env.episode_step >= pool.maximum_steps:
@@ -762,16 +807,16 @@ def main(
 
                     policy_steps[env_id] = runner.act(prepared)
 
-                if device.type == "cuda":
-                    torch.cuda.synchronize(
-                        device
-                    )
+                    if device.type == "cuda":
+                        torch.cuda.synchronize(
+                            device
+                        )
 
-                action_types = [
-                    int(action)
-                    for action
-                    in policy_step.actions[:, 0]
-                ]
+                    action_types = [
+                        int(action)
+                        for action
+                        in policy_steps[env_id].actions[:, 0]
+                    ]
 
                 action_trace_by_team[
                     acting_team_id
