@@ -153,9 +153,7 @@ class EngineSession:
         self.grpc_servers: Dict[int, UnBARableAIGRPCServer] = {}
 
         for team_id in cfg.unbarable_ai_team_ids:
-            grpc_server = UnBARableAIGRPCServer(
-                port=50051 + team_id,
-            )
+            grpc_server = UnBARableAIGRPCServer()
             grpc_server.start()
             self.grpc_servers[team_id] = grpc_server
 
@@ -194,7 +192,7 @@ class EngineSession:
 
         self.grpc_servers[
             team_id
-        ].ack_current_update()
+        ].ack_update()
 
     def start(self):
         """
