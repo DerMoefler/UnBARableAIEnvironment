@@ -126,9 +126,14 @@ class RMAPPOObservationAdapter:
     def from_config(
         cls,
         config: Mapping[str, Any],
+        *,
+        team_id: int,
+        num_agents: int,
+        max_enemy_slots: int,
     ) -> RMAPPOObservationAdapter:
         """
-        Create an adapter from the central training configuration.
+        Create an adapter for one controlled BAR team from the central
+        training configuration.
         """
         observation_config = config.get(
             "adapter"
@@ -144,10 +149,7 @@ class RMAPPOObservationAdapter:
             )
 
         required_root_keys = {
-            "number_of_agents",
-            "number_of_enemies",
             "action_dimension",
-            "training_team_id",
         }
 
         missing_root_keys = sorted(
@@ -179,18 +181,16 @@ class RMAPPOObservationAdapter:
 
         return cls(
             num_agents=int(
-                config["number_of_agents"]
+                num_agents
             ),
             action_dim=int(
                 config["action_dimension"]
             ),
             training_team_id=int(
-                config["training_team_id"]
+                team_id
             ),
             max_enemy_slots=int(
-                config[
-                    "number_of_enemies"
-                ]
+                max_enemy_slots
             ),
             position_scale=float(
                 observation_config[

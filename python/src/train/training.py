@@ -486,17 +486,35 @@ def main() -> None:
             RMAPPOObservationAdapter,
         ] = {}
 
+        reference_team_id = (
+            unbarable_ai_team_ids[0]
+        )
+
         for team_id in unbarable_ai_team_ids:
+            if team_id == reference_team_id:
+                num_agents = int(
+                    config["number_of_agents"]
+                )
+                max_enemy_slots = int(
+                    config["number_of_enemies"]
+                )
+            else:
+                num_agents = int(
+                    config["number_of_enemies"]
+                )
+                max_enemy_slots = int(
+                    config["number_of_agents"]
+                )
+
             adapters[team_id] = (
                 RMAPPOObservationAdapter.from_config(
                     config,
                     team_id=team_id,
+                    num_agents=num_agents,
+                    max_enemy_slots=max_enemy_slots,
                 )
             )
 
-        reference_team_id = (
-            unbarable_ai_team_ids[0]
-        )
 
         reference_adapter = adapters[
             reference_team_id
