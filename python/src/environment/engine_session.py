@@ -194,7 +194,6 @@ class EngineSession:
             bufsize=1,
         )
 
-
         self._monitor_thread = threading.Thread(
             target=self._monitor_process,
             args=(self.proc,),
@@ -318,7 +317,7 @@ class EngineSession:
 
     def _initialize_shm(self) -> None:
         """
-        Initializes the shared-memory.
+        Initializes the shared-memory with status = RUNNING.
         """
         assert self.grpc_server.port is not None
 
@@ -331,7 +330,7 @@ class EngineSession:
         # TODO change status if enum supports state better
         self.shared_memory = SharedMemory.create(
             name=shared_memory_name,
-            status=bar_ai.EngineStatus.RUNNING,
+            status=bar_ai.EngineStatus.STARTING,
             connection=bar_ai.GrpcConnection(self.grpc_server.port),
             initial_num_ally_units=num_ally_units,
             initial_num_enemy_units=num_enemy_units,
