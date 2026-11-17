@@ -93,7 +93,7 @@ class BAR_Environment:
                 startscript_config.training_team_id,
             )
 
-        self.session_cfg = EngineSessionConfig(engine_id=0, startscript_config=(startscript_config), unbarable_ai_team_ids=unbarable_ai_team_ids) #TODO: later handled by engine pool
+        self.session_cfg = EngineSessionConfig(engine_id=0, startscript_config=(startscript_config), unbarable_ai_team_ids=self.unbarable_ai_team_ids) #TODO: later handled by engine pool
         # Episode tracking
         # max_episode_steps begrenzt, wie viele RL-Steps eine Episode maximal laufen darf.
         # Wird dieses Limit erreicht, ist die Episode truncated.
@@ -102,106 +102,208 @@ class BAR_Environment:
         # Zähler für aktuelle Episode
         self.episode_step = 0
 
-        self.training_team_id = self.unbarable_ai_team_ids[0]
+        self.current_team_id = self.unbarable_ai_team_ids[0]
+        self.current_team_index = 0
 
-
-        self.reward_calculator = (
-            reward_calculator
-            if reward_calculator is not None
-            else RewardCalculator(
-                training_team_id=self.training_team_id,
+        self.reward_calculators: Dict[
+            int,
+            RewardCalculator,
+        ] = {
+            team_id: RewardCalculator(
+                training_team_id=team_id,
                 config=reward_config,
             )
+            for team_id in self.unbarable_ai_team_ids
+        }
+
+        self.reward_initialized_teams: set[int] = set()
+
+        self.terminated = False
+        self.truncated = False
+
+
+    def reset(
+        self,
+    ) -> Tuple[Any, Dict[str, Any]]:
+        self.terminated = False
+        self.truncated = False
+        self.episode_step = 0
+
+        self.current_team_index = 0
+        self.current_team_id = (
+            self.unbarable_ai_team_ids[0]
         )
 
-        self.terminated = False
-        self.truncated = False
-
-
-    def reset(self) -> Tuple[Any, Dict[str, Any]]:
-        self.terminated = False
-        self.truncated = False
+        self.reward_initialized_teams.clear()
         # TODO replace with pool
-        if self.session == None:
-            self.session = EngineSession(self.session_cfg, self.end_of_session)
+        if self.session is None:
+            self.session = EngineSession(
+                self.session_cfg,
+                self.end_of_session,
+            )
             self.session.start()
 
-        assert self.session.shared_memory is not None
-
-        self.session.shared_memory.clear_units_and_actions()
-
-        self.logger.info("Engine session started. Waiting for first handleEventUpdate...")
+        self.logger.info(
+            "Engine session started. Waiting for first "
+            "handleEventUpdate from team %d...",
+            self.current_team_id,
+        )
 
         self.session.wait_for_next_update(
-            team_id=0,
+            team_id=self.current_team_id,
             timeout=30.0,
         )
 
-        # Episode-Zähler zurücksetzen
-        self.episode_step = 0
+        snapshot = self._read_engine_snapshot(
+            team_id=self.current_team_id,
+        )
 
-        snapshot = self._read_engine_snapshot()
-                
-        self.evaluate_engine_status(snapshot.status)
+        outcome = self._evaluate_engine_status(
+            snapshot.status
+        )
 
-        self.reward_calculator.reset(snapshot.units)
+        reward_calculator = (
+            self.reward_calculators[
+                self.current_team_id
+            ]
+        )
 
-        info = {}
-        # Zusätzliche Debug-Informationen zurückgeben
-        info["episode_step"] = self.episode_step
-        info["max_episode_steps"] = self.max_episode_steps
-        info["reward_state_initialized"] = self.reward_calculator.initialized
+        reward_calculator.reset(
+            snapshot.units
+        )
 
-        observation = self.create_observation_dictionary(snapshot.units)
+        self.reward_initialized_teams.add(
+            self.current_team_id
+        )
+
+        observation = (
+            self._create_observation_dictionary(
+                snapshot.units
+            )
+        )
+
+        info = {
+            "current_team_id": self.current_team_id,
+            "acting_team_id": None,
+            "reward_team_id": None,
+            "episode_step": self.episode_step,
+            "max_episode_steps": (
+                self.max_episode_steps
+            ),
+            "reward_state_initialized": (
+                reward_calculator.initialized
+            ),
+            "episode_outcome": (
+                outcome.value
+                if outcome is not None
+                else None
+            ),
+        }
 
         return observation, info
 
-    def step(self, actions: List[bar_ai.Action]):
+    def step(
+        self,
+        actions: List[bar_ai.Action],
+    ):
         assert self.session is not None
 
-        # 0) Update actions in the shared-memory
-        self.__update_actions(actions)
+        acting_team_id = self.current_team_id
 
+        # Actions in das Shared Memory des aktuell
+        # blockierenden Teams schreiben.
+        self._update_actions(
+            actions=actions,
+            team_id=acting_team_id,
+        )
 
-        self.session.ack_update(team_id=0)
+        # Aktuellen Player freigeben.
+        self.session.ack_update(
+            team_id=acting_team_id
+        )
+
+        # Danach erreicht die Engine den nächsten
+        # UnBARableAI-Callback.
+        next_team_id = self._next_team_id()
 
         self.session.wait_for_next_update(
-            team_id=0,
+            team_id=next_team_id,
             timeout=60.0,
         )
 
-        self.episode_step += 1
+        self.current_team_id = next_team_id
 
-        snapshot = self._read_engine_snapshot()
+        # Eine vollständige Match-Runde ist abgeschlossen,
+        # sobald wieder das erste Team an der Reihe ist.
+        if (
+            self.current_team_index == 0
+        ):
+            self.episode_step += 1
 
-        outcome = self.evaluate_engine_status(snapshot.status)
+        snapshot = self._read_engine_snapshot(
+            team_id=self.current_team_id,
+        )
 
-        if not self.terminated and self.episode_step >= self.max_episode_steps:
+        outcome = self._evaluate_engine_status(
+            snapshot.status
+        )
+
+        if (
+            not self.terminated
+            and self.episode_step
+            >= self.max_episode_steps
+        ):
             self.truncated = True
 
-
-        # Natural episode end:
-        # z. B. alle Gegner tot oder alle eigenen Units tot.
         terminated = self.terminated
+        truncated = (
+            False
+            if terminated
+            else self.truncated
+        )
 
-        # Artificial episode end:
-        # z. B. Step-Limit oder Frame-Limit erreicht.
-        # Wenn terminated True ist, soll truncated False bleiben.
-        truncated = False if terminated else self.truncated
+        reward_calculator = (
+            self.reward_calculators[
+                self.current_team_id
+            ]
+        )
 
-        reward = self.reward_calculator.calculate(
-                    units=snapshot.units,
-                    terminated=terminated,
-                    truncated=truncated,
-                    outcome=outcome,
-                )
+        if (
+            self.current_team_id
+            not in self.reward_initialized_teams
+        ):
+            reward_calculator.reset(
+                snapshot.units
+            )
 
-        observation = self.create_observation_dictionary(snapshot.units)
+            self.reward_initialized_teams.add(
+                self.current_team_id
+            )
 
-        if terminated or truncated:
-            self.session.ack_update(team_id=0)
+            # Beim ersten Update dieses Teams existiert
+            # noch kein vorheriger Zustand für eine
+            # Reward-Differenz.
+            reward = 0.0
+        else:
+            reward = reward_calculator.calculate(
+                units=snapshot.units,
+                terminated=terminated,
+                truncated=truncated,
+                outcome=outcome,
+            )
+
+        observation = (
+            self._create_observation_dictionary(
+                snapshot.units
+            )
+        )
 
         info = {
+            "acting_team_id": acting_team_id,
+            "current_team_id": self.current_team_id,
+
+            "reward_team_id": self.current_team_id,
+
             "episode_step": self.episode_step,
             "terminated": terminated,
             "truncated": truncated,
@@ -211,10 +313,23 @@ class BAR_Environment:
                 else None
             ),
             "reward": reward,
-            "reward_info": self.reward_calculator.last_info,
+            "reward_info": (
+                reward_calculator.last_info
+            ),
         }
 
-        return observation, reward, terminated, truncated, info
+        if terminated or truncated:
+            self.session.ack_update(
+                team_id=self.current_team_id
+            )
+
+        return (
+            observation,
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
 
     def close(self):
         """
@@ -261,7 +376,7 @@ class BAR_Environment:
         else:
             self.truncated = True
 
-    def create_observation_dictionary(self, unit_list: List[bar_ai.UnitData]):
+    def _create_observation_dictionary(self, unit_list: List[bar_ai.UnitData]):
         """
         A dictionary with numpy arrays with all info is being created. The np arrays 
 
@@ -280,55 +395,92 @@ class BAR_Environment:
         dictionary = {f"agent_{n}": np.asarray(agent) for n, agent in enumerate(unit_list)}
         return dictionary
 
-    def __update_actions(self, actions: List[bar_ai.Action]) -> None:
+    def _update_actions(
+        self,
+        actions: List[bar_ai.Action],
+        team_id: int,
+    ) -> None:
         """
-        Update the actions in the shared-memory.
-
-        Clears all action slots if there are more slots than actions provided.
-        If there are too many actions, the trailing actions will not be written.
-        This is also being logged.
-
-        Parameters
-        ----------
-        actions: List[bar_ai.Action]
-            the actions to write (update) in the shared memory
+        Update the actions in the shared memory belonging
+        to one UnBARableAI team.
         """
         assert self.session is not None
-        assert self.session.shared_memory is not None
 
-        action_serializable_ids = self.session.shared_memory.get_action_ids()
+        shared_memory = (
+            self.session.get_shared_memory(
+                team_id=team_id
+            )
+        )
 
-        num_ids = len(action_serializable_ids)
+        action_serializable_ids = shared_memory.get_action_ids()
+
+        num_ids = len(
+            action_serializable_ids
+        )
         num_actions = len(actions)
 
         if num_actions > num_ids:
             self.logger.error(
-                f"Received {num_actions} actions but only {num_ids} slots are available. "
-                f"The last {num_actions - num_ids} actions will be discarded"
+                "Received %d actions for team %d but "
+                "only %d slots are available. "
+                "The last %d actions will be discarded.",
+                num_actions,
+                team_id,
+                num_ids,
+                num_actions - num_ids,
             )
-        # elif num_actions < num_ids:
-        #     self.logger.warning(
-        #         f"Received only {num_actions} actions for {num_ids} slots. "
-        #         f"Remaining {num_ids - num_actions} slots will be cleared."
-        #     )
 
-        # Write provided actions (if possible)
-        for action_id, action in zip(action_serializable_ids, actions):
-            self.session.shared_memory.update_action(action_id, action)
+        for action_id, action in zip(
+            action_serializable_ids,
+            actions,
+        ):
+            action_team_id = int(
+                getattr(
+                    action,
+                    "team_id",
+                    getattr(
+                        action,
+                        "teamId",
+                        team_id,
+                    ),
+                )
+            )
 
-        # Clear reamining slots (if needed)
-        for action_id in action_serializable_ids[num_actions:]:
-            self.session.shared_memory.update_action(action_id, None)
+            if action_team_id != team_id:
+                raise ValueError(
+                    "Action belongs to the wrong team: "
+                    f"expected={team_id}, "
+                    f"received={action_team_id}."
+                )
 
-    def _read_engine_snapshot(self) -> EngineSnapshot:
+            shared_memory.update_action(
+                action_id,
+                action,
+            )
+
+        for action_id in (
+            action_serializable_ids[
+                num_actions:
+            ]
+        ):
+            shared_memory.update_action(
+                action_id,
+                None,
+            )
+
+    def _read_engine_snapshot(
+        self,
+        team_id: int,
+    ) -> EngineSnapshot:
         assert self.session is not None
-        assert self.session.shared_memory is not None
 
-        shared_memory = self.session.get_shared_memory(
-            team_id=team_id
+        shared_memory = (
+            self.session.get_shared_memory(
+                team_id=team_id
+            )
         )
 
-        units = shared_memory.read_all_units()
+        units =  shared_memory.read_all_units()
         status = shared_memory.get_engine_status()
 
         return EngineSnapshot(
@@ -336,7 +488,7 @@ class BAR_Environment:
             status=status,
         )
 
-    def evaluate_engine_status(
+    def _evaluate_engine_status(
         self,
         status: bar_ai.EngineStatus,
     ) -> Optional[EpisodeOutcome]:
@@ -399,3 +551,12 @@ class BAR_Environment:
         )
 
         return
+
+    def _next_team_id(self) -> int:
+        self.current_team_index = (
+            self.current_team_index + 1
+        ) % len(self.unbarable_ai_team_ids)
+
+        return self.unbarable_ai_team_ids[
+            self.current_team_index
+        ]
