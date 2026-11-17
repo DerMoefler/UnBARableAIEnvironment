@@ -708,15 +708,15 @@ def main(
             # Reset
             # -----------------------------------------------------------
 
-            obs_raw = pool.reset_environment(0)
-
-            if not isinstance(obs_raw, dict):
-                raise TypeError(
-                    "BAR_Environment.reset() must return the observation "
-                    f"as a dictionary, got {type(obs_raw).__name__}."
-                )
-
             for i in range(len(pool.environments)):
+                obs_raw = pool.reset_environment(i)
+
+                if not isinstance(obs_raw, dict):
+                    raise TypeError(
+                        "BAR_Environment.reset() must return the observation "
+                        f"as a dictionary, got {type(obs_raw).__name__}."
+                    )
+
                 pool.environments[i].stepinfo.receive_prepared(adapters[i].prepare(obs_raw=obs_raw))
 
             (
@@ -744,67 +744,23 @@ def main(
                 * len(unbarable_ai_team_ids)
             )
 
-            while not done:
-                if step_count > maximum_turns + 1:
-                    raise RuntimeError(
-                        "Environment exceeded the expected number "
-                        "of player turns without terminating or truncating: "
-                        f"episode={episode_number}, "
-                        f"player_turns={step_count}, "
-                        f"maximum_turns={maximum_turns}, "
-                        f"maximum_episode_steps={maximum_steps}."
-                    )
-
-                if "current_team_id" not in step_info:
-                    raise KeyError(
-                        "Environment info does not contain "
-                        "'current_team_id'."
-                    )
-
-                acting_team_id = int(
-                    step_info["current_team_id"]
-                )
-
-                if acting_team_id not in adapters:
-                    raise ValueError(
-                        "Environment selected an unknown acting team: "
-                        f"acting_team_id={acting_team_id}, "
-                        f"available_team_ids={sorted(adapters)}."
-                    )
-
-                if acting_team_id not in prepared_by_team:
-                    raise RuntimeError(
-                        "No prepared observation exists for the current team: "
-                        f"acting_team_id={acting_team_id}."
-                    )
-
-                adapter = adapters[acting_team_id]
-
-                prepared = prepared_by_team[
-                    acting_team_id
-                ]
-
-                rnn_states = rnn_states_by_team[
-                    acting_team_id
-                ]
-
-                rnn_states_critic = (
-                    rnn_states_critic_by_team[
-                        acting_team_id
-                    ]
-                )
-
-                action_counts = action_counts_by_team[
-                    acting_team_id
-                ]
+            while pool.check_done() == False:
 
                 # -------------------------------------------------------
                 # Policy inference
                 # -------------------------------------------------------
 
-                policy_step = runner.act(
-                    prepared
-                )
+                policy_steps = [None] * len(pool.environments)
+
+                for env_id, env in enumerate(pool.environments):
+                    if env.stepinfo.done or env.episode_step >= pool.maximum_steps:
+                        continue
+
+                    prepared = env.stepinfo.prepared
+                    if prepared is None:
+                        raise RuntimeError(f"Environment {env_id} has no prepared observation.")
+
+                    policy_steps[env_id] = runner.act(prepared)
 
                 if device.type == "cuda":
                     torch.cuda.synchronize(

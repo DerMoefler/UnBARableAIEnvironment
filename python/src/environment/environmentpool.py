@@ -12,6 +12,9 @@ class EnvironmentPool:
     def __init__(self, config_path: Path):
         with open(config_path,"r") as config_data:
             self.data = json.load(config_data)
+        self.maximum_steps = int(self.data.get("maximum_steps", 512))
+        if self.maximum_steps <= 0:
+            raise ValueError("maximum_steps must be greater than zero.")
         self.path = config_path
         self.environments: list[BAR_Environment] = []
         self.logger = logging.getLogger(__name__)
@@ -48,7 +51,10 @@ class EnvironmentPool:
 
         return self.environments[env_id].reset()
 
-    def step_environments(self, actions_by_environment: list[list[Any]]) -> list[Any]:
+    def step_environments(
+        self,
+        actions_by_environment: list[list[Any]],
+    ) -> list[Any | None]:
         if not self.environments:
             raise RuntimeError("No environments initialized")
         if len(actions_by_environment) != len(self.environments):
@@ -65,9 +71,13 @@ class EnvironmentPool:
             )
 
         futures = [
-            self._step_executor.submit(
-                environment.step,
-                actions,
+            (
+                None
+                if environment.episode_step >= self.maximum_steps
+                else self._step_executor.submit(
+                    environment.step,
+                    actions,
+                )
             )
             for environment, actions in zip(
                 self.environments,
@@ -75,11 +85,20 @@ class EnvironmentPool:
                 strict=True,
             )
         ]
-        wait(futures)
+        wait([
+            future
+            for future in futures
+            if future is not None
+        ])
 
         return [
-            future.result()
+            future.result() if future is not None else None
             for future in futures
         ]
 
+    def check_done(self):
+        for i in range(len(self.environments)):
+            if self.environments[i].stepinfo.done == False:
+                return False
+        return True
 
