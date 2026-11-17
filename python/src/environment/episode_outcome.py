@@ -5,14 +5,18 @@ class EpisodeOutcome(Enum):
     WON = "won"
     LOST = "lost"
 
-TERMINATED_STATUSES = {
+RUNNING_STATUSES = {
+    bar_ai.EngineStatus.STARTING,
     bar_ai.EngineStatus.READY,
     bar_ai.EngineStatus.RUNNING,
+}
+
+TERMINATED_STATUSES = {
     bar_ai.EngineStatus.GAME_WON,
     bar_ai.EngineStatus.GAME_LOST,
 }
 
+# TODO currently simply none (I do not believe any were
+# written previously though tbh)
 TRUNCATED_STATUSES = {
-    # TODO check if this is correct and nice lol
-    bar_ai.EngineStatus.STARTING,
 }
