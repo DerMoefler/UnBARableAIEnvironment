@@ -1,534 +1,213 @@
-from contextlib import ExitStack
+from __future__ import annotations
+
+import copy
+import json
+import shutil
+import uuid
+
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 import torch
 
-import bar_ai
 from src.train import training
-from src.train.mappo import trainerargs
-
-
-MOVEMENT_TARGET_ID = 4211
 
 
 @dataclass(frozen=True)
-class TrainingScenario:
+class IntegrationScenario:
     name: str
     self_play: bool
     number_of_agents: int
     number_of_enemies: int
-    expected_train_calls: int
+    maximum_steps: int
 
     @property
-    def team_ids(self) -> tuple[int, ...]:
-        if self.self_play:
-            return (0, 1)
-
-        return (0,)
+    def expected_team_count(self) -> int:
+        return 2 if self.self_play else 1
 
 
 SCENARIOS = (
-    TrainingScenario(
+    IntegrationScenario(
         name="normal_3v3",
         self_play=False,
         number_of_agents=3,
         number_of_enemies=3,
-        expected_train_calls=1,
+        maximum_steps=2,
     ),
-    TrainingScenario(
+    IntegrationScenario(
+        name="normal_3v5",
+        self_play=False,
+        number_of_agents=3,
+        number_of_enemies=5,
+        maximum_steps=2,
+    ),
+    IntegrationScenario(
         name="selfplay_3v3",
         self_play=True,
         number_of_agents=3,
         number_of_enemies=3,
-        expected_train_calls=2,
+        maximum_steps=2,
     ),
-    TrainingScenario(
-        name="normal_2v2",
-        self_play=False,
-        number_of_agents=2,
-        number_of_enemies=2,
-        expected_train_calls=1,
-    ),
-        TrainingScenario(
+    IntegrationScenario(
         name="selfplay_3v5",
         self_play=True,
         number_of_agents=3,
         number_of_enemies=5,
-        expected_train_calls=2,
+        maximum_steps=2,
     ),
 )
 
 
-def _make_unit(
-    *,
-    unit_id: int,
-    team_id: int,
-    pos_x: float,
-    pos_z: float,
-) -> np.ndarray:
-    return np.asarray(
-        SimpleNamespace(
-            unit_id=unit_id,
-            team_id=team_id,
-            ally_team_id=team_id,
-            unit_def_id=102,
-            health=100.0,
-            max_health=100.0,
-            pos_x=pos_x,
-            pos_y=0.0,
-            pos_z=pos_z,
-            los_radius=350.0,
-            is_dead=False,
-            being_built=False,
-        )
-    )
-
-
-def _bar_observation_dict(
-    *,
-    number_of_agents: int,
-    number_of_enemies: int,
-) -> dict[str, np.ndarray]:
-    observations: dict[str, np.ndarray] = {}
-
-    for index in range(number_of_agents):
-        unit_id = index + 1
-
-        observations[f"unit_{unit_id}"] = _make_unit(
-            unit_id=unit_id,
-            team_id=0,
-            pos_x=100.0 + index * 50.0,
-            pos_z=200.0,
-        )
-
-    for index in range(number_of_enemies):
-        unit_id = number_of_agents + index + 1
-
-        observations[f"unit_{unit_id}"] = _make_unit(
-            unit_id=unit_id,
-            team_id=1,
-            pos_x=600.0 + index * 50.0,
-            pos_z=500.0,
-        )
-
-    return observations
-
-
-def _controlled_unit_ids(
-    *,
-    team_id: int,
-    number_of_agents: int,
-    number_of_enemies: int,
-) -> set[int]:
-    if team_id == 0:
-        return set(
-            range(
-                1,
-                number_of_agents + 1,
-            )
-        )
-
-    return set(
-        range(
-            number_of_agents + 1,
-            number_of_agents
-            + number_of_enemies
-            + 1,
-        )
-    )
-
-
-def _enemy_unit_ids(
-    *,
-    team_id: int,
-    number_of_agents: int,
-    number_of_enemies: int,
-) -> set[int]:
-    return _controlled_unit_ids(
-        team_id=1 - team_id,
-        number_of_agents=number_of_agents,
-        number_of_enemies=number_of_enemies,
-    )
-
-
-def _is_attack_action(
-    action: bar_ai.Action,
-) -> bool:
-    action_id = action.action_id
-
-    attack_enum = getattr(
-        bar_ai.ActionId,
-        "ATTACK",
-        None,
-    )
-
-    if attack_enum is not None:
-        return action_id == attack_enum
-
-    action_name = getattr(
-        action_id,
-        "name",
-        str(action_id),
-    )
-
-    return "attack" in action_name.lower()
-
-
-@pytest.mark.parametrize(
-    "scenario",
-    SCENARIOS,
-    ids=lambda scenario: scenario.name,
-)
-def test_training_dataflow(
-    scenario: TrainingScenario,
-    tmp_path: Path,
-):
-    torch.set_num_threads(1)
-
-    env_instances = []
-    trainers = []
-
-    class SimulatedBAREnvironment:
-        def __init__(
-            self,
-            engine_id=0,
-            port=50051,
-        ):
-            self.unbarable_ai_team_ids = (
-                scenario.team_ids
-            )
-
-            self.current_team_index = 0
-
-            self.current_team_id = (
-                self.unbarable_ai_team_ids[0]
-            )
-
-            self.observations = (
-                _bar_observation_dict(
-                    number_of_agents=(
-                        scenario.number_of_agents
-                    ),
-                    number_of_enemies=(
-                        scenario.number_of_enemies
-                    ),
-                )
-            )
-
-            self.received_actions: list[
-                bar_ai.Action
-            ] = []
-
-            self.actions_per_step: list[
-                tuple[int, list[bar_ai.Action]]
-            ] = []
-
-            self.step_calls = 0
-
-            env_instances.append(self)
-
-        def reset(self):
-            self.current_team_index = 0
-
-            self.current_team_id = (
-                self.unbarable_ai_team_ids[0]
-            )
-
-            self.step_calls = 0
-            self.received_actions.clear()
-            self.actions_per_step.clear()
-
-            return (
-                self.observations,
-                {
-                    "simulated": True,
-                    "current_team_id": (
-                        self.current_team_id
-                    ),
-                    "acting_team_id": None,
-                    "reward_team_id": None,
-                    "episode_step": 0,
-                    "max_episode_steps": (
-                        len(
-                            self.unbarable_ai_team_ids
-                        )
-                    ),
-                    "reward_state_initialized": True,
-                },
-            )
-
-        def step(
-            self,
-            actions: list[bar_ai.Action],
-        ):
-            acting_team_id = (
-                self.current_team_id
-            )
-
-            assert isinstance(actions, list)
-
-            assert all(
-                isinstance(
-                    action,
-                    bar_ai.Action,
-                )
-                for action in actions
-            )
-
-            expected_unit_ids = (
-                _controlled_unit_ids(
-                    team_id=acting_team_id,
-                    number_of_agents=(
-                        scenario.number_of_agents
-                    ),
-                    number_of_enemies=(
-                        scenario.number_of_enemies
-                    ),
-                )
-            )
-
-            received_unit_ids = {
-                int(action.unit_id)
-                for action in actions
-            }
-
-            assert (
-                received_unit_ids
-                == expected_unit_ids
-            ), (
-                f"Team {acting_team_id}: "
-                f"expected actions for units "
-                f"{sorted(expected_unit_ids)}, "
-                f"received "
-                f"{sorted(received_unit_ids)}"
-            )
-
-            received_team_ids = {
-                int(action.team_id)
-                for action in actions
-            }
-
-            assert received_team_ids == {
-                acting_team_id
-            }
-
-            self.step_calls += 1
-
-            self.actions_per_step.append(
-                (
-                    acting_team_id,
-                    list(actions),
-                )
-            )
-
-            self.received_actions.extend(
-                actions
-            )
-
-            self.current_team_index = (
-                self.current_team_index + 1
-            ) % len(
-                self.unbarable_ai_team_ids
-            )
-
-            self.current_team_id = (
-                self.unbarable_ai_team_ids[
-                    self.current_team_index
-                ]
-            )
-
-            # Jeder UnBARableAI-Player soll in der Episode
-            # genau einmal handeln.
-            terminated = (
-                self.step_calls
-                >= len(
-                    self.unbarable_ai_team_ids
-                )
-            )
-
-            return (
-                self.observations,
-                0.1,
-ated,
-                False,
-                {
-                    "acting_team_id": (
-                        acting_team_id
-                    ),
-                    "current_team_id": (
-                        self.current_team_id
-                    ),
-                    "reward_team_id": (
-                        acting_team_id
-                    ),
-                    "episode_step": (
-                        self.step_calls
-                    ),
-                    "own_alive_count": len(
-                        expected_unit_ids
-                    ),
-                    "enemy_alive_count": len(
-                        _enemy_unit_ids(
-                            team_id=acting_team_id,
-                            number_of_agents=(
-                                scenario.number_of_agents
-                            ),
-                            number_of_enemies=(
-                                scenario.number_of_enemies
-                            ),
-                        )
-                    ),
-                    "terminated": terminated,
-                    "truncated": False,
-                    "episode_outcome": (
-                        "won"
-                        if terminated
-                        else None
-                    ),
-                    "reward": 0.1,
-                    "reward_info": {
-                        "enemy_damage_done": 0.0,
-                        "own_damage_taken": 0.0,
-                    },
-                },
-            )
-
-        def close(self):
-            pass
-
-    class SimulatedEnvironmentPool:
-        def __init__(
-            self,
-            config_path,
-        ):
-            self.config_path = config_path
-            self.environments = []
-
-        def initialize_environements(self):
-            self.environments = [
-                SimulatedBAREnvironment()
-            ]
-
-        def close_environements(self):
-            for environment in (
-                self.environments
-            ):
-                environment.close()
-
-            self.environments.clear()
-
-    class SingleEpochTrainerArgs(
-        trainerargs.TrainerArgs
-    ):
-        def __init__(self):
-            super().__init__()
-            self.ppo_epoch = 1
-
-    class CountingRMAPPO(
-        training.R_MAPPO
-    ):
-        def __init__(
-            self,
-            *args,
-            **kwargs,
-        ):
-            super().__init__(
-                *args,
-                **kwargs,
-            )
-
-            self.train_calls = 0
-            self.train_infos = []
-
-            trainers.append(self)
-
-        def train(
-            self,
-            buffer,
-            update_actor=True,
-        ):
-            self.train_calls += 1
-
-            train_info = super().train(
-                buffer,
-                update_actor=update_actor,
-            )
-
-            self.train_infos.append(
-                train_info
-            )
-
-            return train_info
-
+def _load_base_config() -> dict[str, Any]:
     config_path = Path(
         "src/train/experiments/3v3Test/"
         "3v3Test.json"
     )
 
-    (
-        config,
-        training_config,
-        mappo_config,
-    ) = training.load_training_config(
-        config_path
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            f"Base training configuration not found: "
+            f"{config_path}"
+        )
+
+    with config_path.open(
+        "r",
+        encoding="utf-8",
+    ) as config_file:
+        config = json.load(
+            config_file
+        )
+
+    if not isinstance(config, dict):
+        raise ValueError(
+            "Base training configuration must "
+            "contain a JSON object."
+        )
+
+    return config
+
+
+def _create_scenario_config(
+    *,
+    base_config: dict[str, Any],
+    scenario: IntegrationScenario,
+    run_name: str,
+) -> dict[str, Any]:
+    config = copy.deepcopy(
+        base_config
     )
 
-    config = config.copy()
-    training_config = (
-        training_config.copy()
-    )
-    mappo_config = mappo_config.copy()
+    config["run_name"] = run_name
+    config["device"] = "cpu"
 
-    run_name = (
-        f"dataflow_test_{scenario.name}"
+    config["number_of_agents"] = (
+        scenario.number_of_agents
     )
 
-    config.update(
-        {
-            "run_name": run_name,
-            "device": "cpu",
-            "model_name": (
-                "r_mappo_latest.pt"
-            ),
-            "number_of_agents": (
-                scenario.number_of_agents
-            ),
-            "number_of_enemies": (
-                scenario.number_of_enemies
-            ),
-            "action_dimension": 5,
-            "self_play": scenario.self_play,
-            "adapter": {
-                "position_scale": 1000.0,
-            },
-        }
+    config["number_of_enemies"] = (
+        scenario.number_of_enemies
+    )
+
+    config["self_play"] = (
+        scenario.self_play
+    )
+
+    config["action_dimension"] = 5
+
+    adapter_config = config.setdefault(
+        "adapter",
+        {},
+    )
+
+    adapter_config["position_scale"] = float(
+        adapter_config.get(
+            "position_scale",
+            1000.0,
+        )
+    )
+
+    engine_config = config.setdefault(
+        "engine",
+        {},
+    )
+
+    engine_config["mode"] = "training"
+    engine_config["unit"] = engine_config.get(
+        "unit",
+        "armpw",
+    )
+    engine_config["spawn_spacing"] = int(
+        engine_config.get(
+            "spawn_spacing",
+            80,
+        )
+    )
+
+    ai_options = engine_config.setdefault(
+        "ai_options",
+        {},
+    )
+
+    ai_options[
+        "update_interval_frames"
+    ] = int(
+        ai_options.get(
+            "update_interval_frames",
+            2,
+        )
+    )
+
+    ai_options[
+        "move_step_size"
+    ] = float(
+        ai_options.get(
+            "move_step_size",
+            100.0,
+        )
+    )
+
+    ai_options[
+        "first_update_frame"
+    ] = int(
+        ai_options.get(
+            "first_update_frame",
+            2,
+        )
+    )
+
+    training_config = config.setdefault(
+        "training",
+        {},
     )
 
     training_config.update(
         {
             "continue_training": False,
 
-            # Pro Team wird genau ein Übergang
-            # gespeichert.
-            "buffer_size": 1,
+            # Der Buffer speichert vollständige Übergänge
+            # eines Teams, nicht einzelne Player-Turns.
+            "buffer_size": max(
+                4,
+                scenario.maximum_steps,
+            ),
 
             "mini_batch": 1,
             "episodes": 1,
             "number_of_environments": 1,
             "number_of_engines": 1,
-            "save_every_x_episode": 0,
-
-            # Das Mock terminiert bereits selbst.
-            "maximum_steps": max(
-                1,
-                len(scenario.team_ids),
+            "save_every_x_episode": 1,
+            "maximum_steps": (
+                scenario.maximum_steps
             ),
         }
+    )
+
+    mappo_config = training_config.setdefault(
+        "mappo",
+        {},
     )
 
     mappo_config.update(
@@ -538,231 +217,331 @@ ated,
         }
     )
 
-    training_config["mappo"] = (
-        mappo_config
+    logging_config = config.setdefault(
+        "logging",
+        {},
     )
 
-    config["training"] = (
-        training_config
+    logging_config["level"] = "INFO"
+
+    module_logging = logging_config.setdefault(
+        "modules",
+        {},
     )
 
-    with ExitStack() as patches:
-        patches.enter_context(
-            patch.object(
-                training,
-                "EnvironmentPool",
-                SimulatedEnvironmentPool,
-            )
+    module_logging.update(
+        {
+            "src.environment.bar_environment": (
+                "INFO"
+            ),
+            "src.environment.engine_session": (
+                "INFO"
+            ),
+            "src.environment.grpc_server": (
+                "INFO"
+            ),
+        }
+    )
+
+    return config
+
+
+def _write_config(
+    *,
+    config: dict[str, Any],
+    destination: Path,
+) -> Path:
+    destination.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with destination.open(
+        "w",
+        encoding="utf-8",
+    ) as config_file:
+        json.dump(
+            config,
+            config_file,
+            indent=4,
         )
 
-        patches.enter_context(
-            patch.object(
-                training,
-                "TrainerArgs",
-                SingleEpochTrainerArgs,
-            )
+    return destination
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "scenario",
+    SCENARIOS,
+    ids=lambda scenario: scenario.name,
+)
+def test_real_bar_training_scenarios(
+    scenario: IntegrationScenario,
+    tmp_path: Path,
+):
+    """
+    Full integration test.
+
+    This test starts the real BAR/Recoil engine and uses:
+
+    - the real EnvironmentPool,
+    - the real BAR_Environment,
+    - real gRPC servers,
+    - real shared-memory segments,
+    - the real observation adapters,
+    - the real shared MAPPO policy,
+    - real RolloutBuffers,
+    - a real combined PPO update,
+    - real checkpoint serialization.
+
+    No environment or engine component is simulated.
+    """
+    torch.set_num_threads(1)
+
+    unique_suffix = uuid.uuid4().hex[:8]
+
+    run_name = (
+        f"integration_{scenario.name}_"
+        f"{unique_suffix}"
+    )
+
+    experiment_directory = (
+        Path("src/train/experiments")
+        / run_name
+    )
+
+    config_path = (
+        tmp_path
+        / scenario.name
+        / "training_config.json"
+    )
+
+    base_config = _load_base_config()
+
+    scenario_config = (
+        _create_scenario_config(
+            base_config=base_config,
+            scenario=scenario,
+            run_name=run_name,
+        )
+    )
+
+    _write_config(
+        config=scenario_config,
+        destination=config_path,
+    )
+
+    train_multiple_calls: list[
+        dict[str, Any]
+    ] = []
+
+    original_train_multiple = (
+        training.R_MAPPO.train_multiple
+    )
+
+    def tracked_train_multiple(
+        trainer,
+        buffers,
+        update_actor=True,
+    ):
+        buffer_list = list(
+            buffers
         )
 
-        patches.enter_context(
-            patch.object(
-                training,
-                "R_MAPPO",
-                CountingRMAPPO,
-            )
-        )
-
-        patches.enter_context(
-            patch.object(
-                training,
-                "load_training_config",
-                return_value=(
-                    config,
-                    training_config,
-                    mappo_config,
+        train_multiple_calls.append(
+            {
+                "buffer_count": len(
+                    buffer_list
                 ),
+                "buffer_steps": [
+                    int(buffer.step)
+                    for buffer in buffer_list
+                ],
+                "buffer_agent_counts": [
+                    int(buffer.num_agents)
+                    for buffer in buffer_list
+                ],
+                "update_actor": bool(
+                    update_actor
+                ),
+            }
+        )
+
+        return original_train_multiple(
+            trainer,
+            buffer_list,
+            update_actor=update_actor,
+        )
+
+    try:
+        with patch.object(
+            training.R_MAPPO,
+            "train_multiple",
+            tracked_train_multiple,
+        ):
+            training.main(
+                config_path=config_path
             )
+
+        # --------------------------------------------------------
+        # Combined PPO assertions
+        # --------------------------------------------------------
+
+        assert len(
+            train_multiple_calls
+        ) == 1, (
+            "Expected exactly one combined PPO update "
+            "for the episode, received "
+            f"{len(train_multiple_calls)}."
         )
 
-        # Verhindert, dass der Test Checkpoints in
-        # das echte Experimentverzeichnis schreibt.
-        original_save_checkpoint = (
-            training._save_checkpoint
+        training_call = (
+            train_multiple_calls[0]
         )
 
-        test_run_directory = (
-            tmp_path
-            / run_name
+        assert (
+            training_call["update_actor"]
+            is True
+        )
+
+        assert (
+            training_call["buffer_count"]
+            == scenario.expected_team_count
+        ), (
+            f"Scenario {scenario.name}: expected "
+            f"{scenario.expected_team_count} non-empty "
+            f"team buffer(s), received "
+            f"{training_call['buffer_count']}. "
+            f"Buffer steps: "
+            f"{training_call['buffer_steps']}"
+        )
+
+        assert all(
+            step_count > 0
+            for step_count
+            in training_call["buffer_steps"]
+        ), (
+            "Every buffer passed to train_multiple() "
+            "must contain at least one complete "
+            "transition."
+        )
+
+        # --------------------------------------------------------
+        # Agent-count assertions
+        # --------------------------------------------------------
+
+        if scenario.self_play:
+            expected_agent_counts = sorted(
+                [
+                    scenario.number_of_agents,
+                    scenario.number_of_enemies,
+                ]
+            )
+        else:
+            expected_agent_counts = [
+                scenario.number_of_agents
+            ]
+
+        actual_agent_counts = sorted(
+            training_call[
+                "buffer_agent_counts"
+            ]
+        )
+
+        assert (
+            actual_agent_counts
+            == expected_agent_counts
+        ), (
+            f"Scenario {scenario.name}: expected "
+            f"buffer agent counts "
+            f"{expected_agent_counts}, received "
+            f"{actual_agent_counts}."
+        )
+
+        # --------------------------------------------------------
+        # Checkpoint assertions
+        # --------------------------------------------------------
+
+        run_directory = (
+            experiment_directory
             / "run"
         )
 
-        def save_checkpoint_to_tmp(
-            policy,
-            adapter,
-            episode,
-            model_dir,
-        ):
-            return original_save_checkpoint(
-                policy,
-                adapter,
-                episode,
-                test_run_directory,
-            )
+        latest_checkpoint = (
+            run_directory
+            / "r_mappo_latest.pt"
+        )
 
-        patches.enter_context(
-            patch.object(
-                training,
-                "_save_checkpoint",
-                save_checkpoint_to_tmp,
+        assert latest_checkpoint.is_file(), (
+            "Latest checkpoint was not created: "
+            f"{latest_checkpoint}"
+        )
+
+        episode_checkpoints = sorted(
+            run_directory.glob(
+                "r_mappo_episode_*.pt"
             )
         )
 
-        training.main()
-
-    # ------------------------------------------------------------
-    # Environment assertions
-    # ------------------------------------------------------------
-
-    assert len(env_instances) == 1
-
-    environment = env_instances[0]
-
-    assert (
-        environment.unbarable_ai_team_ids
-        == scenario.team_ids
-    )
-
-    assert environment.step_calls == len(
-        scenario.team_ids
-    )
-
-    expected_total_actions = sum(
-        len(
-            _controlled_unit_ids(
-                team_id=team_id,
-                number_of_agents=(
-                    scenario.number_of_agents
-                ),
-                number_of_enemies=(
-                    scenario.number_of_enemies
-                ),
-            )
-        )
-        for team_id in scenario.team_ids
-    )
-
-    assert (
-        len(environment.received_actions)
-        == expected_total_actions
-    )
-
-    for (
-        acting_team_id,
-        actions,
-    ) in environment.actions_per_step:
-        expected_unit_ids = (
-            _controlled_unit_ids(
-                team_id=acting_team_id,
-                number_of_agents=(
-                    scenario.number_of_agents
-                ),
-                number_of_enemies=(
-                    scenario.number_of_enemies
-                ),
-            )
+        assert episode_checkpoints, (
+            "No episode checkpoint was created in "
+            f"{run_directory}."
         )
 
-        action_unit_ids = {
-            int(action.unit_id)
-            for action in actions
-        }
+        checkpoint = torch.load(
+            latest_checkpoint,
+            map_location="cpu",
+            weights_only=True,
+        )
 
-        action_team_ids = {
-            int(action.team_id)
-            for action in actions
-        }
+        assert isinstance(
+            checkpoint,
+            dict,
+        )
 
         assert (
-            action_unit_ids
-            == expected_unit_ids
+            checkpoint["episode"]
+            == 1
         )
 
-        assert action_team_ids == {
-            acting_team_id
+        assert (
+            checkpoint["action_dim"]
+            == scenario_config[
+                "action_dimension"
+            ]
+        )
+
+        assert (
+            checkpoint["max_enemy_slots"]
+            == max(
+                scenario.number_of_agents,
+                scenario.number_of_enemies,
+            )
+        )
+
+        required_checkpoint_states = {
+            "actor_state_dict",
+            "target_scorer_state_dict",
+            "critic_state_dict",
+            "actor_optimizer_state_dict",
+            "critic_optimizer_state_dict",
         }
 
-        assert len(actions) == len(
-            expected_unit_ids
+        missing_checkpoint_states = (
+            required_checkpoint_states
+            - checkpoint.keys()
         )
 
-    # ------------------------------------------------------------
-    # Training assertions
-    # ------------------------------------------------------------
+        assert not missing_checkpoint_states, (
+            "Checkpoint is missing states: "
+            f"{sorted(missing_checkpoint_states)}"
+        )
 
-    assert len(trainers) == 1
-
-    trainer = trainers[0]
-
-    assert (
-        trainer.train_calls
-        == scenario.expected_train_calls
-    )
-
-    assert (
-        len(trainer.train_infos)
-        == scenario.expected_train_calls
-    )
-
-    assert trainer.ppo_epoch == 1
-
-    # ------------------------------------------------------------
-    # Action target assertions
-    # ------------------------------------------------------------
-
-    for (
-        acting_team_id,
-        actions,
-    ) in environment.actions_per_step:
-        expected_enemy_ids = (
-            _enemy_unit_ids(
-                team_id=acting_team_id,
-                number_of_agents=(
-                    scenario.number_of_agents
-                ),
-                number_of_enemies=(
-                    scenario.number_of_enemies
-                ),
+    finally:
+        # training.main() also closes the EnvironmentPool
+        # in its finally block. This cleanup only removes
+        # files written by the integration scenario.
+        if experiment_directory.exists():
+            shutil.rmtree(
+                experiment_directory
             )
-        )
-
-        for action in actions:
-            target_id = int(
-                action.target_unit_id
-            )
-
-            if _is_attack_action(action):
-                assert (
-                    target_id
-                    in expected_enemy_ids
-                )
-            else:
-                assert (
-                    target_id
-                    == MOVEMENT_TARGET_ID
-                )
-
-    # ------------------------------------------------------------
-    # Checkpoint assertions
-    # ------------------------------------------------------------
-
-    assert (
-        test_run_directory
-        / "r_mappo_latest.pt"
-    ).exists()
-
-    checkpoint_files = list(
-        test_run_directory.glob(
-            "r_mappo_episode_*.pt"
-        )
-    )
-
-    assert checkpoint_files

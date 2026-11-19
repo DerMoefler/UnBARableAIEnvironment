@@ -377,11 +377,14 @@ def _save_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    config_path = Path(
-        "src/train/experiments/3v3Test/"
-        "3v3Test.json"
-    )
+def main(
+    config_path: Path | None = None,
+) -> None:
+    if config_path is None:
+        config_path = Path(
+            "src/train/experiments/3v3Test/"
+            "3v3Test.json"
+        )
 
     config, training_config, mappo_config = load_training_config(
         config_path
@@ -1413,74 +1416,42 @@ def main() -> None:
             trainer.prep_training()
             runner.set_training_mode()
 
-            train_info_by_team: dict[
-                int,
-                dict[str, Any],
-            ] = {}
+            train_info = trainer.train_multiple(
+                buffers=[
+                    buffers[team_id]
+                    for team_id in non_empty_team_ids
+                ],
+                update_actor=True,
+            )
 
-            for team_id in non_empty_team_ids:
-                train_info_by_team[
-                    team_id
-                ] = trainer.train(
-                    buffers[team_id],
-                    update_actor=True,
+            if device.type == "cuda":
+                torch.cuda.synchronize(
+                    device
                 )
 
-                if device.type == "cuda":
-                    torch.cuda.synchronize(
-                        device
-                    )
-
-                buffers[team_id].reset()
-
-            for team_id in unbarable_ai_team_ids:
-                if team_id not in non_empty_team_ids:
-                    buffers[team_id].reset()
+            for buffer in buffers.values():
+                buffer.reset()
 
             # Ein gemeinsamer Logging-Wert als Mittelwert
             # über alle trainierten Teams.
             value_loss = float(
-                np.mean(
-                    [
-                        float(
-                            train_info.get(
-                                "value_loss",
-                                0.0,
-                            )
-                        )
-                        for train_info
-                        in train_info_by_team.values()
-                    ]
+                train_info.get(
+                    "value_loss",
+                    0.0,
                 )
             )
 
             policy_loss = float(
-                np.mean(
-                    [
-                        float(
-                            train_info.get(
-                                "policy_loss",
-                                0.0,
-                            )
-                        )
-                        for train_info
-                        in train_info_by_team.values()
-                    ]
+                train_info.get(
+                    "policy_loss",
+                    0.0,
                 )
             )
 
             entropy = float(
-                np.mean(
-                    [
-                        float(
-                            train_info.get(
-                                "dist_entropy",
-                                0.0,
-                            )
-                        )
-                        for train_info
-                        in train_info_by_team.values()
-                    ]
+                train_info.get(
+                    "dist_entropy",
+                    0.0,
                 )
             )
 
@@ -1582,15 +1553,10 @@ def main() -> None:
                         team_id
                     ],
                 )
-                logger.info(
-                    "Team %d Train Info: %s",
-                    team_id,
-                    train_info_by_team.get(
-                        team_id,
-                        "no complete transitions",
-                    ),
-                )
-
+            logger.info(
+                "Combined PPO Train Info: %s",
+                train_info,
+            )
             logger.info(
                 "Last Info Keys: %s",
                 last_info_keys,
@@ -1600,15 +1566,15 @@ def main() -> None:
                 final_step_info,
             )
             logger.info(
-                "Mean Value Loss: %.6f",
+                "Combined  Value Loss: %.6f",
                 value_loss,
             )
             logger.info(
-                "Mean Policy Loss: %.6f",
+                "Combined  Policy Loss: %.6f",
                 policy_loss,
             )
             logger.info(
-                "Mean Entropy: %.6f",
+                "Combined  Entropy: %.6f",
                 entropy,
             )
 

@@ -346,6 +346,246 @@ class R_MAPPO:
 
         return train_info
 
+    def train_multiple(
+        self,
+        buffers,
+        update_actor=True,
+    ):
+        """
+        Train one shared policy with rollout data from multiple teams.
+
+        Returns and GAE are expected to have been computed separately for
+        every buffer before this method is called.
+
+        Advantages are normalized jointly across all active agent samples.
+        PPO samples from every team are then combined and globally shuffled.
+        """
+        buffers = list(buffers)
+
+        if not buffers:
+            raise ValueError(
+                "train_multiple requires at least one "
+                "replay buffer."
+            )
+
+        for buffer_index, buffer in enumerate(
+            buffers
+        ):
+            if buffer.step <= 0:
+                raise RuntimeError(
+                    "Cannot train MAPPO with an empty "
+                    "replay buffer: "
+                    f"buffer_index={buffer_index}."
+                )
+
+        log_callback = getattr(
+            self,
+            "log_callback",
+            None,
+        )
+
+        log_level = getattr(
+            self,
+            "log_level",
+            1,
+        )
+
+        # ---------------------------------------------------------
+        # Calculate advantages separately per trajectory
+        # ---------------------------------------------------------
+
+        raw_advantages = [
+            self._calculate_buffer_advantages(
+                buffer
+            )
+            for buffer in buffers
+        ]
+
+        # ---------------------------------------------------------
+        # Calculate one shared normalization over active samples
+        # ---------------------------------------------------------
+
+        active_advantage_values = []
+
+        for buffer, advantages in zip(
+            buffers,
+            raw_advantages,
+        ):
+            valid_steps = buffer.step
+
+            active_masks = np.asarray(
+                buffer.active_masks[
+                    :valid_steps
+                ],
+                dtype=np.float32,
+            )
+
+            if active_masks.shape != (
+                advantages.shape
+            ):
+                raise ValueError(
+                    "Active-mask shape does not match "
+                    "advantage shape: "
+                    f"active_masks={active_masks.shape}, "
+                    f"advantages={advantages.shape}."
+                )
+
+            active_values = advantages[
+                active_masks > 0.0
+            ]
+
+            if active_values.size > 0:
+                active_advantage_values.append(
+                    active_values
+                )
+
+        if not active_advantage_values:
+            raise FloatingPointError(
+                "No active agent samples are available "
+                "for advantage normalization."
+            )
+
+        combined_active_advantages = (
+            np.concatenate(
+                active_advantage_values,
+                axis=0,
+            )
+        )
+
+        mean_advantages = float(
+            np.mean(
+                combined_active_advantages
+            )
+        )
+
+        std_advantages = float(
+            np.std(
+                combined_active_advantages
+            )
+        )
+
+        if not np.isfinite(
+            mean_advantages
+        ):
+            raise FloatingPointError(
+                "Combined advantage mean is not finite."
+            )
+
+        if not np.isfinite(
+            std_advantages
+        ):
+            raise FloatingPointError(
+                "Combined advantage standard deviation "
+                "is not finite."
+            )
+
+        normalized_advantages = [
+            (
+                advantages
+                - mean_advantages
+            ) / (
+                std_advantages
+                + 1e-5
+            )
+            for advantages in raw_advantages
+        ]
+
+        # ---------------------------------------------------------
+        # PPO optimization
+        # ---------------------------------------------------------
+
+        train_info = {
+            "value_loss": 0.0,
+            "policy_loss": 0.0,
+            "dist_entropy": 0.0,
+            "actor_grad_norm": 0.0,
+            "critic_grad_norm": 0.0,
+            "ratio": 0.0,
+        }
+
+        num_updates = 0
+
+        for _ in range(
+            self.ppo_epoch
+        ):
+            data_generator = (
+                self._combined_feed_forward_generator(
+                    buffers,
+                    normalized_advantages,
+                )
+            )
+
+            for sample in data_generator:
+                (
+                    value_loss,
+                    critic_grad_norm,
+                    policy_loss,
+                    dist_entropy,
+                    actor_grad_norm,
+                    imp_weights,
+                ) = self.ppo_update(
+                    sample,
+                    update_actor,
+                )
+
+                train_info[
+                    "value_loss"
+                ] += float(
+                    value_loss.item()
+                )
+
+                train_info[
+                    "policy_loss"
+                ] += float(
+                    policy_loss.item()
+                )
+
+                train_info[
+                    "dist_entropy"
+                ] += float(
+                    dist_entropy.item()
+                )
+
+                train_info[
+                    "actor_grad_norm"
+                ] += float(
+                    actor_grad_norm
+                )
+
+                train_info[
+                    "critic_grad_norm"
+                ] += float(
+                    critic_grad_norm
+                )
+
+                train_info[
+                    "ratio"
+                ] += float(
+                    imp_weights.mean().item()
+                )
+
+                num_updates += 1
+
+        if num_updates <= 0:
+            raise RuntimeError(
+                "Combined PPO training produced no updates."
+            )
+
+        for key in train_info:
+            train_info[key] /= num_updates
+
+        if (
+            log_callback is not None
+            and log_level >= 2
+        ):
+            log_callback(
+                2,
+                "ppo_update_completed",
+                **train_info,
+            )
+
+        return train_info
+
     def prep_training(self):
         self.policy.actor.train()
         self.policy.critic.train()
@@ -354,4 +594,206 @@ class R_MAPPO:
         self.policy.actor.eval()
         self.policy.critic.eval()
 
-    
+    def _calculate_buffer_advantages(
+        self,
+        buffer,
+    ) -> np.ndarray:
+        """
+        Calculate unnormalized advantages for one rollout buffer.
+        """
+        valid_steps = buffer.step
+
+        if valid_steps <= 0:
+            raise RuntimeError(
+                "Cannot calculate advantages for an empty "
+                "replay buffer."
+            )
+
+        if (
+            self._use_popart
+            or self._use_valuenorm
+        ):
+            advantages = (
+                buffer.returns[:valid_steps]
+                - self.value_normalizer.denormalize(
+                    buffer.value_preds[:valid_steps]
+                )
+            )
+        else:
+            advantages = (
+                buffer.returns[:valid_steps]
+                - buffer.value_preds[:valid_steps]
+            )
+
+        return np.asarray(
+            advantages,
+            dtype=np.float32,
+        )
+
+    @staticmethod
+    def _concatenate_samples(
+        samples: list[tuple],
+    ) -> tuple:
+        """
+        Concatenate complete flattened PPO samples from multiple buffers.
+
+        Every non-None field is concatenated along the sample dimension.
+        Optional target fields must either be present in every sample or
+        absent from every sample.
+        """
+        if not samples:
+            raise ValueError(
+                "Cannot concatenate an empty sample list."
+            )
+
+        sample_length = len(samples[0])
+
+        if any(
+            len(sample) != sample_length
+            for sample in samples
+        ):
+            raise ValueError(
+                "All PPO samples must contain the same "
+                "number of fields."
+            )
+
+        combined_fields = []
+
+        for field_index in range(sample_length):
+            field_values = [
+                sample[field_index]
+                for sample in samples
+            ]
+
+            none_count = sum(
+                value is None
+                for value in field_values
+            )
+
+            if none_count == len(field_values):
+                combined_fields.append(None)
+                continue
+
+            if none_count != 0:
+                raise ValueError(
+                    "Inconsistent optional PPO sample field: "
+                    f"field_index={field_index}, "
+                    "some buffers contain data and others "
+                    "contain None."
+                )
+
+            arrays = [
+                np.asarray(value)
+                for value in field_values
+            ]
+
+            reference_shape = arrays[0].shape[1:]
+
+            for array in arrays[1:]:
+                if array.shape[1:] != reference_shape:
+                    raise ValueError(
+                        "Cannot combine PPO sample fields "
+                        "with different non-batch dimensions: "
+                        f"field_index={field_index}, "
+                        f"expected={reference_shape}, "
+                        f"actual={array.shape[1:]}."
+                    )
+
+            combined_fields.append(
+                np.concatenate(
+                    arrays,
+                    axis=0,
+                )
+            )
+
+        return tuple(combined_fields)
+
+    def _combined_feed_forward_generator(
+        self,
+        buffers,
+        advantages_by_buffer,
+    ):
+        """
+        Flatten all team buffers, combine their samples and generate
+        globally shuffled PPO mini-batches.
+        """
+        complete_samples = []
+
+        for buffer, advantages in zip(
+            buffers,
+            advantages_by_buffer,
+        ):
+            # Ein Mini-Batch liefert hier den vollständigen
+            # abgeflachten Inhalt dieses Buffers.
+            generator = buffer.feed_forward_generator(
+                advantages,
+                num_mini_batch=1,
+            )
+
+            try:
+                complete_sample = next(
+                    generator
+                )
+            except StopIteration as exc:
+                raise RuntimeError(
+                    "Replay buffer produced no PPO samples."
+                ) from exc
+
+            complete_samples.append(
+                complete_sample
+            )
+
+        combined_sample = (
+            self._concatenate_samples(
+                complete_samples
+            )
+        )
+
+        first_field = combined_sample[0]
+
+        if first_field is None:
+            raise RuntimeError(
+                "Combined PPO sample has no observations."
+            )
+
+        total_samples = int(
+            np.asarray(first_field).shape[0]
+        )
+
+        if total_samples <= 0:
+            raise RuntimeError(
+                "Combined PPO sample is empty."
+            )
+
+        if self.num_mini_batch > total_samples:
+            raise ValueError(
+                "num_mini_batch cannot exceed the total "
+                "number of combined PPO samples: "
+                f"num_mini_batch={self.num_mini_batch}, "
+                f"total_samples={total_samples}."
+            )
+
+        permutation = np.random.permutation(
+            total_samples
+        )
+
+        mini_batches = np.array_split(
+            permutation,
+            self.num_mini_batch,
+        )
+
+        for batch_indices in mini_batches:
+            if batch_indices.size == 0:
+                continue
+
+            mini_batch = tuple(
+                None
+                if field is None
+                else np.asarray(field)[
+                    batch_indices
+                ]
+                for field in combined_sample
+            )
+
+            yield mini_batch
+            
