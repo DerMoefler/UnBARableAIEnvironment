@@ -96,34 +96,85 @@ def test_training_dataflow_one_mappo_update():
     expected_enemy_ids = {4, 5, 6}
 
     class SimulatedBAREnvironment:
-        def __init__(self, engine_id=0, port=50051):
-            self.observations = _bar_observation_dict(
-            enemy_count=enemy_count
+        def __init__(
+            self,
+            engine_id=0,
+            port=50051,
+        ):
+            self.unbarable_ai_team_ids = (0,)
+            self.current_team_id = (
+                self.unbarable_ai_team_ids[0]
             )
+
+            self.observations = (
+                _bar_observation_dict(
+                    enemy_count=enemy_count
+                )
+            )
+
             self.received_actions = []
             self.actions_per_step = []
             self.step_calls = 0
+
             env_instances.append(self)
 
         def reset(self):
-            return self.observations, {"simulated": True}
+            self.current_team_id = (
+                self.unbarable_ai_team_ids[0]
+            )
+            self.step_calls = 0
+
+            return (
+                self.observations,
+                {
+                    "simulated": True,
+                    "current_team_id": (
+                        self.current_team_id
+                    ),
+                    "acting_team_id": None,
+                    "reward_team_id": None,
+                    "episode_step": 0,
+                    "max_episode_steps": 1,
+                    "reward_state_initialized": True,
+                },
+            )
 
         def step(self, actions):
+            acting_team_id = (
+                self.current_team_id
+            )
+
             assert isinstance(actions, list)
             assert all(
                 isinstance(action, bar_ai.Action)
                 for action in actions
             )
 
+            assert all(
+                int(action.team_id)
+                == acting_team_id
+                for action in actions
+            )
+
             self.step_calls += 1
+
             self.actions_per_step.append(
                 list(actions)
             )
+
             self.received_actions.extend(
                 actions
             )
 
-            terminated = self.step_calls >= 1
+            terminated = (
+                self.step_calls >= 1
+            )
+
+            # Bei nur einer UnBARableAI ist auch
+            # der nächste Player wieder Team 0.
+            self.current_team_id = (
+                self.unbarable_ai_team_ids[0]
+            )
 
             return (
                 self.observations,
@@ -131,11 +182,24 @@ def test_training_dataflow_one_mappo_update():
                 terminated,
                 False,
                 {
-                    "episode_step": self.step_calls,
+                    "acting_team_id": (
+                        acting_team_id
+                    ),
+                    "current_team_id": (
+                        self.current_team_id
+                    ),
+                    "reward_team_id": (
+                        self.current_team_id
+                    ),
+                    "episode_step": (
+                        self.step_calls
+                    ),
                     "own_alive_count": len(
                         OWN_UNIT_IDS
                     ),
-                    "enemy_alive_count": enemy_count,
+                    "enemy_alive_count": (
+                        enemy_count
+                    ),
                     "terminated": terminated,
                     "truncated": False,
                     "episode_outcome": (
@@ -153,7 +217,6 @@ def test_training_dataflow_one_mappo_update():
 
         def close(self):
             pass
-
     class SimulatedEnvironmentPool:
         def __init__(self, config_path):
             self.config_path = config_path
@@ -239,8 +302,8 @@ def test_training_dataflow_one_mappo_update():
                 "model_name": "r_mappo_latest.pt",
                 "number_of_agents": 3,
                 "number_of_enemies": 3,
-                "training_team_id": 0,
                 "action_dimension": 5,
+                "self_play": False,
                 "adapter": {
                     "position_scale": 1000.0,
                 },
@@ -305,8 +368,12 @@ def test_training_dataflow_one_mappo_update():
 
         assert env.step_calls >= 1
 
-        # Exactly three actions are expected: one for each controlled unit.
-        assert env.step_calls >= 1
+        assert (
+            env.unbarable_ai_team_ids
+            == (0,)
+        )
+
+        assert env.current_team_id == 0
 
         assert len(env.actions_per_step) == env.step_calls
 
@@ -324,6 +391,16 @@ def test_training_dataflow_one_mappo_update():
 
             assert len(action_unit_ids) == len(set(action_unit_ids)), (
                 f"Step {step_index}: duplicate unit actions {action_unit_ids}"
+            )
+
+            action_team_ids = [
+                int(action.team_id)
+                for action in actions
+            ]
+
+            assert set(action_team_ids) == {0}, (
+                f"Step {step_index}: expected all actions "
+                f"for team 0, received {action_team_ids}"
             )
 
         assert len(trainers) == 1
