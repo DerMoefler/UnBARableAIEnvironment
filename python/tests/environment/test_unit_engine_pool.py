@@ -6,6 +6,7 @@ import threading
 from concurrent.futures import Future
 from unittest.mock import MagicMock
 
+import bar_ai
 from src.environment.engine_pool import EngineSessionPool, SessionState
 
 def wait_for_maintenance(pool: EngineSessionPool, timeout: float = 2.0) -> None:
@@ -31,8 +32,16 @@ def pool(sessions: dict[int, MagicMock]) -> EngineSessionPool:
     Provide one pool with two successfully starting mock sessions.
     """
     def session_factory(slot_id: int) -> MagicMock:
+        # --- Mock session ---
         session = MagicMock(name=f"engine_session_{slot_id}")
+        session.get_engine_id.return_value = slot_id
         session.is_running.return_value = True
+        session.wait_for_engine_status.return_value = True
+
+        # --- Mock shared memory ---
+        session.shared_memory = MagicMock(name=f"shared_memory_{slot_id}")
+        session.shared_memory.get_engine_status.return_value = bar_ai.EngineStatus.READY
+
         sessions[slot_id] = session
         return session
 
@@ -112,3 +121,115 @@ def test_session_in_state_starting() -> None:
     finally:
         start_finished.set()
         engine_pool.close()
+
+def test_acquire_leases_available_session(pool: EngineSessionPool, sessions: dict[int, MagicMock]) -> None:
+    pool.start()
+    wait_for_maintenance(pool)
+
+    acquired = pool.acquire(timeout=0.1)
+    slot_id = acquired.get_engine_id()
+
+    assert acquired is sessions[slot_id]
+    assert pool._engine_slots[slot_id].state is SessionState.LEASED
+    assert pool._available_engines.qsize() == 1
+
+def test_acquire_times_out_when_all_sessions_are_leased(pool: EngineSessionPool) -> None:
+    pool.start()
+    wait_for_maintenance(pool)
+
+    first = pool.acquire(timeout=0.1)
+    second = pool.acquire(timeout=0.1)
+
+    with pytest.raises(TimeoutError, match="No engine session became available"):
+        pool.acquire(timeout=0.1)
+
+def test_release_recycles_and_republishes_session(pool: EngineSessionPool) -> None:
+    pool.start()
+    wait_for_maintenance(pool)
+
+    first = pool.acquire(timeout=0.1)
+    second = pool.acquire(timeout=0.1)
+
+    released_slot_id = first.get_engine_id()
+
+    pool.release(first)
+    wait_for_maintenance(pool)
+
+    first.wait_for_engine_status.assert_called_with(bar_ai.EngineStatus.READY, timeout=20.0)
+
+    assert pool._engine_slots[released_slot_id].state is SessionState.AVAILABLE
+
+    acquired_again = pool.acquire(timeout=0.1)
+
+    assert acquired_again is first
+    assert acquired_again is not second
+    assert pool._engine_slots[released_slot_id].state is SessionState.LEASED
+
+def test_released_session_is_recycling_while_waiting_for_ready(pool: EngineSessionPool) -> None:
+    pool.start()
+    wait_for_maintenance(pool)
+
+    session = pool.acquire(timeout=0.1)
+    # Also acquire second so we can test that there is no engine available while the first is recycling
+    _ = pool.acquire(timeout=0.1)
+    slot_id = session.get_engine_id()
+
+    wait_entered = threading.Event()
+    allow_ready = threading.Event()
+
+    def blocking_wait(status: bar_ai.EngineStatus, timeout: float) -> bool:
+        wait_entered.set()
+        if not allow_ready.wait(timeout=2.0):
+            raise TimeoutError("Test did not unblock recycling")
+        return True
+
+    session.wait_for_engine_status.side_effect = blocking_wait
+
+    try:
+        pool.release(session)
+        assert wait_entered.wait(timeout=2.0)
+        with pool._lock:
+            assert pool._engine_slots[slot_id].state is SessionState.RECYCLING
+        # Must be empty because we acquired the second and the first is now busy recyling
+        assert pool._available_engines.empty()
+
+        allow_ready.set()
+        wait_for_maintenance(pool)
+
+        with pool._lock:
+            assert pool._engine_slots[slot_id].state is SessionState.AVAILABLE
+
+    finally:
+        allow_ready.set()
+
+def test_releasing_same_session_twice_is_rejected(pool: EngineSessionPool) -> None:
+    pool.start()
+    wait_for_maintenance(pool)
+
+    session = pool.acquire(timeout=0.1)
+    pool.release(session)
+
+    with pytest.raises(RuntimeError, match="Cannot release session in state"):
+        pool.release(session)
+
+    wait_for_maintenance(pool)
+
+def test_release_marks_session_failed_when_it_never_becomes_ready(pool: EngineSessionPool) -> None:
+    pool.start()
+    wait_for_maintenance(pool)
+
+    session = pool.acquire(timeout=0.1)
+    # Also acquire second engine so none is acquireable
+    _ = pool.acquire(timeout=0.1)
+    slot_id = session.get_engine_id()
+
+    session.wait_for_engine_status.reset_mock()
+    session.wait_for_engine_status.return_value = False
+
+    pool.release(session)
+    wait_for_maintenance(pool)
+
+    assert pool._engine_slots[slot_id].state is SessionState.FAILED
+
+    with pytest.raises(TimeoutError):
+        pool.acquire(timeout=0.01)
