@@ -1,15 +1,16 @@
 import logging
 import queue
 import threading
+import time
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Callable, Mapping, Any
 
+import bar_ai
 from src.environment.engine_session import EngineSession, EngineSessionFactory
 from src.environment.startscript_builder import StartScriptConfig
-
 
 class SessionState(Enum):
     """
@@ -111,6 +112,64 @@ class EngineSessionPool:
                 with self._lock:
                     slot.state = SessionState.STOPPED
 
+    def acquire(self, timeout: float | None) -> EngineSession:
+        with self._lock:
+            if not self._is_running:
+                raise RuntimeError("Pool has not yet been started")
+            if self._closing:
+                raise RuntimeError("Pool is closing")
+
+        deadline = None if timeout is None else time.monotonic() + timeout
+
+        while True:
+            queue_timeout = None
+            if deadline is not None:
+                queue_timeout = deadline - time.monotonic()
+
+                if queue_timeout <= 0:
+                    raise TimeoutError(f"No engine session became available while waiting for {timeout} seconds.")
+
+            try:
+                slot_id: int = self._available_engines.get(timeout=queue_timeout)
+            except queue.Empty as exception:
+                raise TimeoutError("No engine session became available")
+
+            with self._lock:
+                if self._closing:
+                    raise RuntimeError("Pool is closing")
+                slot: PoolSlot = self._engine_slots[slot_id]
+
+                assert slot.state == SessionState.AVAILABLE
+                assert slot.session.is_running()
+                assert slot.session.shared_memory is not None
+                assert slot.session.shared_memory.get_engine_status() == bar_ai.EngineStatus.READY
+
+                slot.state = SessionState.LEASED
+                logging.info(f"Engine slot {slot_id} has been acquired")
+
+                return slot.session
+
+    def release(self, session: EngineSession) -> None:
+        with self._lock:
+            slot_id = session.get_engine_id()
+            slot = self._engine_slots[slot_id]
+
+            if slot.session is not session:
+                raise ValueError(
+                    "Session does not belong to this pool"
+                    "or mismatch between EngineSession id and slot id"
+                )
+
+            if slot.state is not SessionState.LEASED:
+                raise RuntimeError(f"Cannot release session in state {slot.state.name}")
+
+            if not session.is_running():
+                slot.state = SessionState.FAILED
+                logging.exception(f"Released session at slot {slot_id} is no longer running")
+                return
+
+            self._submit_maintenance(self._recycle_slot, slot_id)
+
     def is_running(self) -> bool:
         with self._lock:
             return self._is_running
@@ -134,7 +193,31 @@ class EngineSessionPool:
             logging.exception(f"Engine at slot {slot_id} failed during startup.", exc_info=exception)
             return
 
-        engine_slot.state = SessionState.READY
+
+        self._wait_for_ready(slot_id, timeout=20.0)
+
+        if engine_slot.state is SessionState.FAILED:
+            return
+
+        self._publish_slot(slot_id)
+
+    def _recycle_slot(self, slot_id: int) -> None:
+        with self._lock:
+            engine_slot = self._get_slot(slot_id)
+
+            if engine_slot.state != SessionState.LEASED:
+                raise RuntimeError(
+                    "Can only recycle previously LEASED engines. "
+                    f"Actual state: {engine_slot.state.name}"
+                )
+            engine_slot.state = SessionState.RECYCLING
+
+        self._wait_for_ready(slot_id, timeout=20.0)
+
+        with self._lock:
+            if engine_slot.state == SessionState.FAILED:
+                return
+
         self._publish_slot(slot_id)
 
 
@@ -144,6 +227,30 @@ class EngineSessionPool:
         """
         with self._lock:
             return self._engine_slots[slot_id]
+
+    def _wait_for_ready(self, slot_id: int, timeout: float) -> None:
+        """
+        Maintenance-thread operator for waiting until the EngineSession is ready.
+
+        Requires the engine to be either in STARTING or RECYCLING.
+        """
+        engine_slot = self._get_slot(slot_id)
+
+        if engine_slot.state not in {SessionState.STARTING, SessionState.RECYCLING}:
+            raise RuntimeError("Can only switch to ready from STARTING or RECYCLING state. "
+                               f"Actual state: {engine_slot.state.name}")
+
+        success: bool = engine_slot.session.wait_for_engine_status(
+            bar_ai.EngineStatus.READY,
+            timeout=timeout
+        )
+
+        if not success:
+            logging.error(f"Engine at slot {slot_id} did not become ready in {timeout} seconds")
+            engine_slot.state = SessionState.FAILED
+            return
+
+        engine_slot.state = SessionState.READY
 
     def _publish_slot(self, slot_id: int) -> None:
         """

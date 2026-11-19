@@ -1,9 +1,9 @@
 import logging
 import os
-import re
 import signal
 import subprocess
 import threading
+import time
 import uuid
 
 from dataclasses import dataclass, field
@@ -262,6 +262,29 @@ class EngineSession:
                 SharedMemory.remove(self.shared_memory.get_name())
                 self.shared_memory = None
             logger.info("Engine Session stop called, process terminated and streams closed.")
+
+    def wait_for_engine_status(self, expected_status: bar_ai.EngineStatus, timeout: float, poll_interval: float = 0.05) -> bool:
+        if not self.is_running():
+            raise RuntimeError("Cannot wait for engine status if the engine is not running.")
+        assert self.shared_memory is not None
+
+        deadline = time.monotonic() + timeout
+        last_status = self.shared_memory.get_engine_status()
+
+        while time.monotonic() < deadline:
+            assert self.is_running(), (
+                f"Engine excisted while waiting for {expected_status}; "
+                f"exit code: {self.exit_code()}"
+            )
+            last_status = self.shared_memory.get_engine_status()
+
+            if last_status == expected_status:
+                return True
+
+            time.sleep(poll_interval)
+
+        return False
+
 
     def is_running(self) -> bool:
         """
