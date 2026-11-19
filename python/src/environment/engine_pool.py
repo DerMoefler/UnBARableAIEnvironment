@@ -142,8 +142,20 @@ class EngineSessionPool:
 
                 assert slot.state == SessionState.AVAILABLE
                 assert slot.session.is_running()
-                assert slot.session.shared_memory is not None
-                assert slot.session.shared_memory.get_engine_status() == bar_ai.EngineStatus.READY
+                assert slot.session.shared_memories
+
+                for team_id in self._unbarable_ai_team_ids:
+                    shared_memory = (
+                        slot.session.get_shared_memory(
+                            team_id=team_id
+                        )
+                    )
+
+                    assert (
+                        shared_memory.get_engine_status()
+                        == bar_ai.EngineStatus.READY
+                    )
+
 
                 slot.state = SessionState.LEASED
                 logging.info(f"Engine slot {slot_id} has been acquired")
@@ -337,13 +349,48 @@ class EngineSessionPool:
                 startscript_config.training_team_id,
             )
 
+        training_config = config.get(
+            "training"
+        )
+
+        if not isinstance(
+            training_config,
+            Mapping,
+        ):
+            raise ValueError(
+                "Configuration must contain a "
+                "'training' object."
+            )
+
+        if (
+            "number_of_engines"
+            not in training_config
+        ):
+            raise ValueError(
+                "Missing configuration key: "
+                "'training.number_of_engines'."
+            )
+
+
+        pool_size = int(
+            training_config[
+                "number_of_engines"
+            ]
+        )
+
+        if pool_size <= 0:
+            raise ValueError(
+                "'training.number_of_engines' must "
+                "be greater than zero."
+            )
+
         session_factory = EngineSessionFactory(
             startscript_config=startscript_config,
             unbarable_ai_team_ids=unbarable_ai_team_ids,
         )
 
         return cls(
-            pool_size=config["number_of_engines"],
+            pool_size=pool_size,
             session_factory=session_factory,
             unbarable_ai_team_ids=unbarable_ai_team_ids
         )

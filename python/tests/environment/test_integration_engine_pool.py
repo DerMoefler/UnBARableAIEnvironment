@@ -5,10 +5,10 @@ import pytest
 
 from pathlib import Path
 
-from src.environment.engine_session import EngineSession, EngineSessionConfig
+from src.environment.engine_session import EngineSession
 from src.environment.engine_pool import EngineSessionPool, SessionState
-from src.environment.startscript_builder import EngineMode, StartScriptConfig
 from tests.src.helpers import wait_until
+from tests.src.helpers import IntegrationScenario, load_base_config, create_scenario_config, write_config
 
 def process_exists(pid: int) -> bool:
     try:
@@ -25,21 +25,41 @@ def process_exists(pid: int) -> bool:
 def test_pool_starts_publishes_acquires_releases_and_closes_real_engines(tmp_path: Path) -> None:
     created_sessions: dict[int, EngineSession] = {}
 
-    def session_factory(slot_id: int) -> EngineSession:
-        session = EngineSession(
-            cfg=EngineSessionConfig(
-                engine_id=slot_id,
-                startscript_config=StartScriptConfig(
-                    mode=EngineMode.TRAINING,
-                    number_of_agents=3,
-                ),
-            )
-        )
+    pool_size = 4
 
-        created_sessions[slot_id] = session
-        return session
+    scenario = IntegrationScenario(
+        name="engine_pool_normal_3v3",
+        number_of_engines=pool_size,
+    )
 
-    pool = EngineSessionPool(pool_size=4, session_factory=session_factory)
+    base_config = (
+        load_base_config()
+    )
+
+    run_name = (
+        "integration_engine_pool_normal_3v3"
+    )
+
+    config = create_scenario_config(
+        base_config=base_config,
+        scenario=scenario,
+        run_name=run_name,
+    )
+
+    config_path = write_config(
+        config=config,
+        destination=(
+            tmp_path
+            / "engine_pool"
+            / "training_config.json"
+        ),
+    )
+
+    assert config_path.is_file()
+
+    pool = EngineSessionPool.from_config(
+        config
+    )
 
     process_ids: set[int] = set()
 

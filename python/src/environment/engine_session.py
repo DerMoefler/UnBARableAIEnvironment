@@ -199,7 +199,7 @@ class EngineSession:
         Starts the engine process if it is not already running.
 
         After creating the engine process, it starts the gRPC-Server and creates the shared-memory.
-        See _initialize_shm for an explanation on the shm creation.
+        See _initialize_shms for an explanation on the shared-memory creation.
 
         Returns
         -------
@@ -318,25 +318,80 @@ class EngineSession:
             self.shared_memories.clear()
             logger.info("Engine Session stop called, process terminated and streams closed.")
 
-    def wait_for_engine_status(self, expected_status: bar_ai.EngineStatus, timeout: float, poll_interval: float = 0.05) -> bool:
+    def wait_for_engine_status(
+        self,
+        expected_status: bar_ai.EngineStatus,
+        timeout: float,
+        poll_interval: float = 0.05,
+    ) -> bool:
+        """
+        Wait until every UnBARableAI shared memory has reached
+        the expected engine status.
+        """
         if not self.is_running():
-            raise RuntimeError("Cannot wait for engine status if the engine is not running.")
-        assert self.shared_memory is not None
+            raise RuntimeError(
+                "Cannot wait for engine status if the "
+                "engine is not running."
+            )
+
+        if not self.shared_memories:
+            raise RuntimeError(
+                "Cannot wait for engine status because "
+                "no shared memories are initialized."
+            )
 
         deadline = time.monotonic() + timeout
-        last_status = self.shared_memory.get_engine_status()
+
+        last_statuses: Dict[
+            int,
+            bar_ai.EngineStatus,
+        ] = {}
 
         while time.monotonic() < deadline:
-            assert self.is_running(), (
-                f"Engine excisted while waiting for {expected_status}; "
-                f"exit code: {self.exit_code()}"
-            )
-            last_status = self.shared_memory.get_engine_status()
+            if not self.is_running():
+                raise RuntimeError(
+                    "Engine exited while waiting for "
+                    f"{expected_status}; "
+                    f"exit code: {self.exit_code()}"
+                )
 
-            if last_status == expected_status:
+            last_statuses = {
+                team_id: shared_memory.get_engine_status()
+                for team_id, shared_memory
+                in self.shared_memories.items()
+            }
+
+            if all(
+                status == expected_status
+                for status in last_statuses.values()
+            ):
                 return True
 
-            time.sleep(poll_interval)
+            time.sleep(
+                poll_interval
+            )
+
+        logger.error(
+            "Engine %03d did not reach status %s "
+            "for all UnBARableAI teams within %.2f seconds. "
+            "Last statuses: %s",
+            self.cfg.engine_id,
+            getattr(
+                expected_status,
+                "name",
+                str(expected_status),
+            ),
+            timeout,
+            {
+                team_id: getattr(
+                    status,
+                    "name",
+                    str(status),
+                )
+                for team_id, status
+                in last_statuses.items()
+            },
+        )
 
         return False
 
