@@ -1,7 +1,7 @@
 from types import NoneType
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
-from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
+from src.environment.episode_outcome import EpisodeOutcome, RUNNING_STATUSES, TRUNCATED_STATUSES
 from src.environment.reward import RewardCalculator, RewardConfig
 from src.utils.logger_factory import get_file_logger, get_null_logger
 from src.environment.startscript_builder import StartScriptConfig
@@ -493,8 +493,6 @@ class BAR_Environment:
         status: bar_ai.EngineStatus,
     ) -> Optional[EpisodeOutcome]:
         """Evaluate one engine status and update the episode state."""
-
-
         if status in TRUNCATED_STATUSES:
             self.truncated = True
 
@@ -506,7 +504,7 @@ class BAR_Environment:
 
             return None
 
-        if status == bar_ai.EngineStatus.GAME_ENDED:
+        if status == bar_ai.EngineStatus.GAME_WON:
             self.terminated = True
             outcome = EpisodeOutcome.WON
 
@@ -518,10 +516,7 @@ class BAR_Environment:
 
             return outcome
 
-        if status in {
-            bar_ai.EngineStatus.TEAM_DIED,
-            bar_ai.EngineStatus.AI_KILLED,
-        }:
+        if status == bar_ai.EngineStatus.GAME_LOST:
             self.terminated = True
             outcome = EpisodeOutcome.LOST
 
@@ -533,7 +528,7 @@ class BAR_Environment:
 
             return outcome
 
-        if status == bar_ai.EngineStatus.RUNNING:
+        if status in RUNNING_STATUSES:
             self.logger.debug(
                 "episode_outcome=%s engine_status=%s",
                 None,

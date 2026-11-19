@@ -24,12 +24,13 @@ REQUIRED_SHARED_MEMORY_METHODS = (
     "create",
     "open",
     "remove",
-    "write_unit_data",
-    "write_action",
-    "write_engine_status",
-    "read_all_units",
-    "read_all_engine_statuses",
-    "get_own_team_id",
+    "get_name",
+    "clear_units_and_actions",
+    "get_unit_data_ids",
+    "get_action_ids",
+    "update_unit_data",
+    "get_engine_status",
+    "read_all_units"
 )
 
 ACTION_ID_NAMES = (
@@ -41,15 +42,11 @@ ACTION_ID_NAMES = (
 )
 
 ENGINE_STATUS_NAMES = (
-    "UNSPECIFIED_ERROR",
-    "GAME_ENDED",
-    "TEAM_DIED",
-    "AI_KILLED",
-    "AI_CRASHED",
-    "AI_FAILED_TO_INIT",
-    "CONNECTION_LOST",
-    "OTHER_REASON_ERROR",
+    "STARTING",
+    "READY",
     "RUNNING",
+    "GAME_WON",
+    "GAME_LOST",
 )
 
 
@@ -213,14 +210,15 @@ def test_units(
 @pytest.fixture
 def populated_shared_memory(test_units, action):
     """
-    Erstellt ein Shared Memory und befüllt es in dieser Reihenfolge:
-
-    0. Friendly Agent
-    1. Friendly Unit
-    2. Enemy 1
-    3. Enemy 2
-    4. Action
-    5. EngineStatus.RUNNING
+    Creates a shared memory with:
+    0. EngineStatus = RUNNING
+    1. GrpcConnection with port 12345
+    2. Friendly Agent
+    3. Friendly Unit
+    4. Enemy 1
+    5. Enemy 2
+    6. Action
+    7. Action [= None]
 
     Die erste Unit bestimmt die eigene Team-ID.
     """
@@ -239,23 +237,23 @@ def populated_shared_memory(test_units, action):
 
     try:
         shared_memory = bar_ai.SharedMemory.create(
-            shared_memory_name
+            shared_memory_name,
+            status=bar_ai.EngineStatus.RUNNING,
+            connection=bar_ai.GrpcConnection(12345),
+            initial_num_ally_units=2,
+            initial_num_enemy_units=2,
         )
 
-        serializable_ids = [
-            shared_memory.write_unit_data(unit)
-            for unit in test_units
-        ]
+        unit_serializable_ids = shared_memory.get_unit_data_ids()
 
-        serializable_ids.append(
-            shared_memory.write_action(action)
-        )
+        for serializable_id, unit in zip(unit_serializable_ids, test_units, strict=True):
+            shared_memory.update_unit_data(serializable_id, unit)
 
-        serializable_ids.append(
-            shared_memory.write_engine_status(
-                bar_ai.EngineStatus.RUNNING
-            )
-        )
+        action_serializable_ids = shared_memory.get_action_ids()
+
+        shared_memory.update_action(action_serializable_ids[0], action)
+
+        serializable_ids = [0, 1, *unit_serializable_ids, *action_serializable_ids]
 
         yield {
             "name": shared_memory_name,
@@ -350,9 +348,9 @@ def test_engine_status_member_exists(engine_status_name):
 
 def test_engine_status_values_are_distinct():
     running = bar_ai.EngineStatus.RUNNING
-    game_ended = bar_ai.EngineStatus.GAME_ENDED
+    game_won = bar_ai.EngineStatus.GAME_WON
 
-    assert running != game_ended
+    assert running != game_won
 
 
 # ---------------------------------------------------------------------------
@@ -470,9 +468,9 @@ def test_serializable_ids_follow_write_order(
         populated_shared_memory["serializable_ids"]
     )
 
-    assert serializable_ids == [0, 1, 2, 3, 4, 5], (
+    assert serializable_ids == [0, 1, 2, 3, 4, 5, 6, 7], (
         "Unerwartete Serializable-ID-Reihenfolge. "
-        "Erwartet [0, 1, 2, 3, 4, 5], "
+        "Erwartet [0, 1, 2, 3, 4, 5, 6, 7], "
         f"erhalten {serializable_ids!r}"
     )
 
@@ -610,53 +608,39 @@ def test_units_can_be_divided_into_friendly_and_enemy(
 # EngineStatus-Lesetests
 # ---------------------------------------------------------------------------
 
-def test_read_all_engine_statuses_returns_list(
+def test_get_engine_status(
     populated_shared_memory,
 ):
     shared_memory = populated_shared_memory["memory"]
 
-    statuses = shared_memory.read_all_engine_statuses()
+    status = shared_memory.get_engine_status()
 
-    assert isinstance(statuses, list), (
-        "read_all_engine_statuses() sollte eine "
-        "Python-Liste liefern, erhalten: "
-        f"{type(statuses).__name__}"
+    assert isinstance(status, bar_ai.EngineStatus), (
+        "read_all_engine_statuses() should be an EngineStatus, got: "
+        f"{type(status).__name__}"
     )
-
 
 def test_read_all_engine_statuses_returns_only_statuses(
     populated_shared_memory,
 ):
-    shared_memory = populated_shared_memory["memory"]
+    shared_memory: bar_ai.SharedMemory = populated_shared_memory["memory"]
 
-    statuses = shared_memory.read_all_engine_statuses()
+    status = shared_memory.get_engine_status()
 
-    assert statuses == [bar_ai.EngineStatus.RUNNING]
-
-    assert all(
-        isinstance(status, bar_ai.EngineStatus)
-        for status in statuses
-    )
+    assert status == bar_ai.EngineStatus.RUNNING
 
 
 def test_read_methods_filter_serialized_types(
     populated_shared_memory,
 ):
-    shared_memory = populated_shared_memory["memory"]
+    shared_memory: bar_ai.SharedMemory = populated_shared_memory["memory"]
 
     units = shared_memory.read_all_units()
-    statuses = shared_memory.read_all_engine_statuses()
 
     assert len(units) == 4, (
         "Action oder EngineStatus wurde fälschlich "
         "als UnitData gelesen"
     )
-
-    assert len(statuses) == 1, (
-        "UnitData oder Action wurde fälschlich "
-        "als EngineStatus gelesen"
-    )
-
 
 # ---------------------------------------------------------------------------
 # Shared Memory erneut öffnen
@@ -714,10 +698,6 @@ def test_opened_shared_memory_contains_engine_status(
         shared_memory_name
     )
 
-    reopened_statuses = (
-        opened_shared_memory.read_all_engine_statuses()
-    )
+    engine_status = opened_shared_memory.get_engine_status()
 
-    assert reopened_statuses == [
-        bar_ai.EngineStatus.RUNNING
-    ]
+    assert engine_status == bar_ai.EngineStatus.RUNNING
