@@ -1,4 +1,4 @@
-from types import NoneType
+from collections.abc import Mapping
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.episode_outcome import EpisodeOutcome, RUNNING_STATUSES, TRUNCATED_STATUSES
@@ -25,63 +25,54 @@ class BAR_Environment:
         self,
         *,
         max_episode_steps: int = 512,
-        reward_calculator: Optional[RewardCalculator] = None,
-        config_path: Optional[Path] = None,
-        environment_id: Optional[int] = 0
+        reward_config: Optional[RewardConfig] = None,
+        startscript_config: Optional[StartScriptConfig] = None,
+        run_name: Optional[str] = None,
+        environment_id: int = 0,
     ):
-        self.session: Optional[EngineSession] = None  #TODO: later handled by engine pool
+        if max_episode_steps <= 0:
+            raise ValueError(
+                "max_episode_steps must be greater than 0."
+            )
 
-        logger_name = f"environment{environment_id}"
-        reward_config = RewardConfig()
+        self.session: Optional[EngineSession] = None
 
-        if config_path is not None:
-            with open(config_path, "r") as config_data:
-                self.data = json.load(config_data)
+        logger_name = (
+            f"environment{environment_id}"
+        )
 
-            run_name = self.data["run_name"]
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if run_name is not None:
+            timestamp = datetime.now().strftime(
+                "%Y-%m-%d_%H-%M-%S"
+            )
 
             self.logger = get_file_logger(
                 logger_name,
                 Path(
                     f"src/train/experiments/{run_name}/"
-                    f"{run_name}_environment{environment_id}_{timestamp}.log"
-                )
+                    f"{run_name}_environment"
+                    f"{environment_id}_{timestamp}.log"
+                ),
             )
-
-            reward_data = self.data.get("reward")
-
-            if reward_data is None:
-                self.logger.warning(
-                    "No reward configuration found. Using default values: %s",
-                    reward_config,
-                )
-            elif not isinstance(reward_data, dict):
-                self.logger.warning(
-                    "Invalid reward configuration. Expected a dictionary, got %s. "
-                    "Using default values: %s",
-                    type(reward_data).__name__,
-                    reward_config,
-                )
-            else:
-                try:
-                    reward_config = RewardConfig(**reward_data)
-                except TypeError as exc:
-                    raise ValueError(
-                        f"Invalid reward configuration in startconfig.json: {exc}"
-                    ) from exc
-            
-            self.logger.info(
-                "[REWARD CONFIG] Environment %s | Loaded values: %s",
-                environment_id,
-                reward_config,
-            )
-
-            startscript_config = StartScriptConfig.from_config(self.data)  #TODO: later handled by engine pool
-
         else:
-            self.logger = get_null_logger(logger_name)
-            startscript_config = StartScriptConfig()  #TODO: later handled by engine pool
+            self.logger = get_null_logger(
+                logger_name
+            )
+
+        if reward_config is None:
+            reward_config = RewardConfig()
+
+        if startscript_config is None:
+            startscript_config = (
+                StartScriptConfig() #TODO: later handled by engine pool
+            )
+
+        self.logger.info(
+            "[REWARD CONFIG] Environment %s | "
+            "Loaded values: %s",
+            environment_id,
+            reward_config,
+        )
 
         if startscript_config.self_play: #TODO: later handled by engine pool
             self.unbarable_ai_team_ids = (
@@ -94,12 +85,9 @@ class BAR_Environment:
             )
 
         self.session_cfg = EngineSessionConfig(engine_id=0, startscript_config=(startscript_config), unbarable_ai_team_ids=self.unbarable_ai_team_ids) #TODO: later handled by engine pool
-        # Episode tracking
-        # max_episode_steps begrenzt, wie viele RL-Steps eine Episode maximal laufen darf.
-        # Wird dieses Limit erreicht, ist die Episode truncated.
+
         self.max_episode_steps = max_episode_steps
 
-        # Zähler für aktuelle Episode
         self.episode_step = 0
 
         self.current_team_id = self.unbarable_ai_team_ids[0]
@@ -120,6 +108,142 @@ class BAR_Environment:
 
         self.terminated = False
         self.truncated = False
+
+    @classmethod
+    def from_config(
+        cls,
+        config_path: Path,
+        *,
+        environment_id: int = 0,
+    ) -> "BAR_Environment":
+        """
+        Create a BAR environment from the central JSON
+        configuration.
+
+        Parameters
+        ----------
+        config_path : Path
+            Path to the central training configuration.
+        environment_id : int
+            Identifier used for the engine session and
+            environment log file.
+        """
+        config_path = Path(
+            config_path
+        ).expanduser().resolve()
+
+        if not config_path.is_file():
+            raise FileNotFoundError(
+                "Environment configuration not found: "
+                f"{config_path}"
+            )
+
+        with config_path.open(
+            "r",
+            encoding="utf-8",
+        ) as config_file:
+            config = json.load(
+                config_file
+            )
+
+        if not isinstance(
+            config,
+            Mapping,
+        ):
+            raise ValueError(
+                "Environment configuration must "
+                "be a JSON object."
+            )
+
+        run_name = config.get(
+            "run_name"
+        )
+
+        if (
+            not isinstance(run_name, str)
+            or not run_name.strip()
+        ):
+            raise ValueError(
+                "'run_name' must be a non-empty string."
+            )
+
+        training_config = config.get(
+            "training"
+        )
+
+        if not isinstance(
+            training_config,
+            Mapping,
+        ):
+            raise ValueError(
+                "Configuration must contain a "
+                "'training' JSON object."
+            )
+
+        if (
+            "maximum_steps"
+            not in training_config
+        ):
+            raise ValueError(
+                "Missing configuration key: "
+                "'training.maximum_steps'."
+            )
+
+        max_episode_steps = int(
+            training_config[
+                "maximum_steps"
+            ]
+        )
+
+        if max_episode_steps <= 0:
+            raise ValueError(
+                "'training.maximum_steps' must "
+                "be greater than 0."
+            )
+
+        reward_data = config.get(
+            "reward"
+        )
+
+        if reward_data is None:
+            reward_config = RewardConfig()
+
+        elif not isinstance(
+            reward_data,
+            Mapping,
+        ):
+            raise ValueError(
+                "'reward' must be a JSON object."
+            )
+
+        else:
+            try:
+                reward_config = RewardConfig(
+                    **dict(reward_data)
+                )
+            except TypeError as exc:
+                raise ValueError(
+                    "Invalid reward configuration: "
+                    f"{exc}"
+                ) from exc
+
+        startscript_config = (
+            StartScriptConfig.from_config(
+                config
+            )
+        )
+
+        return cls(
+            max_episode_steps=(
+                max_episode_steps
+            ),
+            reward_config=reward_config,
+            startscript_config=(
+                startscript_config
+            ),
+            run_name=run_name,
+            environment_id=environment_id,
+        )
 
 
     def reset(
