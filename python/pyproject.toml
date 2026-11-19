@@ -12,6 +12,7 @@ dependencies = [
     "pytest>=8.0",
     "torch>=2.12.0",
     "pyright>=1.1.414",
+    "pytest-timeout>=2.4.0",
 ]
 
 [tool.pytest.ini_options]

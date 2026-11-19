@@ -5,7 +5,8 @@
     "pythonVersion": "3.12",
     "typeCheckingMode": "standard",
     "include": [
-        "python/src"
+        "python/src",
+        "python/tests"
     ],
     "exclude": [
         "python/.venv",

@@ -1,9 +1,9 @@
 import logging
 import os
-import re
 import signal
 import subprocess
 import threading
+import time
 import uuid
 
 from dataclasses import dataclass, field
@@ -194,7 +194,6 @@ class EngineSession:
             bufsize=1,
         )
 
-
         self._monitor_thread = threading.Thread(
             target=self._monitor_process,
             args=(self.proc,),
@@ -264,6 +263,29 @@ class EngineSession:
                 self.shared_memory = None
             logger.info("Engine Session stop called, process terminated and streams closed.")
 
+    def wait_for_engine_status(self, expected_status: bar_ai.EngineStatus, timeout: float, poll_interval: float = 0.05) -> bool:
+        if not self.is_running():
+            raise RuntimeError("Cannot wait for engine status if the engine is not running.")
+        assert self.shared_memory is not None
+
+        deadline = time.monotonic() + timeout
+        last_status = self.shared_memory.get_engine_status()
+
+        while time.monotonic() < deadline:
+            assert self.is_running(), (
+                f"Engine excisted while waiting for {expected_status}; "
+                f"exit code: {self.exit_code()}"
+            )
+            last_status = self.shared_memory.get_engine_status()
+
+            if last_status == expected_status:
+                return True
+
+            time.sleep(poll_interval)
+
+        return False
+
+
     def is_running(self) -> bool:
         """
         Checks if the engine process is currently running.
@@ -318,7 +340,7 @@ class EngineSession:
 
     def _initialize_shm(self) -> None:
         """
-        Initializes the shared-memory.
+        Initializes the shared-memory with status = RUNNING.
         """
         assert self.grpc_server.port is not None
 
@@ -331,7 +353,7 @@ class EngineSession:
         # TODO change status if enum supports state better
         self.shared_memory = SharedMemory.create(
             name=shared_memory_name,
-            status=bar_ai.EngineStatus.RUNNING,
+            status=bar_ai.EngineStatus.STARTING,
             connection=bar_ai.GrpcConnection(self.grpc_server.port),
             initial_num_ally_units=num_ally_units,
             initial_num_enemy_units=num_enemy_units,

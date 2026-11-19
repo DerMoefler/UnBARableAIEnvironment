@@ -14,6 +14,9 @@ class UnBARableAIClient {
 public:
     using GrpcConnection = UnBARableAINS::GrpcConnection;
 
+    /// \brief Constant used to identify when \ref HandleEventUpdate should wait indefinetely.
+    static constexpr int c_infinite_timeout = -1;
+
     /**
      * @brief Erstellt einen gRPC-Client für den Python-Server.
      *
@@ -29,6 +32,8 @@ public:
      * @param timeout_ms Timeout in Millisekunden für den RPC. (maximale Zeit, die dein Client
      * bereit ist zu warten, bis eine Antwort vom Server kommt)
      * @return true, wenn der RPC erfolgreich war, sonst false.
+     *
+     * Simply pass in \ref c_infinite_timeout if you want to wait indefinetely.
      */
     bool HandleEventUpdate(int timeout_ms = 1000);
 

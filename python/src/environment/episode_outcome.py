@@ -5,16 +5,18 @@ class EpisodeOutcome(Enum):
     WON = "won"
     LOST = "lost"
 
-TERMINATED_STATUSES = {
-    bar_ai.EngineStatus.GAME_ENDED,
-    bar_ai.EngineStatus.TEAM_DIED,
-    bar_ai.EngineStatus.AI_KILLED,
+RUNNING_STATUSES = {
+    bar_ai.EngineStatus.STARTING,
+    bar_ai.EngineStatus.READY,
+    bar_ai.EngineStatus.RUNNING,
 }
 
+TERMINATED_STATUSES = {
+    bar_ai.EngineStatus.GAME_WON,
+    bar_ai.EngineStatus.GAME_LOST,
+}
+
+# TODO currently simply none (I do not believe any were
+# written previously though tbh)
 TRUNCATED_STATUSES = {
-    bar_ai.EngineStatus.UNSPECIFIED_ERROR,
-    bar_ai.EngineStatus.AI_CRASHED,
-    bar_ai.EngineStatus.AI_FAILED_TO_INIT,
-    bar_ai.EngineStatus.CONNECTION_LOST,
-    bar_ai.EngineStatus.OTHER_REASON_ERROR,
 }
