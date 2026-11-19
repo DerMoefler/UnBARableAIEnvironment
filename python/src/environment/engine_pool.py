@@ -150,9 +150,24 @@ class EngineSessionPool:
                 return slot.session
 
     def release(self, session: EngineSession) -> None:
+        """
+        Releases a previously acquired engine.
+
+        This method obviously requires the session to actually have been LEASED. If so,
+        it will put the slot state to RECYCLING and only after that asynchronously call
+        "_recycle_slot" which will wait for the engine to become bar_ai.EngineStatus.READY.
+        This is done to avoid race conditions, because otherwise the engine could be reacquired
+        without having been recycled.
+        """
         with self._lock:
+            if not self._is_running or self._closing:
+                raise RuntimeError("Pool is not running")
+
             slot_id = session.get_engine_id()
-            slot = self._engine_slots[slot_id]
+            try:
+                slot = self._engine_slots[slot_id]
+            except KeyError:
+                raise ValueError("Session does not belong to this pool") from None
 
             if slot.session is not session:
                 raise ValueError(
@@ -165,9 +180,10 @@ class EngineSessionPool:
 
             if not session.is_running():
                 slot.state = SessionState.FAILED
-                logging.exception(f"Released session at slot {slot_id} is no longer running")
+                logging.error(f"Released session at slot {slot_id} is no longer running")
                 return
 
+            slot.state = SessionState.RECYCLING
             self._submit_maintenance(self._recycle_slot, slot_id)
 
     def is_running(self) -> bool:
@@ -202,15 +218,19 @@ class EngineSessionPool:
         self._publish_slot(slot_id)
 
     def _recycle_slot(self, slot_id: int) -> None:
+        """
+        Maintenance-thread operator for recycling an EngineSession at slot_id.
+
+        Requires the engine to be in state RECYCLING before calling to avoid race conditions.
+        """
         with self._lock:
             engine_slot = self._get_slot(slot_id)
 
-            if engine_slot.state != SessionState.LEASED:
+            if engine_slot.state != SessionState.RECYCLING:
                 raise RuntimeError(
-                    "Can only recycle previously LEASED engines. "
+                    "Can only recycle engines already in state RECYLING. "
                     f"Actual state: {engine_slot.state.name}"
                 )
-            engine_slot.state = SessionState.RECYCLING
 
         self._wait_for_ready(slot_id, timeout=20.0)
 
