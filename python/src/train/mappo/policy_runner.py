@@ -116,13 +116,12 @@ class MAPPOPolicyRunner:
         """
         Run actor, target scorer and critic for one prepared step.
         """
-        num_agents = prepared.obs.shape[0]
-
-        
-
-
         self._validate_prepared_step(
             prepared
+        )
+
+        num_agents = int(
+            prepared.obs.shape[0]
         )
 
         obs_tensor = torch.as_tensor(
@@ -174,7 +173,7 @@ class MAPPOPolicyRunner:
         action_array = self._to_numpy(
             actions
         ).reshape(
-            self.num_agents,
+            num_agents,
             2,
         ).astype(
             np.float32,
@@ -185,7 +184,7 @@ class MAPPOPolicyRunner:
             self._to_numpy(
                 action_log_probs
             ).reshape(
-                self.num_agents,
+                num_agents,
                 1,
             ).astype(
                 np.float32,
@@ -221,16 +220,20 @@ class MAPPOPolicyRunner:
         Rows with own_unit_id = -1 belong to dead or missing units and
         are not sent to BAR.
         """
+        num_agents = int(
+            prepared.obs.shape[0]
+        )
         self._validate_prepared_step(
             prepared
         )
         self._validate_policy_step(
-            policy_step
+            policy_step,
+            num_agents=num_agents,
         )
 
         actions: list[bar_ai.Action] = []
 
-        for row in range(self.num_agents):
+        for row in range(num_agents):
             unit_id = int(
                 prepared.own_unit_ids[row]
             )
@@ -826,7 +829,6 @@ class MAPPOPolicyRunner:
         expected_metadata = {
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
-            "num_agents": self.num_agents,
         }
 
         for key, expected_value in (

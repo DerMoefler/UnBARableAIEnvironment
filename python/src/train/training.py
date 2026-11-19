@@ -920,7 +920,6 @@ def main() -> None:
                     )
 
                 adapter = adapters[acting_team_id]
-                buffer = buffers[acting_team_id]
 
                 prepared = prepared_by_team[
                     acting_team_id
@@ -1586,9 +1585,10 @@ def main() -> None:
                 logger.info(
                     "Team %d Train Info: %s",
                     team_id,
-                    train_info_by_team[
-                        team_id
-                    ],
+                    train_info_by_team.get(
+                        team_id,
+                        "no complete transitions",
+                    ),
                 )
 
             logger.info(
