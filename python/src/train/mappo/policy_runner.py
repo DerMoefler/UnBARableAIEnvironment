@@ -51,7 +51,6 @@ class MAPPOPolicyRunner:
         policy: R_MAPPO_Policy,
         *,
         device: torch.device,
-        num_agents: int,
         action_dim: int,
         obs_dim: int,
         target_feature_dim: int,
@@ -59,7 +58,6 @@ class MAPPOPolicyRunner:
         self.policy = policy
         self.device = torch.device(device)
 
-        self.num_agents = int(num_agents)
         self.action_dim = int(action_dim)
         self.obs_dim = int(obs_dim)
         self.target_feature_dim = int(
@@ -75,32 +73,37 @@ class MAPPOPolicyRunner:
         obs_dim: int,
         target_feature_dim: int,
     ) -> MAPPOPolicyRunner:
-        training_config = config.get("training", {})
-        mappo_config = training_config.get("mappo", {})
-
-        num_agents = int(
-            config["number_of_agents"]
+        training_config = config.get(
+            "training",
+            {},
         )
+        mappo_config = training_config.get(
+            "mappo",
+            {},
+        )
+
         action_dim = int(
             config["action_dimension"]
         )
 
-        learing_rate = float(
-            mappo_config.get("learning_rate", 0.0001)
+        learning_rate = float(
+            mappo_config.get(
+                "learning_rate",
+                0.0001,
+            )
         )
 
         policy = R_MAPPO_Policy(
             obs_dim,
             action_dim,
             device=device,
-            lr=learing_rate,
+            lr=learning_rate,
             target_feature_dim=target_feature_dim,
         )
 
         return cls(
             policy=policy,
             device=device,
-            num_agents=num_agents,
             action_dim=action_dim,
             obs_dim=obs_dim,
             target_feature_dim=target_feature_dim,
@@ -113,6 +116,11 @@ class MAPPOPolicyRunner:
         """
         Run actor, target scorer and critic for one prepared step.
         """
+        num_agents = prepared.obs.shape[0]
+
+        
+
+
         self._validate_prepared_step(
             prepared
         )
@@ -186,7 +194,8 @@ class MAPPOPolicyRunner:
         )
 
         value_predictions = self.predict_values(
-            prepared.share_obs
+            prepared.share_obs,
+            num_agents=num_agents,
         )
 
         return PolicyStep(
@@ -304,6 +313,8 @@ class MAPPOPolicyRunner:
     def predict_values(
         self,
         share_obs: np.ndarray,
+        *,
+        num_agents: int,
     ) -> np.ndarray:
         """
         Predict the centralized critic value and repeat it per agent.
@@ -335,7 +346,10 @@ class MAPPOPolicyRunner:
                 share_obs_tensor
             )
 
-        return self._repeat_values(values)
+        return self._repeat_values(
+            values,
+            num_agents=num_agents,
+        )
 
     def load_checkpoint(
         self,
@@ -619,6 +633,8 @@ class MAPPOPolicyRunner:
     def _repeat_values(
         self,
         value_tensor: torch.Tensor,
+        *,
+        num_agents: int,
     ) -> np.ndarray:
         values = (
             value_tensor
@@ -630,25 +646,25 @@ class MAPPOPolicyRunner:
 
         if values.size == 1:
             return np.full(
-                (self.num_agents, 1),
+                (num_agents, 1),
                 float(values[0]),
                 dtype=np.float32,
             )
 
         result = np.zeros(
-            (self.num_agents,),
+            (num_agents,),
             dtype=np.float32,
         )
 
         count = min(
-            self.num_agents,
+            num_agents,
             values.size,
         )
 
         result[:count] = values[:count]
 
         return result.reshape(
-            self.num_agents,
+            num_agents,
             1,
         )
 
@@ -656,36 +672,50 @@ class MAPPOPolicyRunner:
         self,
         prepared: PreparedStep,
     ) -> None:
+        num_agents = int(
+            prepared.obs.shape[0]
+        )
+
+        if num_agents <= 0:
+            raise ValueError(
+                "PreparedStep must contain at least one "
+                "agent slot."
+            )
+
+        num_target_slots = int(
+            prepared.target_ids.shape[1]
+        )
+
         expected_shapes = {
             "obs": (
-                self.num_agents,
+                num_agents,
                 self.obs_dim,
             ),
             "share_obs": (
                 self.obs_dim,
             ),
             "available_actions": (
-                self.num_agents,
+                num_agents,
                 self.action_dim,
             ),
             "own_unit_ids": (
-                self.num_agents,
+                num_agents,
             ),
             "target_ids": (
-                self.num_agents,
-                prepared.target_ids.shape[1],
+                num_agents,
+                num_target_slots,
             ),
             "target_features": (
-                self.num_agents,
-                prepared.target_ids.shape[1],
+                num_agents,
+                num_target_slots,
                 self.target_feature_dim,
             ),
             "target_mask": (
-                self.num_agents,
-                prepared.target_ids.shape[1],
+                num_agents,
+                num_target_slots,
             ),
             "active_mask": (
-                self.num_agents,
+                num_agents,
                 1,
             ),
         }
@@ -703,8 +733,12 @@ class MAPPOPolicyRunner:
             "target_features": (
                 prepared.target_features
             ),
-            "target_mask": prepared.target_mask,
-            "active_mask": prepared.active_mask,
+            "target_mask": (
+                prepared.target_mask
+            ),
+            "active_mask": (
+                prepared.active_mask
+            ),
         }
 
         for name, expected_shape in (
@@ -726,7 +760,7 @@ class MAPPOPolicyRunner:
         ).astype(
             np.float32
         ).reshape(
-            self.num_agents,
+            num_agents,
             1,
         )
 
@@ -742,18 +776,20 @@ class MAPPOPolicyRunner:
     def _validate_policy_step(
         self,
         policy_step: PolicyStep,
+        *,
+        num_agents: int,
     ) -> None:
         expected_shapes = {
             "value_predictions": (
-                self.num_agents,
+                num_agents,
                 1,
             ),
             "actions": (
-                self.num_agents,
+                num_agents,
                 2,
             ),
             "action_log_probs": (
-                self.num_agents,
+                num_agents,
                 1,
             ),
         }

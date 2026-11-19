@@ -54,6 +54,13 @@ SCENARIOS = (
         number_of_enemies=2,
         expected_train_calls=1,
     ),
+        TrainingScenario(
+        name="selfplay_3v5",
+        self_play=True,
+        number_of_agents=3,
+        number_of_enemies=5,
+        expected_train_calls=2,
+    ),
 )
 
 

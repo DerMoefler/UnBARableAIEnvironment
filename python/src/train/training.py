@@ -299,9 +299,6 @@ def _save_checkpoint(
         "action_dim": int(
             adapter.action_dim
         ),
-        "num_agents": int(
-            adapter.num_agents
-        ),
         "max_enemy_slots": int(
             adapter.max_enemy_slots
         ),
@@ -481,37 +478,38 @@ def main() -> None:
         # Observation adapters and policy
         # ---------------------------------------------------------------
 
+        reference_team_id = unbarable_ai_team_ids[0]
+
+        number_of_agents = int(
+            config["number_of_agents"]
+        )
+
+        number_of_enemies = int(
+            config["number_of_enemies"]
+        )
+
+        shared_max_enemy_slots = max(
+            number_of_agents,
+            number_of_enemies,
+        )
+
         adapters: dict[
             int,
             RMAPPOObservationAdapter,
         ] = {}
 
-        reference_team_id = (
-            unbarable_ai_team_ids[0]
-        )
-
         for team_id in unbarable_ai_team_ids:
             if team_id == reference_team_id:
-                num_agents = int(
-                    config["number_of_agents"]
-                )
-                max_enemy_slots = int(
-                    config["number_of_enemies"]
-                )
+                num_agents = number_of_agents
             else:
-                num_agents = int(
-                    config["number_of_enemies"]
-                )
-                max_enemy_slots = int(
-                    config["number_of_agents"]
-                )
+                num_agents = number_of_enemies
 
             adapters[team_id] = (
                 RMAPPOObservationAdapter.from_config(
                     config,
                     team_id=team_id,
                     num_agents=num_agents,
-                    max_enemy_slots=max_enemy_slots,
+                    max_enemy_slots=shared_max_enemy_slots,
                 )
             )
 
@@ -521,18 +519,6 @@ def main() -> None:
         ]
 
         for team_id, adapter in adapters.items():
-            if (
-                adapter.num_agents
-                != reference_adapter.num_agents
-            ):
-                raise ValueError(
-                    "All UnBARableAI teams must use "
-                    "the same number of agents: "
-                    f"team_id={team_id}, "
-                    f"num_agents={adapter.num_agents}, "
-                    f"expected="
-                    f"{reference_adapter.num_agents}."
-                )
 
             if (
                 adapter.obs_dim
@@ -577,10 +563,12 @@ def main() -> None:
         runner = MAPPOPolicyRunner.from_config(
             config,
             device,
-            obs_dim=reference_adapter.obs_dim,
-            target_feature_dim=(
-                reference_adapter.target_feature_dim
-            ),
+            obs_dim=adapters[
+                reference_team_id
+            ].obs_dim,
+            target_feature_dim=adapters[
+                reference_team_id
+            ].target_feature_dim,
         )
 
         policy = runner.policy
@@ -599,8 +587,8 @@ def main() -> None:
 
         logger.info(
             "Created policy runner: "
-            "agents=%d actions=%d",
-            reference_adapter.num_agents,
+            "obs_dim=%d actions=%d",
+            reference_adapter.obs_dim,
             reference_adapter.action_dim,
         )
 
@@ -766,10 +754,6 @@ def main() -> None:
                     f"available_team_ids={sorted(adapters)}."
                 )
 
-            # Jeder Adapter hat eigenen zustandsbehafteten Unit-Slot-Speicher.
-            for adapter in adapters.values():
-                adapter.reset_episode({})
-
             current_adapter = adapters[current_team_id]
             current_adapter.reset_episode(obs_raw)
 
@@ -777,6 +761,14 @@ def main() -> None:
                 current_team_id: current_adapter.prepare(
                     obs_raw=obs_raw,
                 )
+            }
+
+            pending_transitions: dict[
+                int,
+                dict[str, Any] | None,
+            ] = {
+                team_id: None
+                for team_id in unbarable_ai_team_ids
             }
 
             logger.debug(
@@ -888,14 +880,20 @@ def main() -> None:
                 current_team_id
             }
 
+            maximum_turns = (
+                maximum_steps
+                * len(unbarable_ai_team_ids)
+            )
+
             while not done:
-                if step_count > maximum_steps + 1:
+                if step_count > maximum_turns + 1:
                     raise RuntimeError(
-                        "Environment exceeded maximum_steps without returning "
-                        "terminated=True or truncated=True: "
+                        "Environment exceeded the expected number "
+                        "of player turns without terminating or truncating: "
                         f"episode={episode_number}, "
-                        f"step_count={step_count}, "
-                        f"maximum_steps={maximum_steps}."
+                        f"player_turns={step_count}, "
+                        f"maximum_turns={maximum_turns}, "
+                        f"maximum_episode_steps={maximum_steps}."
                     )
 
                 if "current_team_id" not in step_info:
@@ -994,6 +992,31 @@ def main() -> None:
                             adapter.action_dim - 1,
                         )
 
+                if (
+                    pending_transitions[
+                        acting_team_id
+                    ]
+                    is not None
+                ):
+                    raise RuntimeError(
+                        "A pending transition already exists "
+                        "for the acting team: "
+                        f"team_id={acting_team_id}."
+                    )
+
+                pending_transitions[
+                    acting_team_id
+                ] = {
+                    "prepared": prepared,
+                    "policy_step": policy_step,
+                    "rnn_states": (
+                        rnn_states.copy()
+                    ),
+                    "rnn_states_critic": (
+                        rnn_states_critic.copy()
+                    ),
+                }
+
                 # -------------------------------------------------------
                 # Convert policy output to BAR actions
                 # -------------------------------------------------------
@@ -1061,6 +1084,146 @@ def main() -> None:
                         f"received={next_step_info['acting_team_id']}."
                     )
 
+                reward_team_id = int(
+                    next_step_info["reward_team_id"]
+                )
+
+                if reward_team_id not in adapters:
+                    raise RuntimeError(
+                        "Environment returned a reward for an unknown team: "
+                        f"reward_team_id={reward_team_id}, "
+                        f"available_team_ids={sorted(adapters)}."
+                    )
+
+                reward_adapter = adapters[
+                    reward_team_id
+                ]
+
+                if reward_team_id not in initialized_teams:
+                    reward_adapter.reset_episode(
+                        next_obs_raw
+                    )
+
+                    initialized_teams.add(
+                        reward_team_id
+                    )
+
+                    logger.debug(
+                        "Episode %d initialized team=%d "
+                        "stable unit slots=%s",
+                        episode_number,
+                        reward_team_id,
+                        reward_adapter.agent_unit_ids,
+                    )
+
+                next_prepared = reward_adapter.prepare(
+                    obs_raw=next_obs_raw,
+                )
+
+                prepared_by_team[
+                    reward_team_id
+                ] = next_prepared
+
+                returned_current_team_id = int(
+                    next_step_info["current_team_id"]
+                )
+
+                if returned_current_team_id != reward_team_id:
+                    raise RuntimeError(
+                        "Environment returned inconsistent team IDs: "
+                        f"current_team_id={returned_current_team_id}, "
+                        f"reward_team_id={reward_team_id}."
+                    )
+
+
+                pending = pending_transitions[
+                    reward_team_id
+                ]
+
+                if pending is not None:
+                    reward_array = (
+                        reward_adapter.prepare_reward(
+                            reward
+                        )
+                    )
+
+                    masks = np.ones(
+                        (
+                            reward_adapter.num_agents,
+                            1,
+                        ),
+                        dtype=np.float32,
+                    )
+
+                    if terminated:
+                        masks[:] = 0.0
+
+                    buffers[
+                        reward_team_id
+                    ].insert(
+                        share_obs=(
+                            pending["prepared"].share_obs
+                        ),
+                        obs=(
+                            pending["prepared"].obs
+                        ),
+                        rnn_states=(
+                            pending["rnn_states"]
+                        ),
+                        rnn_states_critic=(
+                            pending["rnn_states_critic"]
+                        ),
+                        actions=(
+                            pending["policy_step"].actions
+                        ),
+                        action_log_probs=(
+                            pending[
+                                "policy_step"
+                            ].action_log_probs
+                        ),
+                        value_preds=(
+                            pending[
+                                "policy_step"
+                            ].value_predictions
+                        ),
+                        rewards=reward_array,
+                        masks=masks,
+                        active_masks=(
+                            pending[
+                                "prepared"
+                            ].active_mask.copy()
+                        ),
+                        available_actions=(
+                            pending[
+                                "prepared"
+                            ].available_actions
+                        ),
+                        candidate_target_features=(
+                            pending[
+                                "prepared"
+                            ].target_features
+                        ),
+                        candidate_target_mask=(
+                            pending[
+                                "prepared"
+                            ].target_mask
+                        ),
+                    )
+
+                    step_reward = float(
+                        reward_array.mean()
+                    )
+
+                    episode_reward += step_reward
+
+                    episode_rewards_by_team[
+                        reward_team_id
+                    ] += step_reward
+
+                    pending_transitions[
+                        reward_team_id
+                    ] = None
+
                 done = bool(
                     terminated or truncated
                 )
@@ -1068,109 +1231,44 @@ def main() -> None:
                 final_step_info = next_step_info
 
                 # -------------------------------------------------------
-                # Episode metrics for the acting team
+                # Episode metrics for the reward/current team
                 # -------------------------------------------------------
 
                 metrics = _episode_metrics(
                     next_step_info
                 )
 
-                episode_won_by_team[acting_team_id] = (
-                    episode_won_by_team[acting_team_id]
+                episode_won_by_team[reward_team_id] = (
+                    episode_won_by_team[reward_team_id]
                     or metrics["won"]
                 )
 
-                episode_lost_by_team[acting_team_id] = (
-                    episode_lost_by_team[acting_team_id]
+                episode_lost_by_team[reward_team_id] = (
+                    episode_lost_by_team[reward_team_id]
                     or metrics["lost"]
                 )
 
                 if metrics["own_alive_count"] is not None:
                     final_ally_alive_by_team[
-                        acting_team_id
+                        reward_team_id
                     ] = metrics["own_alive_count"]
 
                 if metrics["enemy_alive_count"] is not None:
                     final_enemy_alive_by_team[
-                        acting_team_id
+                        reward_team_id
                     ] = metrics["enemy_alive_count"]
 
                 enemy_damage_done_by_team[
-                    acting_team_id
+                    reward_team_id
                 ] += metrics["enemy_damage_done"]
 
                 own_damage_taken_by_team[
-                    acting_team_id
+                    reward_team_id
                 ] += metrics["own_damage_taken"]
 
                 last_info_keys = metrics[
                     "info_keys"
                 ]
-
-                # -------------------------------------------------------
-                # Reward and masks for the acting team
-                # -------------------------------------------------------
-
-                reward_array = adapter.prepare_reward(
-                    reward
-                )
-
-                masks = np.ones(
-                    (
-                        adapter.num_agents,
-                        1,
-                    ),
-                    dtype=np.float32,
-                )
-
-                if terminated:
-                    masks[:] = 0.0
-
-                active_masks = (
-                    prepared.active_mask.copy()
-                )
-
-                # -------------------------------------------------------
-                # Store transition in the acting team's buffer
-                # -------------------------------------------------------
-
-                buffer.insert(
-                    share_obs=prepared.share_obs,
-                    obs=prepared.obs,
-                    rnn_states=rnn_states,
-                    rnn_states_critic=(
-                        rnn_states_critic
-                    ),
-                    actions=policy_step.actions,
-                    action_log_probs=(
-                        policy_step.action_log_probs
-                    ),
-                    value_preds=(
-                        policy_step.value_predictions
-                    ),
-                    rewards=reward_array,
-                    masks=masks,
-                    active_masks=active_masks,
-                    available_actions=(
-                        prepared.available_actions
-                    ),
-                    candidate_target_features=(
-                        prepared.target_features
-                    ),
-                    candidate_target_mask=(
-                        prepared.target_mask
-                    ),
-                )
-
-                step_reward = float(
-                    reward_array.mean()
-                )
-
-                episode_reward += step_reward
-
-                episode_rewards_by_team[
-                    acting_team_id
-                ] += step_reward
 
                 step_count += 1
 
@@ -1192,54 +1290,40 @@ def main() -> None:
                     break
 
                 # -------------------------------------------------------
-                # Prepare observation for the next acting team
+                # Continue with the next acting team
                 # -------------------------------------------------------
 
-                if "current_team_id" not in next_step_info:
-                    raise KeyError(
-                        "BAR_Environment.step() info does not contain "
-                        "'current_team_id'."
-                    )
-
-                next_team_id = int(
-                    next_step_info["current_team_id"]
-                )
-
-                if next_team_id not in adapters:
-                    raise ValueError(
-                        "Environment returned an unknown next team: "
-                        f"next_team_id={next_team_id}, "
-                        f"available_team_ids={sorted(adapters)}."
-                    )
-
-                next_adapter = adapters[
-                    next_team_id
-                ]
-
-                if next_team_id not in initialized_teams:
-                    next_adapter.reset_episode(
-                        next_obs_raw
-                    )
-
-                    initialized_teams.add(
-                        next_team_id
-                    )
-
-                    logger.debug(
-                        "Episode %d initialized team=%d "
-                        "stable unit slots=%s",
-                        episode_number,
-                        next_team_id,
-                        next_adapter.agent_unit_ids,
-                    )
-
-                prepared_by_team[next_team_id] = (
-                    next_adapter.prepare(
-                        obs_raw=next_obs_raw,
-                    )
-                )
-
                 step_info = next_step_info
+
+
+
+            non_empty_team_ids = [
+                team_id
+                for team_id in unbarable_ai_team_ids
+                if buffers[team_id].step > 0
+            ]
+
+            if not non_empty_team_ids:
+                raise RuntimeError(
+                    f"Episode {episode_number} produced "
+                    "no complete transitions."
+                )
+
+            unresolved_team_ids = [
+                team_id
+                for team_id, pending
+                in pending_transitions.items()
+                if pending is not None
+            ]
+
+            if unresolved_team_ids:
+                logger.warning(
+                    "Episode %d ended with unresolved pending "
+                    "transitions for teams %s. These transitions "
+                    "will not be added to the rollout buffers.",
+                    episode_number,
+                    unresolved_team_ids,
+                )
 
             # -----------------------------------------------------------
             # Validate episode end
@@ -1284,7 +1368,7 @@ def main() -> None:
             # Bootstrap and returns
             # -----------------------------------------------------------
 
-            for team_id in unbarable_ai_team_ids:
+            for team_id in non_empty_team_ids:
                 adapter = adapters[team_id]
                 buffer = buffers[team_id]
 
@@ -1311,7 +1395,8 @@ def main() -> None:
                         runner.predict_values(
                             prepared_by_team[
                                 team_id
-                            ].share_obs
+                            ].share_obs,
+                            num_agents=adapter.num_agents,
                         )
                     )
 
@@ -1334,7 +1419,7 @@ def main() -> None:
                 dict[str, Any],
             ] = {}
 
-            for team_id in unbarable_ai_team_ids:
+            for team_id in non_empty_team_ids:
                 train_info_by_team[
                     team_id
                 ] = trainer.train(
@@ -1348,6 +1433,10 @@ def main() -> None:
                     )
 
                 buffers[team_id].reset()
+
+            for team_id in unbarable_ai_team_ids:
+                if team_id not in non_empty_team_ids:
+                    buffers[team_id].reset()
 
             # Ein gemeinsamer Logging-Wert als Mittelwert
             # über alle trainierten Teams.
