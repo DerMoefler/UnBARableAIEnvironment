@@ -115,18 +115,13 @@ class BAR_Environment:
         config_path: Path,
         *,
         environment_id: int = 0,
+        max_episode_steps: int | None = None,
     ) -> "BAR_Environment":
         """
-        Create a BAR environment from the central JSON
-        configuration.
+        Create a BAR environment from the central JSON configuration.
 
-        Parameters
-        ----------
-        config_path : Path
-            Path to the central training configuration.
-        environment_id : int
-            Identifier used for the engine session and
-            environment log file.
+        An explicitly supplied max_episode_steps overrides
+        training.maximum_steps from the configuration.
         """
         config_path = Path(
             config_path
@@ -167,38 +162,62 @@ class BAR_Environment:
                 "'run_name' must be a non-empty string."
             )
 
-        training_config = config.get(
-            "training"
-        )
-
-        if not isinstance(
-            training_config,
-            Mapping,
-        ):
-            raise ValueError(
-                "Configuration must contain a "
-                "'training' JSON object."
+        if max_episode_steps is None:
+            training_config = config.get(
+                "training"
             )
-
-        if (
-            "maximum_steps"
-            not in training_config
-        ):
-            raise ValueError(
-                "Missing configuration key: "
-                "'training.maximum_steps'."
-            )
-
-        max_episode_steps = int(
-            training_config[
+    
+            if not isinstance(
+                training_config,
+                Mapping,
+            ):
+                raise ValueError(
+                    "Configuration must contain a "
+                    "'training' JSON object."
+                )
+            
+            if (
                 "maximum_steps"
-            ]
-        )
+                not in training_config
+            ):
+                raise ValueError(
+                    "Missing configuration key: "
+                    "'training.maximum_steps'."
+                )
 
-        if max_episode_steps <= 0:
+            try:
+                resolved_max_episode_steps = int(
+                    training_config[
+                        "maximum_steps"
+                    ]
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "'training.maximum_steps' must "
+                    "be an integer."
+                ) from exc
+        else:
+            if (
+                not isinstance(
+                    max_episode_steps,
+                    int,
+                )
+                or isinstance(
+                    max_episode_steps,
+                    bool,
+                )
+            ):
+                raise ValueError(
+                    "max_episode_steps must be an integer."
+                )
+
+            resolved_max_episode_steps = (
+                max_episode_steps
+            )
+
+        if resolved_max_episode_steps <= 0:
             raise ValueError(
-                "'training.maximum_steps' must "
-                "be greater than 0."
+                "max_episode_steps must be greater than 0."
             )
 
         reward_data = config.get(
@@ -235,7 +254,7 @@ class BAR_Environment:
 
         return cls(
             max_episode_steps=(
-                max_episode_steps
+                resolved_max_episode_steps
             ),
             reward_config=reward_config,
             startscript_config=(
@@ -275,7 +294,7 @@ class BAR_Environment:
 
         self.session.wait_for_next_update(
             team_id=self.current_team_id,
-            timeout=30.0,
+            timeout=60.0,
         )
 
         snapshot = self._read_engine_snapshot(

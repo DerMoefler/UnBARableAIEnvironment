@@ -4,8 +4,7 @@
     "model_name"            : "r_mappo_latest.pt",
 
     "number_of_agents"      : 3,
-    "number_of_enemies"     : 3,
-    "training_team_id"      : 0,
+    "number_of_enemies"     : 20,
     "action_dimension"      : 5,
 
     "adapter": {
