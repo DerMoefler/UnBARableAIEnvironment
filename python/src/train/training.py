@@ -149,6 +149,95 @@ def _combine_rollout_buffers(
                     if source.candidate_target_mask is None
                     else source.candidate_target_mask[source_step]
                 ),
+# ---------------------------------------------------------------------------
+# Creating Adapters, rn just mappo specific
+# ---------------------------------------------------------------------------
+
+def create_mappo_adapters(number_of_environments: int, data):
+    adapters: list[RMAPPOObservationAdapter] = []
+    for i in range(number_of_environments):
+        adapters.append(RMAPPOObservationAdapter.from_config(data))
+
+        logger.info(
+                    "Created observation adapter: %s"
+                    "obs_dim=%d target_feature_dim=%d "
+                    "max_enemy_slots=%d",
+                    i,
+                    adapters[i].obs_dim,
+                    adapters[i].target_feature_dim,
+                    adapters[i].max_enemy_slots,
+                )
+
+    return adapters
+
+
+def _combine_rollout_buffers(
+    buffers: list[RolloutBuffer],
+    *,
+    device: torch.device,
+) -> RolloutBuffer:
+    populated_buffers = [
+        buffer
+        for buffer in buffers
+        if buffer.step > 0
+    ]
+    if not populated_buffers:
+        raise RuntimeError(
+            "Cannot combine empty environment rollout buffers."
+        )
+
+    template = populated_buffers[0]
+    for buffer in populated_buffers[1:]:
+        if (
+            buffer.num_agents != template.num_agents
+            or buffer.share_obs.shape[1:] != template.share_obs.shape[1:]
+            or buffer.obs.shape[2:] != template.obs.shape[2:]
+            or buffer.actions.shape[2:] != template.actions.shape[2:]
+            or buffer.action_dim != template.action_dim
+        ):
+            raise ValueError(
+                "Environment rollout buffers have incompatible shapes."
+            )
+
+    combined = RolloutBuffer(
+        num_agents=template.num_agents,
+        obs_shape=template.share_obs.shape[1:],
+        action_shape=template.actions.shape[2:],
+        buffer_size=sum(buffer.step for buffer in populated_buffers),
+        device=device,
+        action_dim=template.action_dim,
+    )
+
+    for source in populated_buffers:
+        for source_step in range(source.step):
+            combined.insert(
+                share_obs=source.share_obs[source_step],
+                obs=source.obs[source_step],
+                rnn_states=source.rnn_states[source_step],
+                rnn_states_critic=(
+                    source.rnn_states_critic[source_step]
+                ),
+                actions=source.actions[source_step],
+                action_log_probs=(
+                    source.action_log_probs[source_step]
+                ),
+                value_preds=source.value_preds[source_step],
+                rewards=source.rewards[source_step],
+                masks=source.masks[source_step + 1],
+                active_masks=source.active_masks[source_step + 1],
+                available_actions=(
+                    source.available_actions[source_step]
+                ),
+                candidate_target_features=(
+                    None
+                    if source.candidate_target_features is None
+                    else source.candidate_target_features[source_step]
+                ),
+                candidate_target_mask=(
+                    None
+                    if source.candidate_target_mask is None
+                    else source.candidate_target_mask[source_step]
+                ),
             )
             combined_step = combined.step - 1
             combined.value_preds[combined_step] = (
@@ -542,31 +631,47 @@ def main(
     )
 
     try:
-
-              # ---------------------------------------------------------------
-        # Environment pool
-        # ---------------------------------------------------------------
-
-        logger.info(
-            "Creating EnvironmentPool"
-        )
+        logger.info("Creating EnvironmentPool")
 
         pool.initialize_environements()
 
         if not pool.environments:
-            raise RuntimeError(
-                "EnvironmentPool contains "
-                "no environments."
-            )
+            raise RuntimeError("EnvironmentPool contains no environments.")
 
         logger.info(
             "EnvironmentPool created with "
             "%d environment(s)",
             len(pool.environments),
         )
+        # ---------------------------------------------------------------
+        # Observation adapter and policy, mappo specific
+        # ---------------------------------------------------------------
+        if data["algorithm"] == "MAPPO":
+            adapters = create_mappo_adapters(data["number_of_environments"], data)
 
-        # Aktuell wird nur die erste Umgebung verwendet.
-        environment = pool.environments[0]
+            for i in range(len(adapters)):
+                adapters[i].assign_adapter_id(i)
+
+            runner = MAPPOPolicyRunner.from_config(
+                data,
+                device,
+                obs_dim=adapters[0].obs_dim,
+                target_feature_dim=(
+                    adapters[0].target_feature_dim
+                ),
+            )
+
+            policy = runner.policy
+
+            logger.info(
+                        "Created policy runner: "
+                        "agents=%d actions=%d team_id=%d",
+                        data["number_of_agents"],
+                        data["action_dimension"],
+                        data["training_team_id"],
+                    )
+        else:
+            raise RuntimeError("No proper algorithm configured")
 
         unbarable_ai_team_ids = (
             environment.unbarable_ai_team_ids
@@ -741,13 +846,42 @@ def main(
 
             for i in range(len(pool.environments)):
                 obs_raw = pool.reset_environment(i)
+            for i in range(len(pool.environments)):
+                obs_raw = pool.reset_environment(i)
 
-                if not isinstance(obs_raw, dict):
-                    raise TypeError(
-                        "BAR_Environment.reset() must return the observation "
-                        f"as a dictionary, got {type(obs_raw).__name__}."
-                    )
+                    if not isinstance(obs_raw, dict):
+                        raise TypeError(
+                            "BAR_Environment.reset() must return the observation "
+                            f"as a dictionary, got {type(obs_raw).__name__}."
+                        )
 
+                adapters[i].reset_episode(obs_raw)
+                pool.environments[i].stepinfo.receive_prepared(
+                    adapters[i].prepare(obs_raw=obs_raw)
+                )
+
+            trainer.prep_rollout()
+            runner.set_evaluation_mode()
+
+            environment_buffers = [
+                RolloutBuffer(
+                    num_agents=adapters[env_id].num_agents,
+                    obs_shape=(adapters[env_id].obs_dim,),
+                    action_shape=(2,),
+                    buffer_size=buffer_size,
+                    device=device,
+                    action_dim=adapters[env_id].action_dim,
+                )
+                for env_id in range(len(pool.environments))
+            ]
+            recurrent_states = [
+                _make_rnn_state_arrays(
+                    adapters[env_id].num_agents,
+                    recurrent_n=recurrent_n,
+                    hidden_size=hidden_size,
+                )
+                for env_id in range(len(pool.environments))
+            ]
                 adapters[i].reset_episode(obs_raw)
                 pool.environments[i].stepinfo.receive_prepared(
                     adapters[i].prepare(obs_raw=obs_raw)
@@ -806,12 +940,33 @@ def main(
                         raise RuntimeError(f"Environment {env_id} has no prepared observation.")
 
                     policy_steps[env_id] = runner.act(prepared)
+                policy_steps: list[Any] = [None] * len(pool.environments)
+                bar_actions: list[Any] = [None] * len(pool.environments)
+
+                for env_id, env in enumerate(pool.environments):
+                    if env.stepinfo.done or env.episode_step >= pool.maximum_steps:
+                        continue
+
+                    prepared = env.stepinfo.prepared
+                    if prepared is None:
+                        raise RuntimeError(f"Environment {env_id} has no prepared observation.")
+
+                    policy_steps[env_id] = runner.act(prepared)
 
                     if device.type == "cuda":
                         torch.cuda.synchronize(
                             device
                         )
+                    if device.type == "cuda":
+                        torch.cuda.synchronize(
+                            device
+                        )
 
+                    action_types = [
+                        int(action)
+                        for action
+                        in policy_steps[env_id].actions[:, 0]
+                    ]
                     action_types = [
                         int(action)
                         for action
@@ -885,45 +1040,118 @@ def main(
                     prepared,
                     team_id=acting_team_id,
                 )
+                    bar_actions[env_id] = (
+                        runner.create_bar_actions(
+                            policy_steps[env_id],
+                            prepared,
+                        )
+                    )
 
                 # -------------------------------------------------------
                 # Environment step
                 # -------------------------------------------------------
 
-                (
-                    next_obs_raw,
-                    reward,
-                    terminated,
-                    truncated,
-                    next_step_info,
-                ) = environment.step(
-                    bar_actions
-                )
-
-                if not isinstance(terminated, bool):
-                    raise TypeError(
-                        "BAR_Environment.step() must return terminated as bool, "
-                        f"got {type(terminated).__name__}."
-                    )
-
-                if not isinstance(truncated, bool):
-                    raise TypeError(
-                        "BAR_Environment.step() must return truncated as bool, "
-                        f"got {type(truncated).__name__}."
-                    )
-
-                if terminated and truncated:
+                step_results = pool.step_environments(bar_actions)
+                if len(step_results) != len(pool.environments):
                     raise RuntimeError(
-                        "BAR_Environment.step() returned terminated=True and "
-                        "truncated=True simultaneously."
+                        "EnvironmentPool returned a different number of "
+                        "results than environments."
                     )
 
-                if not isinstance(next_step_info, dict):
-                    raise TypeError(
-                        "BAR_Environment.step() must return info as a dictionary, "
-                        f"got {type(next_step_info).__name__}."
+                for env_id, result in enumerate(step_results):
+                    environment = pool.environments[env_id]
+                    stepinfo = environment.stepinfo
+                    if result is None:
+                        if not stepinfo.done:
+                            raise RuntimeError(
+                                f"Environment {env_id} did not step and is "
+                                "not marked done."
+                            )
+                        continue
+
+                    (
+                        next_obs_raw,
+                        reward,
+                        terminated,
+                        truncated,
+                        step_info,
+                    ) = result
+
+                    if not isinstance(terminated, bool):
+                        raise TypeError(
+                            "BAR_Environment.step() must return terminated "
+                            f"as bool, got {type(terminated).__name__}."
+                        )
+                    if not isinstance(truncated, bool):
+                        raise TypeError(
+                            "BAR_Environment.step() must return truncated "
+                            f"as bool, got {type(truncated).__name__}."
+                        )
+                    if terminated and truncated:
+                        raise RuntimeError(
+                            "BAR_Environment.step() returned terminated=True "
+                            "and truncated=True simultaneously."
+                        )
+                    if not isinstance(next_step_info, dict):
+                        raise TypeError(
+                            "BAR_Environment.step() must return info as a "
+                            f"dictionary, got {type(next_step_info).__name__}."
+                        )
+
+                    policy_step = policy_steps[env_id]
+                    prepared = stepinfo.prepared
+                    if policy_step is None or prepared is None:
+                        raise RuntimeError(
+                            f"Environment {env_id} returned a step result "
+                            "without a corresponding policy action."
+                        )
+
+                    action_types = [
+                        int(action)
+                        for action in policy_step.actions[:, 0]
+                    ]
+                    stepinfo.update_stepinfo(
+                        episode_number=episode_number,
+                        action_types=action_types,
+                        reward=reward,
+                        terminated=terminated,
+                        truncated=truncated,
+                        info=step_info,
+                        active_mask=prepared.active_mask,
                     )
 
+                    next_prepared: PreparedStep | None = None
+                    if next_obs_raw is not None:
+                        if not isinstance(next_obs_raw, dict):
+                            raise TypeError(
+                                "BAR_Environment.step() must return the "
+                                "observation as a dictionary, got "
+                                f"{type(next_obs_raw).__name__}."
+                            )
+                        next_prepared = adapters[env_id].prepare(
+                            obs_raw=next_obs_raw,
+                        )
+
+                    if not stepinfo.done and next_prepared is None:
+                        raise RuntimeError(
+                            f"Environment {env_id} returned no observation "
+                            "while its episode is still running."
+                        )
+                    if truncated and next_prepared is None:
+                        raise RuntimeError(
+                            f"Truncated environment {env_id} must return its "
+                            "final observation for value bootstrapping."
+                        )
+                    if next_prepared is not None:
+                        stepinfo.receive_prepared(next_prepared)
+
+                    reward_array = adapters[env_id].prepare_reward(reward)
+                    masks = np.ones(
+                        (adapters[env_id].num_agents, 1),
+                        dtype=np.float32,
+                    )
+                    if terminated:
+                        masks[:] = 0.0
                 if not isinstance(next_obs_raw, dict):
                     raise TypeError(
                         "BAR_Environment.step() must return the observation "
@@ -1017,172 +1245,126 @@ def main(
                     if terminated:
                         masks[:] = 0.0
 
-                    buffers[
-                        reward_team_id
-                    ].insert(
-                        share_obs=(
-                            pending["prepared"].share_obs
-                        ),
-                        obs=(
-                            pending["prepared"].obs
-                        ),
-                        rnn_states=(
-                            pending["rnn_states"]
-                        ),
-                        rnn_states_critic=(
-                            pending["rnn_states_critic"]
-                        ),
-                        actions=(
-                            pending["policy_step"].actions
-                        ),
-                        action_log_probs=(
-                            pending[
-                                "policy_step"
-                            ].action_log_probs
-                        ),
-                        value_preds=(
-                            pending[
-                                "policy_step"
-                            ].value_predictions
-                        ),
+                    rnn_states, rnn_states_critic = recurrent_states[env_id]
+                    environment_buffers[env_id].insert(
+                        share_obs=prepared.share_obs,
+                        obs=prepared.obs,
+                        rnn_states=rnn_states,
+                        rnn_states_critic=rnn_states_critic,
+                        actions=policy_step.actions,
+                        action_log_probs=policy_step.action_log_probs,
+                        value_preds=policy_step.value_predictions,
                         rewards=reward_array,
                         masks=masks,
-                        active_masks=(
-                            pending[
-                                "prepared"
-                            ].active_mask.copy()
-                        ),
-                        available_actions=(
-                            pending[
-                                "prepared"
-                            ].available_actions
-                        ),
-                        candidate_target_features=(
-                            pending[
-                                "prepared"
-                            ].target_features
-                        ),
-                        candidate_target_mask=(
-                            pending[
-                                "prepared"
-                            ].target_mask
-                        ),
+                        active_masks=prepared.active_mask.copy(),
+                        available_actions=prepared.available_actions,
+                        candidate_target_features=prepared.target_features,
+                        candidate_target_mask=prepared.target_mask,
                     )
 
-                    step_reward = float(
-                        reward_array.mean()
+            # Each environment's returns are computed independently so GAE
+            # never follows a transition from a different environment.
+            for env_id, environment in enumerate(pool.environments):
+                stepinfo = environment.stepinfo
+                if not stepinfo.done:
+                    raise RuntimeError(
+                        f"Environment {env_id} ended the batch without "
+                        "terminating or truncating its episode."
+                    )
+                if environment_buffers[env_id].step <= 0:
+                    raise RuntimeError(
+                        f"Environment {env_id} ended without executing a step."
                     )
 
-                    episode_reward += step_reward
+                if stepinfo.terminated:
+                    next_value = np.zeros(
+                        (adapters[env_id].num_agents, 1),
+                        dtype=np.float32,
+                    )
+                else:
+                    final_prepared = stepinfo.prepared
+                    if final_prepared is None:
+                        raise RuntimeError(
+                            f"Truncated environment {env_id} has no final "
+                            "observation for value bootstrapping."
+                        )
+                    next_value = runner.predict_values(
+                        final_prepared.share_obs
+                    )
 
-                    episode_rewards_by_team[
-                        reward_team_id
-                    ] += step_reward
-
-                    pending_transitions[
-                        reward_team_id
-                    ] = None
-
-                done = bool(
-                    terminated or truncated
+                environment_buffers[env_id].compute_returns(
+                    next_value,
+                    gamma=float(data["gamma"]),
                 )
 
-                final_step_info = next_step_info
+            buffer = _combine_rollout_buffers(
+                environment_buffers,
+                device=device,
+            )
 
-                # -------------------------------------------------------
-                # Episode metrics for the reward/current team
-                # -------------------------------------------------------
-
-                metrics = _episode_metrics(
-                    next_step_info
-                )
-
-                episode_won_by_team[reward_team_id] = (
-                    episode_won_by_team[reward_team_id]
-                    or metrics["won"]
-                )
-
-                episode_lost_by_team[reward_team_id] = (
-                    episode_lost_by_team[reward_team_id]
-                    or metrics["lost"]
-                )
-
-                if metrics["own_alive_count"] is not None:
-                    final_ally_alive_by_team[
-                        reward_team_id
-                    ] = metrics["own_alive_count"]
-
-                if metrics["enemy_alive_count"] is not None:
-                    final_enemy_alive_by_team[
-                        reward_team_id
-                    ] = metrics["enemy_alive_count"]
-
-                enemy_damage_done_by_team[
-                    reward_team_id
-                ] += metrics["enemy_damage_done"]
-
-                own_damage_taken_by_team[
-                    reward_team_id
-                ] += metrics["own_damage_taken"]
-
-                last_info_keys = metrics[
-                    "info_keys"
-                ]
-
-                step_count += 1
-
-                # -------------------------------------------------------
-                # Episode end
-                # -------------------------------------------------------
-
-                if done:
-                    for team_id in environment.unbarable_ai_team_ids:
-                        rnn_states_by_team[
-                            team_id
-                        ][:] = 0.0
-
-                        rnn_states_critic_by_team[
-                            team_id
-                        ][:] = 0.0
-
-                    step_info = next_step_info
-                    break
-
-                # -------------------------------------------------------
-                # Continue with the next acting team
-                # -------------------------------------------------------
-
-                step_info = next_step_info
-
-
-
-            non_empty_team_ids = [
-                team_id
-                for team_id in unbarable_ai_team_ids
-                if buffers[team_id].step > 0
+            episode_reward = sum(
+                environment.stepinfo.episode_reward
+                for environment in pool.environments
+            )
+            step_count = sum(
+                environment.stepinfo.step_count
+                for environment in pool.environments
+            )
+            episode_won = any(
+                environment.stepinfo.episode_won
+                for environment in pool.environments
+            )
+            episode_lost = any(
+                environment.stepinfo.episode_lost
+                for environment in pool.environments
+            )
+            ally_counts = [
+                environment.stepinfo.final_ally_alive
+                for environment in pool.environments
+                if environment.stepinfo.final_ally_alive is not None
             ]
-
-            if not non_empty_team_ids:
-                raise RuntimeError(
-                    f"Episode {episode_number} produced "
-                    "no complete transitions."
-                )
-
-            unresolved_team_ids = [
-                team_id
-                for team_id, pending
-                in pending_transitions.items()
-                if pending is not None
+            enemy_counts = [
+                environment.stepinfo.final_enemy_alive
+                for environment in pool.environments
+                if environment.stepinfo.final_enemy_alive is not None
             ]
-
-            if unresolved_team_ids:
-                logger.warning(
-                    "Episode %d ended with unresolved pending "
-                    "transitions for teams %s. These transitions "
-                    "will not be added to the rollout buffers.",
-                    episode_number,
-                    unresolved_team_ids,
-                )
+            final_ally_alive = sum(ally_counts) if ally_counts else None
+            final_enemy_alive = sum(enemy_counts) if enemy_counts else None
+            enemy_damage_done = sum(
+                environment.stepinfo.enemy_damage_done
+                for environment in pool.environments
+            )
+            own_damage_taken = sum(
+                environment.stepinfo.own_damage_taken
+                for environment in pool.environments
+            )
+            action_counts = np.sum(
+                [
+                    environment.stepinfo.action_counts
+                    for environment in pool.environments
+                ],
+                axis=0,
+            )
+            action_trace = {
+                env_id: environment.stepinfo.action_trace
+                for env_id, environment in enumerate(pool.environments)
+            }
+            last_info_keys = {
+                env_id: environment.stepinfo.last_info_keys
+                for env_id, environment in enumerate(pool.environments)
+            }
+            final_step_info = {
+                env_id: environment.stepinfo.final_step_info
+                for env_id, environment in enumerate(pool.environments)
+            }
+            terminated = {
+                env_id: environment.stepinfo.terminated
+                for env_id, environment in enumerate(pool.environments)
+            }
+            truncated = {
+                env_id: environment.stepinfo.truncated
+                for env_id, environment in enumerate(pool.environments)
+            }
 
             # -----------------------------------------------------------
             # Validate episode end
@@ -1453,7 +1635,7 @@ def main(
                 checkpoint_path = (
                     _save_checkpoint(
                         policy,
-                        reference_adapter,
+                        reference_adapters[0],
                         episode_number,
                         run_directory,
                         model_name=model_name,
@@ -1471,7 +1653,7 @@ def main(
 
         final_checkpoint = _save_checkpoint(
             policy,
-            reference_adapter,
+            reference_adapters[0],
             final_episode,
             run_directory,
             model_name=model_name,

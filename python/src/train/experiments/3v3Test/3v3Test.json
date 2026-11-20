@@ -1,5 +1,9 @@
 {
-    "run_name"              : "3v3Test",
+    "action_dimension"      : 5,
+    "algorithm"             : "MAPPO",
+    "buffer_size"           : 6000,
+    "continue_training"     : false,   
+    "episodes"              : 2,
     "device"                : "auto",
     "model_name"            : "r_mappo_latest.pt",
 
@@ -25,7 +29,7 @@
         "buffer_size"           : 6000,
         "mini_batch"            : 4,
         "episodes"              : 2,
-        "number_of_environments": 1,
+        "number_of_environments": 2,
         "number_of_engines"     : 1,
         "save_every_x_episode"  : 1,
         "maximum_steps"         : 1000,
