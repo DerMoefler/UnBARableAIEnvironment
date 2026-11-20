@@ -282,6 +282,8 @@ def _save_checkpoint(
     adapter: RMAPPOObservationAdapter,
     episode: int,
     model_dir: Path,
+    *,
+    model_name: str,
 ) -> Path:
     """
     Save policy, target scorer, critic, optimizers and reconstruction
@@ -335,41 +337,68 @@ def _save_checkpoint(
         ),
     }
 
-    episode_path = model_dir / (
-        f"r_mappo_episode_{episode:04d}.pt"
+    model_path = Path(
+        model_name
     )
 
-    temporary_path = (
-        episode_path.with_suffix(".tmp")
+    if model_path.name != model_name:
+        raise ValueError(
+            "model_name must be a file name without "
+            f"directories, got {model_name!r}."
+        )
+
+    if not model_path.suffix:
+        raise ValueError(
+            "model_name must have a file extension, "
+            f"got {model_name!r}."
+        )
+
+    latest_path = (
+        model_dir
+        / model_path.name
+    )
+
+    episode_path = (
+        model_dir
+        / (
+            f"{model_path.stem}"
+            f"_episode_{episode:04d}"
+            f"{model_path.suffix}"
+        )
+    )
+
+    temporary_episode_path = (
+        episode_path.with_suffix(
+            episode_path.suffix + ".tmp"
+        )
     )
 
     torch.save(
         checkpoint,
-        temporary_path,
+        temporary_episode_path,
     )
 
-    temporary_path.replace(
+    temporary_episode_path.replace(
         episode_path
     )
 
-    latest_path = (
-        model_dir / "r_mappo_latest.pt"
-    )
-
-    latest_temporary_path = (
-        latest_path.with_suffix(".tmp")
+    temporary_latest_path = (
+        latest_path.with_suffix(
+            latest_path.suffix + ".tmp"
+        )
     )
 
     torch.save(
         checkpoint,
-        latest_temporary_path,
+        temporary_latest_path,
     )
 
-    latest_temporary_path.replace(
+    temporary_latest_path.replace(
         latest_path
     )
 
     return episode_path
+
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +453,26 @@ def main(
         parents=True,
         exist_ok=True,
     )
+
+    model_name = config.get(
+        "model_name"
+    )
+
+    if (
+        not isinstance(model_name, str)
+        or not model_name.strip()
+    ):
+        raise ValueError(
+            "'model_name' must be a non-empty string."
+        )
+
+    model_name = model_name.strip()
+
+    if Path(model_name).name != model_name:
+        raise ValueError(
+            "'model_name' must contain only a file name, "
+            f"not a directory: {model_name!r}."
+        )
 
     logger.info(
         "run_name=%s",
@@ -642,7 +691,7 @@ def main(
         if continue_training:
             checkpoint_path = (
                 run_directory
-                / "r_mappo_latest.pt"
+                / model_name
             )
 
             start_episode = (
@@ -1599,6 +1648,7 @@ def main(
                         reference_adapter,
                         episode_number,
                         run_directory,
+                        model_name=model_name,
                     )
                 )
 
@@ -1616,16 +1666,17 @@ def main(
             reference_adapter,
             final_episode,
             run_directory,
+            model_name=model_name,
         )
 
         logger.info(
-            "Final model saved to: %s",
+            "Final episode checkpoint saved to: %s",
             final_checkpoint,
         )
         logger.info(
             "Latest model saved to: %s",
             run_directory
-            / "r_mappo_latest.pt",
+            / model_name,
         )
 
         success = True

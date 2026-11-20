@@ -449,12 +449,15 @@ def test_training_dataflow_one_combined_mappo_update(
         adapter,
         episode,
         model_dir,
+        *,
+        model_name,
     ):
         return original_save_checkpoint(
             policy,
             adapter,
             episode,
             test_run_directory,
+            model_name=model_name,
         )
 
     with ExitStack() as patches:
@@ -731,14 +734,20 @@ def test_training_dataflow_one_combined_mappo_update(
 
     latest_checkpoint = (
         test_run_directory
-        / "r_mappo_latest.pt"
+        / config["model_name"]
     )
 
     assert latest_checkpoint.exists()
 
+    model_path = Path(
+        config["model_name"]
+    )
+
     checkpoint_files = list(
         test_run_directory.glob(
-            "r_mappo_episode_*.pt"
+            f"{model_path.stem}"
+            "_episode_*"
+            f"{model_path.suffix}"
         )
     )
 

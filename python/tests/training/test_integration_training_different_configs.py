@@ -252,9 +252,17 @@ def test_real_bar_training_scenarios(
             / "run"
         )
 
+        model_name = scenario_config[
+            "model_name"
+        ]
+
+        configured_model_path = Path(
+            model_name
+        )
+
         latest_checkpoint = (
             run_directory
-            / "r_mappo_latest.pt"
+            / model_name
         )
 
         assert latest_checkpoint.is_file(), (
@@ -264,13 +272,20 @@ def test_real_bar_training_scenarios(
 
         episode_checkpoints = sorted(
             run_directory.glob(
-                "r_mappo_episode_*.pt"
+                f"{configured_model_path.stem}"
+                "_episode_*"
+                f"{configured_model_path.suffix}"
             )
         )
 
         assert episode_checkpoints, (
-            "No episode checkpoint was created in "
-            f"{run_directory}."
+            "No episode checkpoint matching "
+            f"{configured_model_path.stem}"
+            "_episode_*"
+            f"{configured_model_path.suffix} "
+            f"was created in {run_directory}. "
+            f"Existing files: "
+            f"{sorted(path.name for path in run_directory.iterdir())}"
         )
 
         checkpoint = torch.load(
