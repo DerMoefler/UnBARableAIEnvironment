@@ -268,15 +268,15 @@ class StartScriptBuilder:
         instance. Otherwise, SimpleAI remains the opponent.
         """
         if not self.cfg.self_play:
-            return """\
+            return f"""\
     [ai1]
-    {
+    {{
         Host = 0;
         IsFromDemo = 0;
         Name = "SimpleAI";
         ShortName = "SimpleAI";
         Team = {self.cfg.opponent_team_id};
-    }
+    }}
 """
 
         return f"""\
