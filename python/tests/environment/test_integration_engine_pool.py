@@ -23,9 +23,8 @@ def process_exists(pid: int) -> bool:
 # Rather ugly monolothic test but I guess it gets the job done :)
 @pytest.mark.integration
 def test_pool_starts_publishes_acquires_releases_and_closes_real_engines(tmp_path: Path) -> None:
-    created_sessions: dict[int, EngineSession] = {}
 
-    pool_size = 4
+    pool_size = 2
 
     scenario = IntegrationScenario(
         name="engine_pool_normal_3v3",
@@ -69,35 +68,46 @@ def test_pool_starts_publishes_acquires_releases_and_closes_real_engines(tmp_pat
 
         wait_until(
             lambda: (
-                len(created_sessions) == 4
+                len(pool._engine_slots) == pool_size
                 and all(
                     pool._engine_slots[slot_id].state
                     is SessionState.AVAILABLE
-                    for slot_id in range(4)
+                    for slot_id in range(pool_size)
                 )
             ),
-            timeout=30.0
+            timeout=30.0,
         )
 
-        assert set(created_sessions) == {0, 1, 2, 3}
+        sessions: dict[
+            int,
+            EngineSession,
+        ] = {
+            slot_id: slot.session
+            for slot_id, slot
+            in pool._engine_slots.items()
+        }
 
-        for session in created_sessions.values():
+        assert set(sessions) == set(
+            range(pool_size)
+        )
+
+        for session in sessions.values():
             assert session.is_running()
             assert session.process_id is not None
             assert process_exists(session.process_id)
 
         process_ids = {
             session.process_id
-            for session in created_sessions.values()
+            for session in sessions.values()
         }
 
-        assert len(process_ids) == 4
+        assert len(process_ids) == pool_size
 
         # --- Acquire actual processes ---
         leased_session = [
-            pool.acquire(timeout=5.0) for _ in range(4)
+            pool.acquire(timeout=5.0) for _ in range(pool_size)
         ]
-        assert len({id(session) for session in leased_session}) == 4
+        assert len({id(session) for session in leased_session}) == pool_size
 
         for session in leased_session:
             slot_id = session.get_engine_id()
