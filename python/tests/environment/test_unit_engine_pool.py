@@ -38,14 +38,22 @@ def pool(sessions: dict[int, MagicMock]) -> EngineSessionPool:
         session.is_running.return_value = True
         session.wait_for_engine_status.return_value = True
 
-        # --- Mock shared memory ---
-        session.shared_memory = MagicMock(name=f"shared_memory_{slot_id}")
-        session.shared_memory.get_engine_status.return_value = bar_ai.EngineStatus.READY
+        # --- Mock shared memory for team 0 ---
+        shared_memory = MagicMock(name=f"shared_memory_{slot_id}_team_0")
+        shared_memory.get_engine_status.return_value = (bar_ai.EngineStatus.READY)
+        session.shared_memories = {0: shared_memory,}
+
+        session.get_shared_memory.side_effect = (
+            lambda team_id: session.shared_memories[
+                team_id
+            ]
+        )
+
 
         sessions[slot_id] = session
         return session
 
-    engine_pool = EngineSessionPool(pool_size=2,session_factory=session_factory)
+    engine_pool = EngineSessionPool(pool_size=2,session_factory=session_factory, unbarable_ai_team_ids=(0,))
 
     yield engine_pool
 
@@ -55,7 +63,7 @@ def test_invalid_pool_size_is_rejected() -> None:
     session_factory = MagicMock()
 
     with pytest.raises(ValueError, match="Pool size must be greater than zero"):
-        invalid_pool = EngineSessionPool(pool_size=0, session_factory=session_factory)
+        invalid_pool = EngineSessionPool(pool_size=0, session_factory=session_factory, unbarable_ai_team_ids=(0,))
 
 def test_pool_is_initially_not_running(pool: EngineSessionPool) -> None:
     assert pool.is_running() is False
@@ -100,7 +108,7 @@ def test_session_in_state_starting() -> None:
 
     session.start.side_effect = blocking_start
 
-    engine_pool = EngineSessionPool(pool_size=1,session_factory=lambda slot_id: session)
+    engine_pool = EngineSessionPool(pool_size=1,session_factory=lambda slot_id: session, unbarable_ai_team_ids=(0,))
 
     try:
         engine_pool.start()
