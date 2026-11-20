@@ -24,148 +24,36 @@ from src.train.rollout_buffer import RolloutBuffer
 
 logger = logging.getLogger(__name__)
 
-
-
-# ---------------------------------------------------------------------------
-# Training helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_rnn_state_arrays(
-    num_agents: int,
-    recurrent_n: int = 1,
-    hidden_size: int = 1,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Create placeholder actor and critic RNN states.
-
-    The current policy is feed-forward. These zero arrays only satisfy
-    the replay-buffer and MAPPO interfaces.
-    """
-    rnn_shape = (
-        num_agents,
-        recurrent_n,
-        hidden_size,
-    )
-
-    return (
-        np.zeros(
-            rnn_shape,
-            dtype=np.float32,
-        ),
-        np.zeros(
-            rnn_shape,
-            dtype=np.float32,
-        ),
-    )
-
-
 # ---------------------------------------------------------------------------
 # Creating Adapters, rn just mappo specific
 # ---------------------------------------------------------------------------
 
 def create_mappo_adapters(number_of_environments: int, data):
     adapters: list[RMAPPOObservationAdapter] = []
+    number_of_agents = int(data["number_of_agents"])
+    team_id = int(data["training_team_id"])
+    max_enemy_slots = max(
+        number_of_agents,
+        int(data["number_of_enemies"]),
+    )
+
     for i in range(number_of_environments):
-        adapters.append(RMAPPOObservationAdapter.from_config(data))
-
-        logger.info(
-                    "Created observation adapter: %s"
-                    "obs_dim=%d target_feature_dim=%d "
-                    "max_enemy_slots=%d",
-                    i,
-                    adapters[i].obs_dim,
-                    adapters[i].target_feature_dim,
-                    adapters[i].max_enemy_slots,
-                )
-
-    return adapters
-
-
-def _combine_rollout_buffers(
-    buffers: list[RolloutBuffer],
-    *,
-    device: torch.device,
-) -> RolloutBuffer:
-    populated_buffers = [
-        buffer
-        for buffer in buffers
-        if buffer.step > 0
-    ]
-    if not populated_buffers:
-        raise RuntimeError(
-            "Cannot combine empty environment rollout buffers."
+        adapter = RMAPPOObservationAdapter.from_config(
+            data,
+            team_id=team_id,
+            num_agents=number_of_agents,
+            max_enemy_slots=max_enemy_slots,
         )
-
-    template = populated_buffers[0]
-    for buffer in populated_buffers[1:]:
-        if (
-            buffer.num_agents != template.num_agents
-            or buffer.share_obs.shape[1:] != template.share_obs.shape[1:]
-            or buffer.obs.shape[2:] != template.obs.shape[2:]
-            or buffer.actions.shape[2:] != template.actions.shape[2:]
-            or buffer.action_dim != template.action_dim
-        ):
-            raise ValueError(
-                "Environment rollout buffers have incompatible shapes."
-            )
-
-    combined = RolloutBuffer(
-        num_agents=template.num_agents,
-        obs_shape=template.share_obs.shape[1:],
-        action_shape=template.actions.shape[2:],
-        buffer_size=sum(buffer.step for buffer in populated_buffers),
-        device=device,
-        action_dim=template.action_dim,
-    )
-
-    for source in populated_buffers:
-        for source_step in range(source.step):
-            combined.insert(
-                share_obs=source.share_obs[source_step],
-                obs=source.obs[source_step],
-                rnn_states=source.rnn_states[source_step],
-                rnn_states_critic=(
-                    source.rnn_states_critic[source_step]
-                ),
-                actions=source.actions[source_step],
-                action_log_probs=(
-                    source.action_log_probs[source_step]
-                ),
-                value_preds=source.value_preds[source_step],
-                rewards=source.rewards[source_step],
-                masks=source.masks[source_step + 1],
-                active_masks=source.active_masks[source_step + 1],
-                available_actions=(
-                    source.available_actions[source_step]
-                ),
-                candidate_target_features=(
-                    None
-                    if source.candidate_target_features is None
-                    else source.candidate_target_features[source_step]
-                ),
-                candidate_target_mask=(
-                    None
-                    if source.candidate_target_mask is None
-                    else source.candidate_target_mask[source_step]
-                ),
-# ---------------------------------------------------------------------------
-# Creating Adapters, rn just mappo specific
-# ---------------------------------------------------------------------------
-
-def create_mappo_adapters(number_of_environments: int, data):
-    adapters: list[RMAPPOObservationAdapter] = []
-    for i in range(number_of_environments):
-        adapters.append(RMAPPOObservationAdapter.from_config(data))
+        adapters.append(adapter)
 
         logger.info(
                     "Created observation adapter: %s"
                     "obs_dim=%d target_feature_dim=%d "
                     "max_enemy_slots=%d",
                     i,
-                    adapters[i].obs_dim,
-                    adapters[i].target_feature_dim,
-                    adapters[i].max_enemy_slots,
+                    adapter.obs_dim,
+                    adapter.target_feature_dim,
+                    adapter.max_enemy_slots,
                 )
 
     return adapters
@@ -846,14 +734,12 @@ def main(
 
             for i in range(len(pool.environments)):
                 obs_raw = pool.reset_environment(i)
-            for i in range(len(pool.environments)):
-                obs_raw = pool.reset_environment(i)
 
-                    if not isinstance(obs_raw, dict):
-                        raise TypeError(
-                            "BAR_Environment.reset() must return the observation "
-                            f"as a dictionary, got {type(obs_raw).__name__}."
-                        )
+                if not isinstance(obs_raw, dict):
+                    raise TypeError(
+                        "BAR_Environment.reset() must return the observation "
+                        f"as a dictionary, got {type(obs_raw).__name__}."
+                    )
 
                 adapters[i].reset_episode(obs_raw)
                 pool.environments[i].stepinfo.receive_prepared(

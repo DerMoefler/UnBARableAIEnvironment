@@ -17,6 +17,23 @@ MOVEMENT_TARGET_ID = 4211
 OWN_UNIT_IDS = {1, 2, 3}
 
 
+def test_create_mappo_adapters_uses_training_dimensions() -> None:
+    config = {
+        "adapter": {"position_scale": 1000.0},
+        "action_dimension": 5,
+        "training_team_id": 1,
+        "number_of_agents": 3,
+        "number_of_enemies": 5,
+    }
+
+    adapters = training.create_mappo_adapters(2, config)
+
+    assert len(adapters) == 2
+    assert all(adapter.num_agents == 3 for adapter in adapters)
+    assert all(adapter.training_team_id == 1 for adapter in adapters)
+    assert all(adapter.max_enemy_slots == 5 for adapter in adapters)
+
+
 def _bar_observation_dict(
     enemy_count: int = 3,
 ) -> dict[str, np.ndarray]:

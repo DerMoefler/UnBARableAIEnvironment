@@ -1,5 +1,4 @@
 {
-    "action_dimension"      : 5,
     "algorithm"             : "MAPPO",
     "buffer_size"           : 6000,
     "continue_training"     : false,   
@@ -29,7 +28,7 @@
         "buffer_size"           : 6000,
         "mini_batch"            : 4,
         "episodes"              : 2,
-        "number_of_environments": 2,
+        "number_of_environments": 1,
         "number_of_engines"     : 1,
         "save_every_x_episode"  : 1,
         "maximum_steps"         : 1000,
