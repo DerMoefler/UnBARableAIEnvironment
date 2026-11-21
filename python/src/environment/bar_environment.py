@@ -1,11 +1,10 @@
 from collections.abc import Mapping
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
-from src.environment.episode_outcome import EpisodeOutcome, TERMINATED_STATUSES, TRUNCATED_STATUSES
-from src.environment.reward import RewardCalculator
+from src.environment.episode_outcome import EpisodeOutcome, RUNNING_STATUSES, TRUNCATED_STATUSES
+from src.environment.reward import RewardCalculator, RewardConfig
 from src.environment.unit_data_memory import UnitMemory
-from src.environment. stepinfo import StepInfo
-from src.environment. stepinfo import StepInfo
+from src.environment.stepinfo import StepInfo
 from src.utils.logger_factory import get_file_logger, get_null_logger
 from src.environment.startscript_builder import StartScriptConfig
 

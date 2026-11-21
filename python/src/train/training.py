@@ -757,7 +757,7 @@ def main(
                     raise ValueError(
                         "Environment returned an unknown team ID: "
                         f"current_team_id={current_team_id}, "
-                        f"available_team_ids={sorted(adapters.keys())}."
+                        f"available_team_ids={adapters}."
                     )
 
                 current_adapter = adapters[current_team_id]
