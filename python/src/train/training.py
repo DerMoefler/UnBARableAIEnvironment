@@ -1684,7 +1684,8 @@ def main(
     except Exception:
         logger.exception(
             "Exception occurred during "
-            "simulated 3v3 training."
+            "%s training.",
+            config["run_name"],
         )
         raise
 
@@ -1698,14 +1699,16 @@ def main(
 
         if success:
             print(
-                "Simulated 3v3 pawn training "
-                "complete!",
+                "Simulated %s training "
+                "complete!"
+                % config["run_name"],
                 flush=True,
             )
         else:
             print(
-                "Simulated 3v3 pawn training "
-                "aborted due to an error.",
+                "Simulated %s training "
+                "aborted due to an error."
+                % config["run_name"],
                 flush=True,
             )
 

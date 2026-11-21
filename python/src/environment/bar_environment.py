@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+import logging
 from typing import Any, Dict, Optional, Tuple, List
 from src.environment.engine_session import EngineSession, EngineSessionConfig
 from src.environment.episode_outcome import EpisodeOutcome, RUNNING_STATUSES, TRUNCATED_STATUSES
@@ -29,6 +30,7 @@ class BAR_Environment:
         startscript_config: Optional[StartScriptConfig] = None,
         run_name: Optional[str] = None,
         environment_id: int = 0,
+        environment_log_level: int = logging.INFO,
     ):
         if max_episode_steps <= 0:
             raise ValueError(
@@ -53,6 +55,7 @@ class BAR_Environment:
                     f"{run_name}_environment"
                     f"{environment_id}_{timestamp}.log"
                 ),
+                level=environment_log_level,
             )
         else:
             self.logger = get_null_logger(
@@ -252,6 +255,62 @@ class BAR_Environment:
             )
         )
 
+        logging_config = config.get(
+            "logging",
+            {},
+        )
+
+        if not isinstance(
+            logging_config,
+            Mapping,
+        ):
+            raise ValueError(
+                "'logging' must be a JSON object."
+            )
+
+        default_log_level_name = str(
+            logging_config.get(
+                "level",
+                "INFO",
+            )
+        ).upper()
+
+        module_levels = logging_config.get(
+            "modules",
+            {},
+        )
+
+        if not isinstance(
+            module_levels,
+            Mapping,
+        ):
+            raise ValueError(
+                "'logging.modules' must be a JSON object."
+            )
+
+        environment_log_level_name = str(
+            module_levels.get(
+                __name__,
+                default_log_level_name,
+            )
+        ).upper()
+
+        environment_log_level = getattr(
+            logging,
+            environment_log_level_name,
+            None,
+        )
+
+        if not isinstance(
+            environment_log_level,
+            int,
+        ):
+            raise ValueError(
+                "Invalid logging level for "
+                f"{__name__!r}: "
+                f"{environment_log_level_name!r}."
+            )
+
         return cls(
             max_episode_steps=(
                 resolved_max_episode_steps
@@ -262,6 +321,7 @@ class BAR_Environment:
             ),
             run_name=run_name,
             environment_id=environment_id,
+            environment_log_level=environment_log_level
         )
 
 
