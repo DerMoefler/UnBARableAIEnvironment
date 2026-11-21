@@ -31,6 +31,7 @@ class BAR_Environment:
         startscript_config: Optional[StartScriptConfig] = None,
         run_name: Optional[str] = None,
         environment_id: int = 0,
+        action_dimension: int = 0,
     ):
         if max_episode_steps <= 0:
             raise ValueError(
@@ -110,6 +111,10 @@ class BAR_Environment:
 
         self.terminated = False
         self.truncated = False
+
+        self.action_dimension = action_dimension
+
+        self.stepinfo: StepInfo
 
     @classmethod
     def from_config(
@@ -254,7 +259,10 @@ class BAR_Environment:
             )
         )
 
+        action_dimension = int(config["action_dimension"])
+
         return cls(
+            action_dimension = action_dimension,
             max_episode_steps=(
                 resolved_max_episode_steps
             ),
@@ -296,7 +304,7 @@ class BAR_Environment:
 
         self.session.wait_for_next_update(
             team_id=self.current_team_id,
-            timeout=60.0,
+            timeout=600.0,
         )
 
         snapshot = self._read_engine_snapshot(
@@ -344,6 +352,8 @@ class BAR_Environment:
                 else None
             ),
         }
+
+        self.stepinfo = StepInfo(self.action_dimension)
 
         return observation, info
 

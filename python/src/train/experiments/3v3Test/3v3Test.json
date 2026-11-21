@@ -5,7 +5,7 @@
     "episodes"              : 2,
     "device"                : "auto",
     "model_name"            : "r_mappo_latest.pt",
-
+    "run_name"              : "3V3Test",
     "number_of_agents"      : 3,
     "number_of_enemies"     : 3,
     "action_dimension"      : 5,

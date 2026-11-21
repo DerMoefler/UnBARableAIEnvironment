@@ -55,10 +55,14 @@ def _make_rnn_state_arrays(
 # Creating Adapters, rn just mappo specific
 # ---------------------------------------------------------------------------
 
-def create_mappo_adapters(number_of_environments: int, data):
+def create_mappo_adapters(
+    number_of_environments: int,
+    data,
+    *,
+    team_id: int,
+):
     adapters: list[RMAPPOObservationAdapter] = []
     number_of_agents = int(data["number_of_agents"])
-    team_id = int(data["training_team_id"])
     max_enemy_slots = max(
         number_of_agents,
         int(data["number_of_enemies"]),
@@ -562,17 +566,54 @@ def main(
         # Observation adapter and policy, mappo specific
         # ---------------------------------------------------------------
         if config["algorithm"] == "MAPPO":
-            adapters = create_mappo_adapters(config["number_of_environments"], config)
+            training_team_id = int(
+                pool.environments[0].unbarable_ai_team_ids[0]
+            )
+            adapters = create_mappo_adapters(
+                training_config["number_of_environments"],
+                config,
+                team_id=training_team_id,
+            )
 
             for i in range(len(adapters)):
                 adapters[i].assign_adapter_id(i)
 
+            reference_adapter = adapters[0]
+
+            for env_id, adapter in enumerate(adapters):
+                if adapter.obs_dim != reference_adapter.obs_dim:
+                    raise ValueError(
+                        "All environment adapters must use the same "
+                        f"observation dimension: env_id={env_id}, "
+                        f"obs_dim={adapter.obs_dim}, "
+                        f"expected={reference_adapter.obs_dim}."
+                    )
+
+                if adapter.action_dim != reference_adapter.action_dim:
+                    raise ValueError(
+                        "All environment adapters must use the same "
+                        f"action dimension: env_id={env_id}, "
+                        f"action_dim={adapter.action_dim}, "
+                        f"expected={reference_adapter.action_dim}."
+                    )
+
+                if (
+                    adapter.target_feature_dim
+                    != reference_adapter.target_feature_dim
+                ):
+                    raise ValueError(
+                        "All environment adapters must use the same "
+                        f"target feature dimension: env_id={env_id}, "
+                        f"target_feature_dim={adapter.target_feature_dim}, "
+                        f"expected={reference_adapter.target_feature_dim}."
+                    )
+
             runner = MAPPOPolicyRunner.from_config(
                 config,
                 device,
-                obs_dim=adapters[0].obs_dim,
+                obs_dim=reference_adapter.obs_dim,
                 target_feature_dim=(
-                    adapters[0].target_feature_dim
+                    reference_adapter.target_feature_dim
                 ),
             )
 
@@ -583,6 +624,7 @@ def main(
                         "agents=%d actions=%d team_id=%d",
                         config["number_of_agents"],
                         config["action_dimension"],
+                        reference_adapter.training_team_id,
                     )
         else:
             raise RuntimeError("No proper algorithm configured")
@@ -665,30 +707,6 @@ def main(
         # Buffers and trainer
         # ---------------------------------------------------------------
 
-        buffers: dict[
-            int,
-            RolloutBuffer,
-        ] = {}
-
-        for team_id, adapter in enumerate(adapters):
-            buffers[team_id] = RolloutBuffer(
-                num_agents=adapter.num_agents,
-                obs_shape=(
-                    adapter.obs_dim,
-                ),
-                action_shape=(2,),
-                buffer_size=buffer_size,
-                device=device,
-                action_dim=adapter.action_dim,
-            )
-
-            logger.info(
-                "Created RolloutBuffer: "
-                "team_id=%d capacity=%d",
-                team_id,
-                buffer_size,
-            )
-
         trainer_args = TrainerArgs()
         trainer_args.num_mini_batch = int(
             training_config["mini_batch"]
@@ -728,6 +746,24 @@ def main(
             # Reset
             # -----------------------------------------------------------
 
+            initialized_teams: list[set[int]] = [
+                set()
+                for _ in pool.environments
+            ]
+            prepared_by_team: list[dict[int, PreparedStep]] = [
+                {}
+                for _ in pool.environments
+            ]
+            pending_transitions: list[
+                dict[int, dict[str, Any] | None]
+            ] = [
+                {
+                    team_id: None
+                    for team_id in unbarable_ai_team_ids
+                }
+                for _ in pool.environments
+            ]
+
             for env_id in range(len(pool.environments)):
                 obs_raw, step_info = pool.reset_environment(env_id)
 
@@ -753,29 +789,18 @@ def main(
                     step_info["current_team_id"]
                     )
 
-                if current_team_id not in adapters:
+                if current_team_id not in unbarable_ai_team_ids:
                     raise ValueError(
                         "Environment returned an unknown team ID: "
                         f"current_team_id={current_team_id}, "
-                        f"available_team_ids={adapters}."
+                        f"available_team_ids={unbarable_ai_team_ids}."
                     )
 
-                current_adapter = adapters[current_team_id]
+                current_adapter = adapters[env_id]
                 current_adapter.reset_episode(obs_raw)
 
-                prepared_by_team: dict[int, PreparedStep] = {
-                    current_team_id: current_adapter.prepare(
-                        obs_raw=obs_raw,
-                    )
-                }
-
-                pending_transitions: dict[
-                    int,
-                    dict[str, Any] | None,
-                ] = {
-                    team_id: None
-                    for team_id in unbarable_ai_team_ids
-                }
+                prepared = current_adapter.prepare(obs_raw=obs_raw)
+                prepared_by_team[env_id][current_team_id] = prepared
 
                 logger.debug(
                     "Episode %d initial team=%d stable unit slots=%s",
@@ -784,10 +809,9 @@ def main(
                     current_adapter.agent_unit_ids,
                 )
 
-
-                adapters[env_id].reset_episode(obs_raw)
+                initialized_teams[env_id].add(current_team_id)
                 pool.environments[env_id].stepinfo.receive_prepared(
-                    adapters[env_id].prepare(obs_raw=obs_raw)
+                    prepared
                 )
 
             trainer.prep_rollout()
@@ -816,10 +840,6 @@ def main(
             # Step loop
             # -----------------------------------------------------------
 
-            initialized_teams: set[int] = {
-                current_team_id
-            }
-
             while pool.check_done() == False:
 
                 # -------------------------------------------------------
@@ -827,96 +847,59 @@ def main(
                 # -------------------------------------------------------
 
                 policy_steps: list[Any] = [None] * len(pool.environments)
-                bar_actions: list[Any] = [None] * len(pool.environments)
+                acting_team_ids: list[int | None] = [
+                    None
+                    for _ in pool.environments
+                ]
+                bar_actions: list[list[Any]] = [
+                    []
+                    for _ in pool.environments
+                ]
 
                 for env_id, env in enumerate(pool.environments):
                     if env.stepinfo.done or env.episode_step >= pool.maximum_steps:
                         continue
 
+                    acting_team_id = int(env.current_team_id)
+                    if acting_team_id not in pending_transitions[env_id]:
+                        raise RuntimeError(
+                            f"Environment {env_id} returned an unknown acting "
+                            f"team ID: {acting_team_id}."
+                        )
+
                     prepared = env.stepinfo.prepared
                     if prepared is None:
                         raise RuntimeError(f"Environment {env_id} has no prepared observation.")
 
-                    policy_steps[env_id] = runner.act(prepared)
+                    policy_step = runner.act(prepared)
+                    policy_steps[env_id] = policy_step
+                    acting_team_ids[env_id] = acting_team_id
 
                     if device.type == "cuda":
                         torch.cuda.synchronize(
                             device
                         )
 
-                    action_types = [
-                        int(action)
-                        for action
-                        in policy_steps[env_id].actions[:, 0]
-                    ]
-
-                action_trace_by_team[
-                    acting_team_id
-                ].append(
-                    action_types
-                )
-
-                for row, action_type in enumerate(
-                    action_types
-                ):
-                    if (
-                        prepared.active_mask[
-                            row,
-                            0,
-                        ]
-                        <= 0.0
-                    ):
-                        continue
-
-                    if (
-                        0
-                        <= action_type
-                        < adapter.action_dim
-                    ):
-                        action_counts[action_type] += 1
-                    else:
-                        logger.warning(
-                            "Sampled invalid action %d for team %d; "
-                            "expected range [0, %d]",
-                            action_type,
-                            acting_team_id,
-                            adapter.action_dim - 1,
+                    pending = pending_transitions[env_id][acting_team_id]
+                    if pending is not None:
+                        raise RuntimeError(
+                            "A pending transition already exists for "
+                            f"environment {env_id}, team {acting_team_id}."
                         )
 
-                if (
-                    pending_transitions[
-                        acting_team_id
-                    ]
-                    is not None
-                ):
-                    raise RuntimeError(
-                        "A pending transition already exists "
-                        "for the acting team: "
-                        f"team_id={acting_team_id}."
+                    rnn_states, rnn_states_critic = recurrent_states[env_id]
+                    pending_transitions[env_id][acting_team_id] = {
+                        "prepared": prepared,
+                        "policy_step": policy_step,
+                        "rnn_states": rnn_states.copy(),
+                        "rnn_states_critic": rnn_states_critic.copy(),
+                    }
+
+                    bar_actions[env_id] = runner.create_bar_actions(
+                        policy_step,
+                        prepared,
+                        team_id=acting_team_id,
                     )
-
-                pending_transitions[
-                    acting_team_id
-                ] = {
-                    "prepared": prepared,
-                    "policy_step": policy_step,
-                    "rnn_states": (
-                        rnn_states.copy()
-                    ),
-                    "rnn_states_critic": (
-                        rnn_states_critic.copy()
-                    ),
-                }
-
-                # -------------------------------------------------------
-                # Convert policy output to BAR actions
-                # -------------------------------------------------------
-
-                bar_actions = runner.create_bar_actions(
-                    policy_step,
-                    prepared,
-                    team_id=acting_team_id,
-                )
 
                 # -------------------------------------------------------
                 # Environment step
@@ -963,15 +946,20 @@ def main(
                             "BAR_Environment.step() returned terminated=True "
                             "and truncated=True simultaneously."
                         )
-                    if not isinstance(next_step_info, dict):
+                    if not isinstance(step_info, dict):
                         raise TypeError(
                             "BAR_Environment.step() must return info as a "
-                            f"dictionary, got {type(next_step_info).__name__}."
+                            f"dictionary, got {type(step_info).__name__}."
                         )
 
                     policy_step = policy_steps[env_id]
+                    acting_team_id = acting_team_ids[env_id]
                     prepared = stepinfo.prepared
-                    if policy_step is None or prepared is None:
+                    if (
+                        policy_step is None
+                        or acting_team_id is None
+                        or prepared is None
+                    ):
                         raise RuntimeError(
                             f"Environment {env_id} returned a step result "
                             "without a corresponding policy action."
@@ -991,7 +979,6 @@ def main(
                         active_mask=prepared.active_mask,
                     )
 
-                    next_prepared: PreparedStep | None = None
                     if next_obs_raw is not None:
                         if not isinstance(next_obs_raw, dict):
                             raise TypeError(
@@ -999,139 +986,106 @@ def main(
                                 "observation as a dictionary, got "
                                 f"{type(next_obs_raw).__name__}."
                             )
-                        next_prepared = adapters[env_id].prepare(
-                            obs_raw=next_obs_raw,
-                        )
 
-                    if not stepinfo.done and next_prepared is None:
+                    if not stepinfo.done and next_obs_raw is None:
                         raise RuntimeError(
                             f"Environment {env_id} returned no observation "
                             "while its episode is still running."
                         )
-                    if truncated and next_prepared is None:
+                    if truncated and next_obs_raw is None:
                         raise RuntimeError(
                             f"Truncated environment {env_id} must return its "
                             "final observation for value bootstrapping."
                         )
-                    if next_prepared is not None:
+
+                    if (
+                        "acting_team_id" in step_info
+                        and int(step_info["acting_team_id"]) != acting_team_id
+                    ):
+                        raise RuntimeError(
+                            "Environment returned information for the wrong "
+                            "acting team: "
+                            f"expected={acting_team_id}, "
+                            f"received={step_info['acting_team_id']}."
+                        )
+
+                    reward_team_id = int(step_info["reward_team_id"])
+                    if reward_team_id not in pending_transitions[env_id]:
+                        raise RuntimeError(
+                            "Environment returned a reward for an unknown team: "
+                            f"reward_team_id={reward_team_id}, "
+                            f"environment_id={env_id}."
+                        )
+
+                    reward_adapter = adapters[env_id]
+                    if reward_team_id not in initialized_teams[env_id]:
+                        if next_obs_raw is None:
+                            raise RuntimeError(
+                                f"Environment {env_id} returned no observation "
+                                "to initialize the rewarded team."
+                            )
+                        reward_adapter.reset_episode(next_obs_raw)
+                        initialized_teams[env_id].add(reward_team_id)
+                        logger.debug(
+                            "Episode %d initialized team=%d "
+                            "stable unit slots=%s",
+                            episode_number,
+                            reward_team_id,
+                            reward_adapter.agent_unit_ids,
+                        )
+
+                    next_prepared: PreparedStep | None = None
+                    if next_obs_raw is not None:
+                        next_prepared = reward_adapter.prepare(
+                            obs_raw=next_obs_raw,
+                        )
+                        prepared_by_team[env_id][reward_team_id] = next_prepared
                         stepinfo.receive_prepared(next_prepared)
 
-                    reward_array = adapters[env_id].prepare_reward(reward)
-                    masks = np.ones(
-                        (adapters[env_id].num_agents, 1),
-                        dtype=np.float32,
+                    returned_current_team_id = int(
+                        step_info["current_team_id"]
                     )
-                    if terminated:
-                        masks[:] = 0.0
-                if not isinstance(next_obs_raw, dict):
-                    raise TypeError(
-                        "BAR_Environment.step() must return the observation "
-                        f"as a dictionary, got {type(next_obs_raw).__name__}."
-                    )
-
-                if (
-                    "acting_team_id" in next_step_info
-                    and int(
-                        next_step_info["acting_team_id"]
-                    ) != acting_team_id
-                ):
-                    raise RuntimeError(
-                        "Environment returned information for the wrong "
-                        "acting team: "
-                        f"expected={acting_team_id}, "
-                        f"received={next_step_info['acting_team_id']}."
-                    )
-
-                reward_team_id = int(
-                    next_step_info["reward_team_id"]
-                )
-
-                if reward_team_id not in adapters:
-                    raise RuntimeError(
-                        "Environment returned a reward for an unknown team: "
-                        f"reward_team_id={reward_team_id}, "
-                        f"available_team_ids={sorted(adapters)}."
-                    )
-
-                reward_adapter = adapters[
-                    reward_team_id
-                ]
-
-                if reward_team_id not in initialized_teams:
-                    reward_adapter.reset_episode(
-                        next_obs_raw
-                    )
-
-                    initialized_teams.add(
-                        reward_team_id
-                    )
-
-                    logger.debug(
-                        "Episode %d initialized team=%d "
-                        "stable unit slots=%s",
-                        episode_number,
-                        reward_team_id,
-                        reward_adapter.agent_unit_ids,
-                    )
-
-                next_prepared = reward_adapter.prepare(
-                    obs_raw=next_obs_raw,
-                )
-
-                prepared_by_team[
-                    reward_team_id
-                ] = next_prepared
-
-                returned_current_team_id = int(
-                    next_step_info["current_team_id"]
-                )
-
-                if returned_current_team_id != reward_team_id:
-                    raise RuntimeError(
-                        "Environment returned inconsistent team IDs: "
-                        f"current_team_id={returned_current_team_id}, "
-                        f"reward_team_id={reward_team_id}."
-                    )
-
-
-                pending = pending_transitions[
-                    reward_team_id
-                ]
-
-                if pending is not None:
-                    reward_array = (
-                        reward_adapter.prepare_reward(
-                            reward
+                    if returned_current_team_id != reward_team_id:
+                        raise RuntimeError(
+                            "Environment returned inconsistent team IDs: "
+                            f"current_team_id={returned_current_team_id}, "
+                            f"reward_team_id={reward_team_id}."
                         )
-                    )
 
-                    masks = np.ones(
-                        (
-                            reward_adapter.num_agents,
-                            1,
-                        ),
-                        dtype=np.float32,
-                    )
+                    pending = pending_transitions[env_id][reward_team_id]
+                    if pending is not None:
+                        pending_prepared = pending["prepared"]
+                        pending_policy_step = pending["policy_step"]
+                        pending_rnn_states = pending["rnn_states"]
+                        pending_rnn_states_critic = pending["rnn_states_critic"]
+                        reward_array = reward_adapter.prepare_reward(reward)
 
-                    if terminated:
-                        masks[:] = 0.0
+                        masks = np.ones(
+                            (
+                                reward_adapter.num_agents,
+                                1,
+                            ),
+                            dtype=np.float32,
+                        )
+                        if terminated:
+                            masks[:] = 0.0
 
-                    rnn_states, rnn_states_critic = recurrent_states[env_id]
-                    environment_buffers[env_id].insert(
-                        share_obs=prepared.share_obs,
-                        obs=prepared.obs,
-                        rnn_states=rnn_states,
-                        rnn_states_critic=rnn_states_critic,
-                        actions=policy_step.actions,
-                        action_log_probs=policy_step.action_log_probs,
-                        value_preds=policy_step.value_predictions,
-                        rewards=reward_array,
-                        masks=masks,
-                        active_masks=prepared.active_mask.copy(),
-                        available_actions=prepared.available_actions,
-                        candidate_target_features=prepared.target_features,
-                        candidate_target_mask=prepared.target_mask,
-                    )
+                        environment_buffers[env_id].insert(
+                            share_obs=pending_prepared.share_obs,
+                            obs=pending_prepared.obs,
+                            rnn_states=pending_rnn_states,
+                            rnn_states_critic=pending_rnn_states_critic,
+                            actions=pending_policy_step.actions,
+                            action_log_probs=pending_policy_step.action_log_probs,
+                            value_preds=pending_policy_step.value_predictions,
+                            rewards=reward_array,
+                            masks=masks,
+                            active_masks=pending_prepared.active_mask.copy(),
+                            available_actions=pending_prepared.available_actions,
+                            candidate_target_features=pending_prepared.target_features,
+                            candidate_target_mask=pending_prepared.target_mask,
+                        )
+                        pending_transitions[env_id][reward_team_id] = None
 
             # Each environment's returns are computed independently so GAE
             # never follows a transition from a different environment.
@@ -1160,12 +1114,13 @@ def main(
                             "observation for value bootstrapping."
                         )
                     next_value = runner.predict_values(
-                        final_prepared.share_obs
+                        share_obs=final_prepared.share_obs,
+                        num_agents=config["number_of_agents"]
                     )
 
                 environment_buffers[env_id].compute_returns(
                     next_value,
-                    gamma=float(data["gamma"]),
+                    gamma=float(mappo_config["gamma"]),
                 )
 
             buffer = _combine_rollout_buffers(
@@ -1247,76 +1202,43 @@ def main(
                     "ended without executing a step."
                 )
 
-            for team_id in unbarable_ai_team_ids:
-                final_enemy_alive = (
-                    final_enemy_alive_by_team[
-                        team_id
-                    ]
+            non_empty_environment_ids = [
+                env_id
+                for env_id, environment_buffer
+                in enumerate(environment_buffers)
+                if environment_buffer.step > 0
+            ]
+
+            if not non_empty_environment_ids:
+                raise RuntimeError(
+                    f"Episode {episode_number} produced "
+                    "no complete transitions."
                 )
 
-                final_ally_alive = (
-                    final_ally_alive_by_team[
-                        team_id
-                    ]
-                )
+            unresolved_team_ids_by_environment = {
+                env_id: [
+                    team_id
+                    for team_id, pending
+                    in pending_transitions[env_id].items()
+                    if pending is not None
+                ]
+                for env_id in non_empty_environment_ids
+            }
+            unresolved_team_ids_by_environment = {
+                env_id: unresolved_team_ids
+                for env_id, unresolved_team_ids
+                in unresolved_team_ids_by_environment.items()
+                if unresolved_team_ids
+            }
 
-                if (
-                    final_enemy_alive is not None
-                    and int(final_enemy_alive) <= 0
-                ):
-                    episode_won_by_team[
-                        team_id
-                    ] = True
-
-                if (
-                    final_ally_alive is not None
-                    and int(final_ally_alive) <= 0
-                ):
-                    episode_lost_by_team[
-                        team_id
-                    ] = True
-
-            # -----------------------------------------------------------
-            # Bootstrap and returns
-            # -----------------------------------------------------------
-
-            for team_id in non_empty_team_ids:
-                adapter = adapters[team_id]
-                buffer = buffers[team_id]
-
-                if terminated:
-                    next_value = np.zeros(
-                        (
-                            adapter.num_agents,
-                            1,
-                        ),
-                        dtype=np.float32,
-                    )
-                else:
-                    # Truncated Episode:
-                    # Bootstrap aus der letzten verfügbaren
-                    # Observation des jeweiligen Teams.
-                    if team_id not in prepared_by_team:
-                        raise RuntimeError(
-                            "No prepared observation is available "
-                            "for truncated-episode bootstrapping: "
-                            f"team_id={team_id}."
-                        )
-
-                    next_value = (
-                        runner.predict_values(
-                            prepared_by_team[
-                                team_id
-                            ].share_obs,
-                            num_agents=adapter.num_agents,
-                        )
-                    )
-
-                buffer.compute_returns(
-                    next_value,
-                    gamma=float(
-                        mappo_config["gamma"]
-                    ),
+            if unresolved_team_ids_by_environment:
+                logger.warning(
+                    "Episode %d ended with unresolved pending "
+                    "transitions in environments %s. These "
+                    "transitions will not be added to the "
+                    "rollout buffers.",
+                    episode_number,
+                    unresolved_team_ids_by_environment,
                 )
 
             # -----------------------------------------------------------
@@ -1327,10 +1249,7 @@ def main(
             runner.set_training_mode()
 
             train_info = trainer.train_multiple(
-                buffers=[
-                    buffers[team_id]
-                    for team_id in non_empty_team_ids
-                ],
+                buffers=[buffer],
                 update_actor=True,
             )
 
@@ -1338,9 +1257,6 @@ def main(
                 torch.cuda.synchronize(
                     device
                 )
-
-            for buffer in buffers.values():
-                buffer.reset()
 
             # Ein gemeinsamer Logging-Wert als Mittelwert
             # über alle trainierten Teams.
@@ -1399,70 +1315,14 @@ def main(
                 truncated,
             )
 
-            for team_id in unbarable_ai_team_ids:
-                logger.info(
-                    "Team %d Episode Reward: %.4f",
-                    team_id,
-                    episode_rewards_by_team[
-                        team_id
-                    ],
-                )
-                logger.info(
-                    "Team %d Won: %s",
-                    team_id,
-                    episode_won_by_team[
-                        team_id
-                    ],
-                )
-                logger.info(
-                    "Team %d Lost: %s",
-                    team_id,
-                    episode_lost_by_team[
-                        team_id
-                    ],
-                )
-                logger.info(
-                    "Team %d Final Ally Alive: %s",
-                    team_id,
-                    final_ally_alive_by_team[
-                        team_id
-                    ],
-                )
-                logger.info(
-                    "Team %d Final Enemy Alive: %s",
-                    team_id,
-                    final_enemy_alive_by_team[
-                        team_id
-                    ],
-                )
-                logger.info(
-                    "Team %d Enemy Damage Done: %.4f",
-                    team_id,
-                    enemy_damage_done_by_team[
-                        team_id
-                    ],
-                )
-                logger.info(
-                    "Team %d Own Damage Taken: %.4f",
-                    team_id,
-                    own_damage_taken_by_team[
-                        team_id
-                    ],
-                )
-                logger.info(
-                    "Team %d Action Counts: %s",
-                    team_id,
-                    action_counts_by_team[
-                        team_id
-                    ].tolist(),
-                )
-                logger.debug(
-                    "Team %d Action Trace: %s",
-                    team_id,
-                    action_trace_by_team[
-                        team_id
-                    ],
-                )
+            logger.info("Episode Won: %s", episode_won)
+            logger.info("Episode Lost: %s", episode_lost)
+            logger.info("Final Ally Alive: %s", final_ally_alive)
+            logger.info("Final Enemy Alive: %s", final_enemy_alive)
+            logger.info("Enemy Damage Done: %.4f", enemy_damage_done)
+            logger.info("Own Damage Taken: %.4f", own_damage_taken)
+            logger.info("Action Counts: %s", action_counts.tolist())
+            logger.debug("Action Trace: %s", action_trace)
             logger.info(
                 "Combined PPO Train Info: %s",
                 train_info,
@@ -1506,7 +1366,7 @@ def main(
                 checkpoint_path = (
                     _save_checkpoint(
                         policy,
-                        reference_adapters[0],
+                        reference_adapter,
                         episode_number,
                         run_directory,
                         model_name=model_name,
@@ -1524,7 +1384,7 @@ def main(
 
         final_checkpoint = _save_checkpoint(
             policy,
-            reference_adapters[0],
+            reference_adapter,
             final_episode,
             run_directory,
             model_name=model_name,

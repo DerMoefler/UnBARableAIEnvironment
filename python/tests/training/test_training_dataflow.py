@@ -21,12 +21,15 @@ def test_create_mappo_adapters_uses_training_dimensions() -> None:
     config = {
         "adapter": {"position_scale": 1000.0},
         "action_dimension": 5,
-        "training_team_id": 1,
         "number_of_agents": 3,
         "number_of_enemies": 5,
     }
 
-    adapters = training.create_mappo_adapters(2, config)
+    adapters = training.create_mappo_adapters(
+        2,
+        config,
+        team_id=1,
+    )
 
     assert len(adapters) == 2
     assert all(adapter.num_agents == 3 for adapter in adapters)
