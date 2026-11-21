@@ -299,37 +299,54 @@ class BAR_Environment:
             team_id=self.current_team_id,
             timeout=60.0,
         )
-        if wait_status == "timeout":
-            raise TimeoutError("Kein erstes handleEventUpdate nach reset(). Timeout.")
 
-        if wait_status == "stopped":
-            raise RuntimeError("gRPC server stopped unexpectedly after reset().")
-
-        self.current_update_id = update_id
-
-        # Episode-Zähler zurücksetzen
-        self.episode_step = 0
-
-        snapshot = self._read_engine_snapshot()
-                
-        self.evaluate_engine_status(snapshot.status)
-
-        
-
-        self.unit_memory.reset(
-            snapshot.units,
-            step=self.episode_step,
+        snapshot = self._read_engine_snapshot(
+            team_id=self.current_team_id,
         )
 
-        stats = self._get_team_stats(snapshot.units)
-        self.reward_calculator.reset(stats)
+        outcome = self._evaluate_engine_status(
+            snapshot.status
+        )
 
-        observation = self.create_observation_dictionary(snapshot.units)
-        bar_ai.SharedMemory.remove(self.shared_memory_name)
+        reward_calculator = (
+            self.reward_calculators[
+                self.current_team_id
+            ]
+        )
 
-        self.stepinfo = StepInfo(self.data["action_dimension"])
+        reward_calculator.reset(
+            snapshot.units
+        )
 
-        return observation
+        self.reward_initialized_teams.add(
+            self.current_team_id
+        )
+
+        observation = (
+            self._create_observation_dictionary(
+                snapshot.units
+            )
+        )
+
+        info = {
+            "current_team_id": self.current_team_id,
+            "acting_team_id": None,
+            "reward_team_id": None,
+            "episode_step": self.episode_step,
+            "max_episode_steps": (
+                self.max_episode_steps
+            ),
+            "reward_state_initialized": (
+                reward_calculator.initialized
+            ),
+            "episode_outcome": (
+                outcome.value
+                if outcome is not None
+                else None
+            ),
+        }
+
+        return observation, info
 
     def step(
         self,

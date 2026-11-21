@@ -24,6 +24,33 @@ from src.train.rollout_buffer import RolloutBuffer
 
 logger = logging.getLogger(__name__)
 
+def _make_rnn_state_arrays(
+    num_agents: int,
+    recurrent_n: int = 1,
+    hidden_size: int = 1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Create placeholder actor and critic RNN states.
+
+    The current policy is feed-forward. These zero arrays only satisfy
+    the replay-buffer and MAPPO interfaces.
+    """
+    rnn_shape = (
+        num_agents,
+        recurrent_n,
+        hidden_size,
+    )
+
+    return (
+        np.zeros(
+            rnn_shape,
+            dtype=np.float32,
+        ),
+        np.zeros(
+            rnn_shape,
+            dtype=np.float32,
+        ),
+    )
 # ---------------------------------------------------------------------------
 # Creating Adapters, rn just mappo specific
 # ---------------------------------------------------------------------------
@@ -534,14 +561,14 @@ def main(
         # ---------------------------------------------------------------
         # Observation adapter and policy, mappo specific
         # ---------------------------------------------------------------
-        if data["algorithm"] == "MAPPO":
-            adapters = create_mappo_adapters(data["number_of_environments"], data)
+        if config["algorithm"] == "MAPPO":
+            adapters = create_mappo_adapters(config["number_of_environments"], config)
 
             for i in range(len(adapters)):
                 adapters[i].assign_adapter_id(i)
 
             runner = MAPPOPolicyRunner.from_config(
-                data,
+                config,
                 device,
                 obs_dim=adapters[0].obs_dim,
                 target_feature_dim=(
@@ -554,15 +581,14 @@ def main(
             logger.info(
                         "Created policy runner: "
                         "agents=%d actions=%d team_id=%d",
-                        data["number_of_agents"],
-                        data["action_dimension"],
-                        data["training_team_id"],
+                        config["number_of_agents"],
+                        config["action_dimension"],
                     )
         else:
             raise RuntimeError("No proper algorithm configured")
 
         unbarable_ai_team_ids = (
-            environment.unbarable_ai_team_ids
+            pool.environments[0].unbarable_ai_team_ids
         )
 
         if not unbarable_ai_team_ids:
@@ -570,36 +596,6 @@ def main(
                 "Environment contains no "
                 "UnBARableAI team IDs."
             )
-
-        # ---------------------------------------------------------------
-        # Observation adapter and policy, mappo specific
-        # ---------------------------------------------------------------
-        if data["algorithm"] == "MAPPO":
-            adapters = create_mappo_adapters(data["number_of_environments"], data)
-
-            for i in range(len(adapters)):
-                adapters[i].assign_adapter_id(i)
-
-            runner = MAPPOPolicyRunner.from_config(
-                data,
-                device,
-                obs_dim=adapters[0].obs_dim,
-                target_feature_dim=(
-                    adapters[0].target_feature_dim
-                ),
-            )
-
-            policy = runner.policy
-
-            logger.info(
-                        "Created policy runner: "
-                        "agents=%d actions=%d team_id=%d",
-                        data["number_of_agents"],
-                        data["action_dimension"],
-                        data["training_team_id"],
-                    )
-        else:
-            raise RuntimeError("No proper algorithm configured")
 
         # ---------------------------------------------------------------
         # Configuration validation
@@ -674,7 +670,7 @@ def main(
             RolloutBuffer,
         ] = {}
 
-        for team_id, adapter in adapters.items():
+        for team_id, adapter in enumerate(adapters):
             buffers[team_id] = RolloutBuffer(
                 num_agents=adapter.num_agents,
                 obs_shape=(
@@ -732,8 +728,8 @@ def main(
             # Reset
             # -----------------------------------------------------------
 
-            for i in range(len(pool.environments)):
-                obs_raw = pool.reset_environment(i)
+            for env_id in range(len(pool.environments)):
+                obs_raw, step_info = pool.reset_environment(env_id)
 
                 if not isinstance(obs_raw, dict):
                     raise TypeError(
@@ -741,36 +737,57 @@ def main(
                         f"as a dictionary, got {type(obs_raw).__name__}."
                     )
 
-                adapters[i].reset_episode(obs_raw)
-                pool.environments[i].stepinfo.receive_prepared(
-                    adapters[i].prepare(obs_raw=obs_raw)
+                if not isinstance(step_info, dict):
+                    raise TypeError(
+                        "BAR_Environment.reset() must return info as a dictionary, "
+                        f"got {type(step_info).__name__}."
+                    )
+
+                if "current_team_id" not in step_info:
+                    raise KeyError(
+                        "BAR_Environment.reset() info does not contain "
+                        "'current_team_id'."
+                    )
+
+                current_team_id = int(
+                    step_info["current_team_id"]
+                    )
+
+                if current_team_id not in adapters:
+                    raise ValueError(
+                        "Environment returned an unknown team ID: "
+                        f"current_team_id={current_team_id}, "
+                        f"available_team_ids={sorted(adapters.keys())}."
+                    )
+
+                current_adapter = adapters[current_team_id]
+                current_adapter.reset_episode(obs_raw)
+
+                prepared_by_team: dict[int, PreparedStep] = {
+                    current_team_id: current_adapter.prepare(
+                        obs_raw=obs_raw,
+                    )
+                }
+
+                pending_transitions: dict[
+                    int,
+                    dict[str, Any] | None,
+                ] = {
+                    team_id: None
+                    for team_id in unbarable_ai_team_ids
+                }
+
+                logger.debug(
+                    "Episode %d initial team=%d stable unit slots=%s",
+                    episode_number,
+                    current_team_id,
+                    current_adapter.agent_unit_ids,
                 )
 
-            trainer.prep_rollout()
-            runner.set_evaluation_mode()
 
-            environment_buffers = [
-                RolloutBuffer(
-                    num_agents=adapters[env_id].num_agents,
-                    obs_shape=(adapters[env_id].obs_dim,),
-                    action_shape=(2,),
-                    buffer_size=buffer_size,
-                    device=device,
-                    action_dim=adapters[env_id].action_dim,
-                )
-                for env_id in range(len(pool.environments))
-            ]
-            recurrent_states = [
-                _make_rnn_state_arrays(
-                    adapters[env_id].num_agents,
-                    recurrent_n=recurrent_n,
-                    hidden_size=hidden_size,
-                )
-                for env_id in range(len(pool.environments))
-            ]
-                adapters[i].reset_episode(obs_raw)
-                pool.environments[i].stepinfo.receive_prepared(
-                    adapters[i].prepare(obs_raw=obs_raw)
+                adapters[env_id].reset_episode(obs_raw)
+                pool.environments[env_id].stepinfo.receive_prepared(
+                    adapters[env_id].prepare(obs_raw=obs_raw)
                 )
 
             trainer.prep_rollout()
@@ -803,11 +820,6 @@ def main(
                 current_team_id
             }
 
-            maximum_turns = (
-                maximum_steps
-                * len(unbarable_ai_team_ids)
-            )
-
             while pool.check_done() == False:
 
                 # -------------------------------------------------------
@@ -826,33 +838,12 @@ def main(
                         raise RuntimeError(f"Environment {env_id} has no prepared observation.")
 
                     policy_steps[env_id] = runner.act(prepared)
-                policy_steps: list[Any] = [None] * len(pool.environments)
-                bar_actions: list[Any] = [None] * len(pool.environments)
-
-                for env_id, env in enumerate(pool.environments):
-                    if env.stepinfo.done or env.episode_step >= pool.maximum_steps:
-                        continue
-
-                    prepared = env.stepinfo.prepared
-                    if prepared is None:
-                        raise RuntimeError(f"Environment {env_id} has no prepared observation.")
-
-                    policy_steps[env_id] = runner.act(prepared)
 
                     if device.type == "cuda":
                         torch.cuda.synchronize(
                             device
                         )
-                    if device.type == "cuda":
-                        torch.cuda.synchronize(
-                            device
-                        )
 
-                    action_types = [
-                        int(action)
-                        for action
-                        in policy_steps[env_id].actions[:, 0]
-                    ]
                     action_types = [
                         int(action)
                         for action
@@ -926,12 +917,6 @@ def main(
                     prepared,
                     team_id=acting_team_id,
                 )
-                    bar_actions[env_id] = (
-                        runner.create_bar_actions(
-                            policy_steps[env_id],
-                            prepared,
-                        )
-                    )
 
                 # -------------------------------------------------------
                 # Environment step
