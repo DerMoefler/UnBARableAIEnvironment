@@ -7,6 +7,7 @@ from src.environment.unit_data_memory import UnitMemory
 from src.environment.stepinfo import StepInfo
 from src.utils.logger_factory import get_file_logger, get_null_logger
 from src.environment.startscript_builder import StartScriptConfig
+from src.environment.engine_pool import EngineSessionPool
 
 import json
 import numpy as np
@@ -25,6 +26,7 @@ class EngineSnapshot:
 class BAR_Environment:
     def __init__(
         self,
+        engine_pool: EngineSessionPool,
         *,
         max_episode_steps: int = 512,
         reward_config: Optional[RewardConfig] = None,
@@ -38,6 +40,7 @@ class BAR_Environment:
                 "max_episode_steps must be greater than 0."
             )
 
+        self.engine_pool: EngineSessionPool = engine_pool
         self.session: Optional[EngineSession] = None
 
         logger_name = (
@@ -120,6 +123,7 @@ class BAR_Environment:
     def from_config(
         cls,
         config_path: Path,
+        engine_pool: EngineSessionPool,
         *,
         environment_id: int = 0,
         max_episode_steps: int | None = None,
@@ -265,6 +269,7 @@ class BAR_Environment:
             
 
         return cls(
+            engine_pool=engine_pool,
             action_dimension = action_dimension,
             max_episode_steps=(
                 resolved_max_episode_steps
@@ -291,13 +296,10 @@ class BAR_Environment:
         )
 
         self.reward_initialized_teams.clear()
-        # TODO replace with pool
+
+        # TODO check if we need to somehow check the team id or something?
         if self.session is None:
-            self.session = EngineSession(
-                self.session_cfg,
-                self.end_of_session,
-            )
-            self.session.start()
+            self.session = self.engine_pool.acquire(timeout=30.0)
 
         self.logger.info(
             "Engine session started. Waiting for first "
@@ -480,6 +482,8 @@ class BAR_Environment:
             self.session.ack_update(
                 team_id=self.current_team_id
             )
+            # Release the engine session on last step.
+            self._release_session()
 
         return (
             observation,
@@ -491,7 +495,9 @@ class BAR_Environment:
 
     def close(self):
         """
-        Closes the engine session and assigns none to the session member
+        Releases the engine session if still used.
+
+        TODO check that this doesnt cause a race condition if the pool is closed from the outside.
 
         Parameters
         ----------
@@ -500,9 +506,8 @@ class BAR_Environment:
         Returns
         -------
         """
-        if self.session is not None:
-            self.session.stop()
-            self.session = None
+        if self.engine_pool.is_running():
+            self._release_session()
 
     def __del__(self):
         """
@@ -520,19 +525,14 @@ class BAR_Environment:
         except Exception:
             pass
 
-    def end_of_session(self, return_code: int):
-        """
-        is called when the engine session ends
+    def _release_session(self) -> None:
+        session = self.session
 
-        Parameters
-        ----------
-        return_code : int
-            The exit code of the engine process.
-        """
-        if return_code == 0:
-            self.terminated = True
-        else:
-            self.truncated = True
+        if session is None:
+            return
+
+        self.session = None
+        self.engine_pool.release(session)
 
     def _create_observation_dictionary(self, unit_list: List[bar_ai.UnitData]):
         """
