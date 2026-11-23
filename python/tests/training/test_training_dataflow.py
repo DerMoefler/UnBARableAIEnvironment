@@ -9,6 +9,7 @@ import torch
 import bar_ai
 from src.train import training
 from src.train.mappo import trainerargs
+from src.environment.stepinfo import StepInfo
 
 
 MOVEMENT_TARGET_ID = 4211
@@ -168,6 +169,11 @@ def test_training_dataflow_one_combined_mappo_update(
                 list[bar_ai.Action]
             ] = []
 
+            self.episode_step = 0
+            self.stepinfo = StepInfo(
+                action_dim=5
+            )
+
             self.step_calls = 0
 
             env_instances.append(self)
@@ -178,8 +184,12 @@ def test_training_dataflow_one_combined_mappo_update(
             )
 
             self.step_calls = 0
+            self.episode_step = 0
             self.received_actions.clear()
             self.actions_per_step.clear()
+            self.stepinfo = StepInfo(
+                action_dim=5
+            )
 
             return (
                 self.observations,
@@ -224,6 +234,7 @@ def test_training_dataflow_one_combined_mappo_update(
             )
 
             self.step_calls += 1
+            self.episode_step += 1
 
             self.actions_per_step.append(
                 list(actions)
@@ -293,6 +304,7 @@ def test_training_dataflow_one_combined_mappo_update(
         ):
             self.config_path = config_path
             self.environments = []
+            self.maximum_steps = 1
 
         def initialize_environments(self):
             self.environments = [
@@ -306,6 +318,33 @@ def test_training_dataflow_one_combined_mappo_update(
                 environment.close()
 
             self.environments.clear()
+
+        def reset_environment(self, env_id: int):
+            return self.environments[env_id].reset()
+
+        def step_environments(
+            self,
+            actions_by_environment,
+        ):
+            return [
+                environment.step(actions)
+                if not environment.stepinfo.done
+                and environment.episode_step
+                < self.maximum_steps
+                else None
+                for environment, actions
+                in zip(
+                    self.environments,
+                    actions_by_environment,
+                    strict=True,
+                )
+            ]
+
+        def check_done(self):
+            return all(
+                environment.stepinfo.done
+                for environment in self.environments
+            )
 
     class SingleEpochTrainerArgs(
         trainerargs.TrainerArgs
