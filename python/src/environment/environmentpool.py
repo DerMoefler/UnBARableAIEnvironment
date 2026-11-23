@@ -17,13 +17,9 @@ class EnvironmentPool:
         self.maximum_steps = int(self.data.get("maximum_steps", 512))
         if self.maximum_steps <= 0:
             raise ValueError("maximum_steps must be greater than zero.")
-        self.maximum_steps = int(self.data.get("maximum_steps", 512))
-        if self.maximum_steps <= 0:
-            raise ValueError("maximum_steps must be greater than zero.")
         self.path = config_path
         self.environments: list[BAR_Environment] = []
         self.logger = logging.getLogger(__name__)
-        self._step_executor: ThreadPoolExecutor | None = None
         self._step_executor: ThreadPoolExecutor | None = None
         self.logger.info("Created Environmentpool")
 
@@ -34,10 +30,6 @@ class EnvironmentPool:
             self.environments.append(BAR_Environment.from_config(self.path, environment_id=i))
 
     def close_environements(self):
-        if self._step_executor is not None:
-            self._step_executor.shutdown(wait=True)
-            self._step_executor = None
-
         if self._step_executor is not None:
             self._step_executor.shutdown(wait=True)
             self._step_executor = None
