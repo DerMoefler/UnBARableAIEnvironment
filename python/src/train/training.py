@@ -552,7 +552,7 @@ def main(
     try:
         logger.info("Creating EnvironmentPool")
 
-        pool.initialize_environements()
+        pool.initialize_environments()
 
         if not pool.environments:
             raise RuntimeError("EnvironmentPool contains no environments.")
@@ -1411,7 +1411,7 @@ def main(
 
     finally:
         try:
-            pool.close_environements()
+            pool.close_environments()
         except Exception:
             logger.exception(
                 "Closing EnvironmentPool failed."

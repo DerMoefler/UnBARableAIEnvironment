@@ -31,7 +31,7 @@ class BAR_Environment:
         startscript_config: Optional[StartScriptConfig] = None,
         run_name: Optional[str] = None,
         environment_id: int = 0,
-        action_dimension: int = 0,
+        action_dimension,
     ):
         if max_episode_steps <= 0:
             raise ValueError(
@@ -259,7 +259,10 @@ class BAR_Environment:
             )
         )
 
-        action_dimension = int(config["action_dimension"])
+        action_dimension = config.get(
+            "action_dimension"
+            )
+            
 
         return cls(
             action_dimension = action_dimension,

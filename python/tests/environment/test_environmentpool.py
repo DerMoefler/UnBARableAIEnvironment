@@ -87,7 +87,7 @@ def test_step_environments_steps_concurrently_and_keeps_order() -> None:
             (1, ["env-1-action"]),
         ]
     finally:
-        pool.close_environements()
+        pool.close_environments()
 
 
 def test_step_environments_requires_actions_for_every_environment() -> None:
@@ -96,7 +96,7 @@ def test_step_environments_requires_actions_for_every_environment() -> None:
     with pytest.raises(ValueError, match="one action list per environment"):
         pool.step_environments([])
 
-    pool.close_environements()
+    pool.close_environments()
 
 
 def test_step_environments_skips_environment_at_maximum_steps() -> None:
@@ -119,7 +119,7 @@ def test_step_environments_skips_environment_at_maximum_steps() -> None:
         ]
         assert [environment.episode_step for environment in environments] == [1, 1]
     finally:
-        pool.close_environements()
+        pool.close_environments()
 
 
 def test_step_environments_skips_environment_marked_done() -> None:
@@ -131,4 +131,4 @@ def test_step_environments_skips_environment_marked_done() -> None:
         assert pool.step_environments([["unused-action"]]) == [None]
         assert environment.episode_step == 0
     finally:
-        pool.close_environements()
+        pool.close_environments()

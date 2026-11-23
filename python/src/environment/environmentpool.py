@@ -23,13 +23,13 @@ class EnvironmentPool:
         self._step_executor: ThreadPoolExecutor | None = None
         self.logger.info("Created Environmentpool")
 
-    def initialize_environements(self):
+    def initialize_environments(self):
         logging.info("Initializing Environments")
         self.environments = []
         for i in range(self.data["training"]["number_of_environments"]):
             self.environments.append(BAR_Environment.from_config(self.path, environment_id=i))
 
-    def close_environements(self):
+    def close_environments(self):
         if self._step_executor is not None:
             self._step_executor.shutdown(wait=True)
             self._step_executor = None

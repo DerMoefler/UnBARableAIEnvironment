@@ -294,12 +294,12 @@ def test_training_dataflow_one_combined_mappo_update(
             self.config_path = config_path
             self.environments = []
 
-        def initialize_environements(self):
+        def initialize_environments(self):
             self.environments = [
                 SimulatedBAREnvironment()
             ]
 
-        def close_environements(self):
+        def close_environments(self):
             for environment in (
                 self.environments
             ):
