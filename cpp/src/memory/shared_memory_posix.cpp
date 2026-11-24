@@ -337,6 +337,21 @@ void SharedMemoryPosix::extendSegmentTable(void) {
     auto newPartialTable = m_segmentTable.extend();
     write(newPartialTable, newPartialTable.getOffset());
     increaseSizeIfNecessary();
+
+    // Inline solution to update only the header and not the entire table on extension
+    using PartialTableSI = serialization::SerializeInformation<PartialSegmentTable>;
+    constexpr auto headerFieldOffset = serialization::getFieldOffset(
+        std::type_identity<PartialSegmentTable>{}, std::type_identity<PartialTableSI::F_Header>{});
+
+    auto tables = m_segmentTable.getPartialSegmentTables();
+    if (tables.size() >= 2) {
+        auto previousTable = tables.at(tables.size() - 2);
+        auto previousTableHeader = previousTable.getHeader();
+        const auto headerWriteOffset = previousTable.getOffset() + headerFieldOffset;
+        write(previousTableHeader, headerWriteOffset);
+        SPDLOG_LOGGER_TRACE(logger, "Updated link in previous partial segment table.");
+    }
+
     SPDLOG_LOGGER_TRACE(logger, "Extended SegmentTable.");
 }
 
