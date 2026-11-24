@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.environment.bar_environment import BAR_Environment
+from src.environment.engine_pool import EngineSessionPool
 
 
 class EnvironmentPool:
@@ -21,29 +22,45 @@ class EnvironmentPool:
         self.environments: list[BAR_Environment] = []
         self.logger = logging.getLogger(__name__)
         self._step_executor: ThreadPoolExecutor | None = None
+
+        self.engine_pool = EngineSessionPool.from_config(self.data)
         self.logger.info("Created Environmentpool")
 
     def initialize_environments(self):
         logging.info("Initializing Environments")
-        self.environments = []
-        for i in range(self.data["training"]["number_of_environments"]):
-            self.environments.append(BAR_Environment.from_config(self.path, environment_id=i))
+        try:
+            self.engine_pool.start()
+            for i in range(self.data["training"]["number_of_environments"]):
+                self.environments.append(
+                    BAR_Environment.from_config(
+                        self.path,
+                        self.engine_pool,
+                        environment_id=i,
+                    )
+                )
+        except Exception:
+            self.close_environments()
+            raise
 
     def close_environments(self):
-        if self._step_executor is not None:
-            self._step_executor.shutdown(wait=True)
-            self._step_executor = None
-
-        while self.environments:
-            environment = self.environments[-1]
+        try:
+            if self._step_executor is not None:
+                self._step_executor.shutdown(wait=True)
+                self._step_executor = None
+        finally:
             try:
-                environment.close()
-                self.logger.debug("env.close() done")
-            except Exception as close_err:
-                self.logger.warning("env.close(), error: %s", close_err)
+                while self.environments:
+                    environment = self.environments[-1]
+                    try:
+                        environment.close()
+                        self.logger.debug("env.close() done")
+                    except Exception as close_err:
+                        self.logger.warning("env.close(), error: %s", close_err)
+                    finally:
+                        self.environments.pop()
+                        self.logger.debug("removed environment from list")
             finally:
-                self.environments.pop()
-                self.logger.debug("removed environment from list")
+                self.engine_pool.close()
 
     def reset_environment(self, env_id: int) -> Any:
         if not self.environments:

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock, call
 
 import pytest
 
+from src.environment.bar_environment import BAR_Environment
 from src.environment.environmentpool import EnvironmentPool
 
 
@@ -45,7 +48,67 @@ def _make_pool(environments: list[Any]) -> EnvironmentPool:
     pool.logger = logging.getLogger(__name__)
     pool._step_executor = None
     pool.maximum_steps = 512
+    pool.engine_pool = MagicMock()
     return pool
+
+
+def test_initialize_environments_starts_and_shares_engine_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_pool = MagicMock()
+    pool = _make_pool([])
+    pool.engine_pool = engine_pool
+    pool.path = Path("training.json")
+    pool.data = {"training": {"number_of_environments": 2}}
+    environments = [MagicMock(), MagicMock()]
+    from_config = MagicMock(side_effect=environments)
+    monkeypatch.setattr(BAR_Environment, "from_config", from_config)
+
+    pool.initialize_environments()
+
+    engine_pool.start.assert_called_once_with()
+    assert pool.environments == environments
+    assert from_config.call_args_list == [
+        call(Path("training.json"), engine_pool, environment_id=0),
+        call(Path("training.json"), engine_pool, environment_id=1),
+    ]
+
+
+def test_initialize_environments_closes_pool_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine_pool = MagicMock()
+    pool = _make_pool([])
+    pool.engine_pool = engine_pool
+    pool.path = Path("training.json")
+    pool.data = {"training": {"number_of_environments": 2}}
+    first_environment = MagicMock()
+    from_config = MagicMock(
+        side_effect=[first_environment, RuntimeError("configuration failed")]
+    )
+    monkeypatch.setattr(BAR_Environment, "from_config", from_config)
+
+    with pytest.raises(RuntimeError, match="configuration failed"):
+        pool.initialize_environments()
+
+    first_environment.close.assert_called_once_with()
+    engine_pool.close.assert_called_once_with()
+    assert pool.environments == []
+
+
+def test_close_environments_closes_engines_after_environments() -> None:
+    events: list[str] = []
+    environment = MagicMock()
+    environment.close.side_effect = lambda: events.append("environment")
+    engine_pool = MagicMock()
+    engine_pool.close.side_effect = lambda: events.append("engine_pool")
+    pool = _make_pool([environment])
+    pool.engine_pool = engine_pool
+
+    pool.close_environments()
+
+    assert events == ["environment", "engine_pool"]
+    assert pool.environments == []
 
 
 def test_reset_environment_resets_only_the_requested_environment() -> None:
