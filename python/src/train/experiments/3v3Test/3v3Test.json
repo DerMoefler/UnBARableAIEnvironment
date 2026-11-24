@@ -24,7 +24,7 @@
         "continue_training"     : false,
         "buffer_size"           : 6000,
         "mini_batch"            : 4,
-        "episodes"              : 2,
+        "episodes"              : 100000,
         "number_of_environments": 1,
         "number_of_engines"     : 1,
         "save_every_x_episode"  : 1,
