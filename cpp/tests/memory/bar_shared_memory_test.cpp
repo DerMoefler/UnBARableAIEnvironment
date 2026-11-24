@@ -84,4 +84,23 @@ TEST(BarSharedMemoryTest, InitialObservation) {
     BarSharedMemory::remove(name);
 }
 
+// Test ShmPosix for size increase and PartialSegmentTable linking implicitly lol
+TEST(BarSharedMemoryTest, 100vs100) {
+    constexpr std::string_view name = "/shm-bar-100vs100";
+    constexpr EngineStatus status = EngineStatus::RUNNING;
+    constexpr GrpcConnection connection{50000};
+    constexpr std::size_t numUnits = 100;
+
+    auto shm = BarSharedMemory::create(name, status, connection, numUnits, numUnits);
+
+    // Some random operations
+    std::cout << "Before open" << std::endl;
+    auto openShm = BarSharedMemory::open(name);
+    std::cout << "After open" << std::endl;
+    // auto unitIds = openShm.getIdsForType(std::type_identity<BarSharedMemory::UnitDataOpt>{});
+    // EXPECT_EQ(unitIds.size(), 2 * numUnits);
+
+    BarSharedMemory::remove(name);
+}
+
 }  // namespace UnBARableAINS
