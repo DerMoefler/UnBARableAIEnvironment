@@ -12,7 +12,7 @@ using namespace memory;
 
 TEST(BarSharedMemoryTest, UpdateEngineSession) {
     constexpr std::string_view name = "/shm-bar-update-engine-session";
-    constexpr EngineStatus status = EngineStatus::GAME_ENDED;
+    constexpr EngineStatus status = EngineStatus::RUNNING;
     constexpr GrpcConnection connection{50000};
     constexpr std::size_t numAllyUnits = 3;
     constexpr std::size_t numEnemyUnits = 3;
