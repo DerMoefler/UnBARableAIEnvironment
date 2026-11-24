@@ -99,6 +99,10 @@ bool SegmentTable::isFull(void) const {
 const PartialSegmentTable& SegmentTable::extend(void) {
     const std::size_t index = m_partialSegmentTables.size();
     position_t offset = allocateChunk(c_partial_table_size);
+    // If the size is > 0 there is a previous table that has to link to the new one.
+    if (m_partialSegmentTables.size()) {
+        m_partialSegmentTables.back().updateNextPartialTablePosition(static_cast<link_t>(offset));
+    }
     m_partialSegmentTables.push_back(PartialSegmentTable(offset, index));
     m_segments.insert(m_segments.end(), PartialSegmentTable::c_segments_count, std::nullopt);
     return m_partialSegmentTables[index];
@@ -111,7 +115,7 @@ void SegmentTable::advanceSegmentInformationHead(const id_t segmentId,
 }
 
 std::size_t SegmentTable::validSegmentsCount(void) const {
-    std::size_t count {0};
+    std::size_t count{0};
     for (const auto& table : m_partialSegmentTables) {
         count += table.validSegmentsCount();
     }

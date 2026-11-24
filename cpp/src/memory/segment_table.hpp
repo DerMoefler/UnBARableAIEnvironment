@@ -65,6 +65,12 @@ public:
      */
     bool isFull(void) const;
 
+    /**
+     * \brief Extends the SegmentTable.
+     *
+     * \note This function does create a link between the current last partial segment table (if
+     * there is one) and the new one, but you are responsible to update that link manually.
+     */
     [[nodiscard("The new PartialSegmentTable must be written to the physical shm.")]]
     const PartialSegmentTable& extend(void);
 
