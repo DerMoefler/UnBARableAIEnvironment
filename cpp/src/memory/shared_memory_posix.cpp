@@ -298,7 +298,7 @@ void SharedMemoryPosix::increaseSizeIfNecessary(void) {
     position_t head = m_segmentTable.getHead();
     if (head > m_size) {
         const std::size_t requiredSize = head - static_cast<position_t>(m_size);
-        const std::size_t sizeIncrease = (requiredSize / c_size_increase) * (c_size_increase + 1);
+        const std::size_t sizeIncrease = (requiredSize / c_size_increase + 1) * (c_size_increase);
         increaseSize(sizeIncrease);
         SPDLOG_LOGGER_TRACE(logger, "Increased size by {}", sizeIncrease);
     }
