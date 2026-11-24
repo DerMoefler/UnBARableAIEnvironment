@@ -12,7 +12,6 @@
 #define UNBAR_MMAP_FLAG MAP_SHARED_VALIDATE
 #endif
 
-#include <algorithm>
 #include <cassert>
 #include <stdexcept>
 #include <spdlog/spdlog.h>
@@ -70,16 +69,17 @@ SharedMemoryPosix SharedMemoryPosix::create(std::string_view name) {
 }
 
 SharedMemoryPosix SharedMemoryPosix::open(std::string_view name) {
-    SharedMemoryPosix vThis(name);
-    vThis.m_id = shm_open(vThis.m_name.c_str(), O_RDWR, 0600);
-    if (vThis.m_id == -1) {
+    SharedMemoryPosix result(name);
+    result.m_id = shm_open(result.m_name.c_str(), O_RDWR, 0600);
+    if (result.m_id == -1) {
         throw std::system_error(errno, std::generic_category(), "shm_open failed");
     }
 
-    vThis.update();
+    result.update();
 
-    SPDLOG_LOGGER_INFO(logger, "Opened shared memory \"{}\"", name);
-    return vThis;
+    SPDLOG_LOGGER_INFO(logger, "Opened shared memory \"{}\" with size of {} (bytes).", name,
+                       result.m_size);
+    return result;
 }
 
 SharedMemoryPosix::SharedMemoryPosix(SharedMemoryPosix&& other)
@@ -392,16 +392,22 @@ std::vector<PartialSegmentTable> SharedMemoryPosix::readPartialSegmentTables(voi
 
     std::vector<PartialSegmentTable> result;
 
-    std::optional<position_t> nextOffset = shmStart;
+    // The position at which we read, the first partial segment table must start at shm start.
+    std::optional<position_t> readOffset = shmStart;
 
-    while (nextOffset.has_value()) {
-        auto table = read<PartialSegmentTable>(nextOffset.value());
-        table.setOffset(nextOffset.value());
-        nextOffset = table.nextPartialTablePosition();
+    while (readOffset.has_value()) {
+        auto table = read<PartialSegmentTable>(readOffset.value());
+        table.setOffset(readOffset.value());
+        auto nextReadOffset = table.nextPartialTablePosition();
         result.push_back(std::move(table));
+
+        SPDLOG_LOGGER_TRACE(
+            logger, "Read partial segment table at {}. Links to {}", readOffset.value(),
+            nextReadOffset.has_value() ? std::to_string(nextReadOffset.value()) : "std::nullopt");
+        readOffset = nextReadOffset;
     }
 
-    SPDLOG_LOGGER_DEBUG(logger, "Number of partial tables read: {}", result.size());
+    SPDLOG_LOGGER_DEBUG(logger, "Read {} partial segment tables.", result.size());
 
     return result;
 }
