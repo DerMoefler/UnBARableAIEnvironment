@@ -63,51 +63,86 @@ def _make_rnn_state_arrays(
 def _episode_metrics(
     info: dict[str, Any],
 ) -> dict[str, Any]:
-    """
-    Extract episode metrics from BAR_Environment info.
-    """
-    outcome = info.get("episode_outcome")
+    outcome = info.get(
+        "episode_outcome"
+    )
+
+    reward_info = info.get(
+        "reward_info",
+        {},
+    )
+
+    if not isinstance(
+        reward_info,
+        dict,
+    ):
+        reward_info = {}
 
     return {
         "won": outcome == "won",
         "lost": outcome == "lost",
-        "own_alive_count": info.get(
-            "own_alive_count"
+        "own_alive_count": (
+            info.get(
+                "own_alive_count"
+            )
+            if info.get(
+                "own_alive_count"
+            ) is not None
+            else reward_info.get(
+                "own_alive_count"
+            )
         ),
-        "enemy_alive_count": info.get(
-            "enemy_alive_count"
+        "enemy_alive_count": (
+            info.get(
+                "enemy_alive_count"
+            )
+            if info.get(
+                "enemy_alive_count"
+            ) is not None
+            else reward_info.get(
+                "enemy_alive_count"
+            )
+        ),
+        "own_health_sum": float(
+            reward_info.get(
+                "own_health_sum",
+                0.0,
+            )
+        ),
+        "enemy_health_sum": float(
+            reward_info.get(
+                "enemy_health_sum",
+                0.0,
+            )
         ),
         "enemy_damage_done": float(
-            info.get(
-                "reward_info",
-                {},
-            ).get(
+            reward_info.get(
                 "enemy_damage_done",
                 0.0,
             )
-            if isinstance(
-                info.get("reward_info"),
-                dict,
-            )
-            else 0.0
         ),
         "own_damage_taken": float(
-            info.get(
-                "reward_info",
-                {},
-            ).get(
+            reward_info.get(
                 "own_damage_taken",
                 0.0,
             )
-            if isinstance(
-                info.get("reward_info"),
-                dict,
-            )
-            else 0.0
         ),
-        "info_keys": sorted(info.keys()),
+        "enemy_kills": int(
+            reward_info.get(
+                "enemy_kills",
+                0,
+            )
+        ),
+        "own_deaths": int(
+            reward_info.get(
+                "own_deaths",
+                0,
+            )
+        ),
+        "info_keys": sorted(
+            info.keys()
+        ),
     }
-
 
 # ---------------------------------------------------------------------------
 # Configuration and logging
