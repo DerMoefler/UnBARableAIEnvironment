@@ -36,7 +36,7 @@ public:
                                   Entries entries)
         : m_offset(offset)
         , m_header(header)
-        , m_index(entries[0].getId() % c_segments_count)
+        , m_index(entries[0].getId() / c_segments_count)
         , m_entries(std::move(entries)) {
         if (entries[0].getId() % c_segments_count) {
             throw std::invalid_argument(
@@ -62,6 +62,13 @@ public:
         m_entries[id] = m_entries[id].updateLink(link);
     }
 
+    /**
+     * \brief Updates link to next table in header.
+     */
+    constexpr void updateNextPartialTablePosition(const std::optional<link_t> link) {
+        m_header = m_header.updateLink(link);
+    }
+
     /// \brief Default comparison operator.
     constexpr bool operator==(const PartialSegmentTable& rhs) const = default;
 
@@ -83,7 +90,7 @@ public:
      * \returns Number of valid segemnts.
      */
     constexpr std::size_t validSegmentsCount(void) const {
-        std::size_t count {c_segments_count};
+        std::size_t count{c_segments_count};
         for (const auto& entry : m_entries) {
             if (!entry.doesSegmentExist()) {
                 count--;
@@ -95,6 +102,8 @@ public:
     constexpr position_t getOffset(void) const { return m_offset; }
 
     constexpr void setOffset(position_t offset) { m_offset = offset; }
+
+    constexpr SegmentTableHeader getHeader(void) const { return m_header; }
 
     constexpr const Entries& getEntries(void) const { return m_entries; }
 

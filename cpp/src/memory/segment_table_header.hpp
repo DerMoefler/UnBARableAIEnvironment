@@ -69,7 +69,7 @@ public:
     constexpr std::optional<link_t> getLink(void) const { return m_link; }
 
 private:
-    const std::optional<link_t> m_link;
+    std::optional<link_t> m_link;
 };
 
 }  // namespace memory

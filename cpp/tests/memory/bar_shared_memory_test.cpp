@@ -12,7 +12,7 @@ using namespace memory;
 
 TEST(BarSharedMemoryTest, UpdateEngineSession) {
     constexpr std::string_view name = "/shm-bar-update-engine-session";
-    constexpr EngineStatus status = EngineStatus::GAME_ENDED;
+    constexpr EngineStatus status = EngineStatus::RUNNING;
     constexpr GrpcConnection connection{50000};
     constexpr std::size_t numAllyUnits = 3;
     constexpr std::size_t numEnemyUnits = 3;
@@ -80,6 +80,25 @@ TEST(BarSharedMemoryTest, InitialObservation) {
     for (std::size_t i = 0; i < units.size(); i++) {
         EXPECT_EQ(readActions[i], actions[i]);
     }
+
+    BarSharedMemory::remove(name);
+}
+
+// Test ShmPosix for size increase and PartialSegmentTable linking implicitly lol
+TEST(BarSharedMemoryTest, 100vs100) {
+    constexpr std::string_view name = "/shm-bar-100vs100";
+    constexpr EngineStatus status = EngineStatus::RUNNING;
+    constexpr GrpcConnection connection{50000};
+    constexpr std::size_t numUnits = 100;
+
+    auto shm = BarSharedMemory::create(name, status, connection, numUnits, numUnits);
+
+    // Some random operations
+    std::cout << "Before open" << std::endl;
+    auto openShm = BarSharedMemory::open(name);
+    std::cout << "After open" << std::endl;
+    // auto unitIds = openShm.getIdsForType(std::type_identity<BarSharedMemory::UnitDataOpt>{});
+    // EXPECT_EQ(unitIds.size(), 2 * numUnits);
 
     BarSharedMemory::remove(name);
 }

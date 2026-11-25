@@ -61,6 +61,11 @@ on my pc with wsl the image had a different name there i have to run this comman
 CONTAINER_IMAGE=recoil-build-amd64-linux:latest docker-build-v2/build.sh linux
 ```
 
+if you want to use podman run this command:
+```console
+CONTAINER_RUNTIME=podman CONTAINER_IMAGE=recoil-build-amd64-linux:latest docker-build-v2/build.sh linux
+```
+
 ## Problems with Engine Build
 
 - if you dont have the image yet check the last part in the [ImageReadme](RecoilEngine/docker-build-v2/README.md)
