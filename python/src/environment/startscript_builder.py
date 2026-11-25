@@ -66,7 +66,7 @@ def _parse_unit_composition(
 
         if any(
             character in unit_name
-            for character in "\n\r;:{},"
+            for character in "\n\r;:{}|,"
         ):
             raise ValueError(
                 "Invalid unit name in "
@@ -342,7 +342,7 @@ class StartScriptConfig:
 
                 if any(
                     character in unit_name
-                    for character in "\n\r;:{},"
+                    for character in "\n\r;:{}|,"
                 ):
                     raise ValueError(
                         f"Invalid unit name in "

@@ -2,6 +2,11 @@ from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from tests.src.helpers import (
+    IntegrationScenario,
+    create_scenario_config,
+    load_base_config,
+)
 
 import numpy as np
 import torch
@@ -364,55 +369,42 @@ def test_training_dataflow_one_combined_mappo_update(
 
             return self.train_info
 
-    config_path = Path(
-        "src/train/experiments/3v3Test/"
-        "3v3Test.json"
+    run_name = "dataflow_test"
+
+    scenario = IntegrationScenario(
+        name=run_name,
+        self_play=False,
+        number_of_agents=len(
+            OWN_UNIT_IDS
+        ),
+        number_of_enemies=enemy_count,
+        number_of_engines=1,
+        maximum_steps=1,
     )
 
-    (
-        config,
-        training_config,
-        mappo_config,
-    ) = training.load_training_config(
-        config_path
+    base_config = load_base_config()
+
+    config = create_scenario_config(
+        base_config=base_config,
+        scenario=scenario,
+        run_name=run_name,
     )
 
-    config = config.copy()
-    training_config = (
-        training_config.copy()
-    )
-    mappo_config = (
-        mappo_config.copy()
+    config["model_name"] = (
+        "r_mappo_latest.pt"
     )
 
-    training_config["mappo"] = (
-        mappo_config
-    )
+    config["adapter"] = {
+        "position_scale": 1000.0,
+    }
 
-    config["training"] = (
-        training_config
-    )
+    training_config = config[
+        "training"
+    ]
 
-    run_name = (
-        "dataflow_test"
-    )
-
-    config.update(
-        {
-            "run_name": run_name,
-            "device": "cpu",
-            "model_name": (
-                "r_mappo_latest.pt"
-            ),
-            "number_of_agents": 3,
-            "number_of_enemies": 3,
-            "action_dimension": 5,
-            "self_play": False,
-            "adapter": {
-                "position_scale": 1000.0,
-            },
-        }
-    )
+    mappo_config = training_config[
+        "mappo"
+    ]
 
     training_config.update(
         {

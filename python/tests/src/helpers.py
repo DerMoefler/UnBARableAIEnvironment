@@ -80,14 +80,6 @@ def create_scenario_config(
     config["run_name"] = run_name
     config["device"] = "cpu"
 
-    config["number_of_agents"] = (
-        scenario.number_of_agents
-    )
-
-    config["number_of_enemies"] = (
-        scenario.number_of_enemies
-    )
-
     config["self_play"] = (
         scenario.self_play
     )
@@ -112,10 +104,18 @@ def create_scenario_config(
     )
 
     engine_config["mode"] = "training"
-    engine_config["unit"] = engine_config.get(
-        "unit",
-        "armpw",
-    )
+    engine_config["units"] = {
+        "own": {
+            "armpw": (
+                scenario.number_of_agents
+            ),
+        },
+        "enemy": {
+            "armpw": (
+                scenario.number_of_enemies
+            ),
+        },
+    }
     engine_config["spawn_spacing"] = int(
         engine_config.get(
             "spawn_spacing",

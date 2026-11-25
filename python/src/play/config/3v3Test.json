@@ -3,8 +3,6 @@
     "device"                : "auto",
     "model_name"            : "r_mappo_latest.pt",
 
-    "number_of_agents"      : 3,
-    "number_of_enemies"     : 3,
     "action_dimension"      : 5,
 
     "adapter": {
@@ -13,7 +11,18 @@
 
     "engine": {
         "mode": "play_against_human",
-        "unit": "armpw",
+        "units": {
+            "own": {
+                "armpw": 4,
+                "armrock": 2,
+                "armham": 1
+            },
+            "enemy": {
+                "corak": 3,
+                "corstorm": 2,
+                "corthud": 2
+            }
+        },
         "spawn_spacing": 80,
 
         "human_player": {
