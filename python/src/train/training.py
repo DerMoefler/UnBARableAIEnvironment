@@ -1565,11 +1565,12 @@ def main(
                 step_count,
             )
             logger.info(
-                "Terminated: %s",
+                "Episode end: outcome=%s "
+                "terminated=%s truncated=%s",
+                final_step_info.get(
+                    "episode_outcome"
+                ),
                 terminated,
-            )
-            logger.info(
-                "Truncated: %s",
                 truncated,
             )
 
@@ -1637,29 +1638,40 @@ def main(
                         team_id
                     ],
                 )
-            logger.info(
-                "Combined PPO Train Info: %s",
-                train_info,
-            )
-            logger.info(
+            logger.debug(
                 "Last Info Keys: %s",
                 last_info_keys,
             )
-            logger.info(
+            logger.debug(
                 "Final Step Info: %s",
                 final_step_info,
             )
             logger.info(
-                "Combined  Value Loss: %.6f",
+                "PPO: value_loss=%.6f "
+                "policy_loss=%.6f entropy=%.6f "
+                "actor_grad=%.3f critic_grad=%.3f "
+                "ratio=%.4f",
                 value_loss,
-            )
-            logger.info(
-                "Combined  Policy Loss: %.6f",
                 policy_loss,
-            )
-            logger.info(
-                "Combined  Entropy: %.6f",
                 entropy,
+                float(
+                    train_info.get(
+                        "actor_grad_norm",
+                        0.0,
+                    )
+                ),
+                float(
+                    train_info.get(
+                        "critic_grad_norm",
+                        0.0,
+                    )
+                ),
+                float(
+                    train_info.get(
+                        "ratio",
+                        0.0,
+                    )
+                ),
             )
 
             # -----------------------------------------------------------

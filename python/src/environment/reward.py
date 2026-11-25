@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from logging import config
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Iterable
 from src.environment.episode_outcome import EpisodeOutcome
 from src.environment.unit_data_memory import UnitMemory
 import bar_ai
@@ -24,16 +24,21 @@ class RewardCalculator:
     """Calculates training rewards from per-step team statistics."""
     
 
-    def __init__(self, training_team_id: int, config: RewardConfig) -> None:
+    def __init__(self, training_team_id: int, enemy_team_ids: Iterable[int], config: RewardConfig) -> None:
         self.training_team_id = training_team_id
+        self.enemy_team_ids = tuple(
+            int(team_id)
+            for team_id in enemy_team_ids
+        )
         self.config = config
+
         self.prev_own_health_sum = 0.0
         self.prev_enemy_health_sum = 0.0
         self.prev_own_alive_count = 0
         self.prev_enemy_alive_count = 0
         self.initialized = False
         self.last_info: Dict[str, Any] = {}
-        self.unit_memory = UnitMemory(self.training_team_id)
+        self.unit_memory = UnitMemory(training_team_id=self.training_team_id, enemy_team_ids=self.enemy_team_ids)
 
     def reset(self, units: List[bar_ai.UnitData]) -> None:
         """Set the initial reward baseline for an episode."""

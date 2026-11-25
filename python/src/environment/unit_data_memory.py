@@ -21,10 +21,40 @@ class UnitMemory:
     If an enemy disappears from the current observation, its latest UnitData
     remains stored. Disappearance is interpreted as LOS loss, not death.
     """
+    def __init__(
+        self,
+        training_team_id: int,
+        enemy_team_ids: Iterable[int],
+    ) -> None:
+        self.training_team_id = int(
+            training_team_id
+        )
 
-    def __init__(self, training_team_id: int) -> None:
-        self.training_team_id = int(training_team_id)
-        self._enemies: Dict[int, UnitMemoryEntry] = {}
+        self.enemy_team_ids = {
+            int(team_id)
+            for team_id in enemy_team_ids
+        }
+
+        if (
+            self.training_team_id
+            in self.enemy_team_ids
+        ):
+            raise ValueError(
+                "training_team_id must not be "
+                "contained in enemy_team_ids."
+            )
+
+        if not self.enemy_team_ids:
+            raise ValueError(
+                "At least one enemy team ID "
+                "must be configured."
+            )
+
+        self._enemies: Dict[
+            int,
+            UnitMemoryEntry,
+        ] = {}
+
         self._current_step = 0
 
     def reset(
@@ -56,7 +86,11 @@ class UnitMemory:
         visible_enemy_ids: Set[int] = set()
 
         for unit in visible_units:
-            if int(unit.team_id) == self.training_team_id:
+            unit_team_id = int(
+                unit.team_id
+            )
+
+            if unit_team_id not in self.enemy_team_ids:
                 continue
 
             unit_id = int(unit.unit_id)

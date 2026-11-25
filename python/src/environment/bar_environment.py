@@ -96,15 +96,24 @@ class BAR_Environment:
         self.current_team_id = self.unbarable_ai_team_ids[0]
         self.current_team_index = 0
 
-        self.reward_calculators: Dict[
-            int,
-            RewardCalculator,
-        ] = {
+        match_team_ids = (              #TODO: later handled by engine pool
+            startscript_config.training_team_id,
+            startscript_config.opponent_team_id,
+        )
+
+        self.reward_calculators = {
             team_id: RewardCalculator(
                 training_team_id=team_id,
+                enemy_team_ids=tuple(
+                    other_team_id
+                    for other_team_id
+                    in match_team_ids
+                    if other_team_id != team_id
+                ),
                 config=reward_config,
             )
-            for team_id in self.unbarable_ai_team_ids
+            for team_id
+            in self.unbarable_ai_team_ids
         }
 
         self.reward_initialized_teams: set[int] = set()
