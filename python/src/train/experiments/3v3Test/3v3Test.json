@@ -3,8 +3,6 @@
     "device"                : "auto",
     "model_name"            : "r_mappo_latest.pt",
 
-    "number_of_agents"      : 10,
-    "number_of_enemies"     : 10,
     "action_dimension"      : 5,
     "self_play"             : false,
 
@@ -24,7 +22,7 @@
         "continue_training"     : false,
         "buffer_size"           : 6000,
         "mini_batch"            : 4,
-        "episodes"              : 500,
+        "episodes"              : 2,
         "number_of_environments": 1,
         "number_of_engines"     : 1,
         "save_every_x_episode"  : 1,
@@ -41,8 +39,20 @@
 
     "engine": {
         "mode": "training",
-        "unit": "armpw",
         "spawn_spacing": 80,
+
+        "units": {
+            "own": {
+                "armpw": 4,
+                "armrock": 2,
+                "armham": 1
+            },
+            "enemy": {
+                "corak": 3,
+                "corstorm": 2,
+                "corthud": 2
+            }
+        },
 
         "ai_options": {
             "update_interval_frames": 2,
@@ -50,6 +60,7 @@
             "first_update_frame": 2
         }
     },
+
 
     "logging": {
         "level": "INFO",

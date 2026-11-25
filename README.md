@@ -105,3 +105,10 @@ scp -r projekt@ki-vm:/home/projekt/bar-data-new080926/bar-data/ .
 cd RecoilEngine
 podman unshare rm -rf build-amd64-linux
 ```
+
+## Demos
+to see a demo run:
+
+```console
+./build-amd64-linux/install/spring --isolation-dir ~/bar-data --write-dir ~/bar-data/instances/engine-000/ '~/bar-data/instances/engine-000/demos/...' 
+```

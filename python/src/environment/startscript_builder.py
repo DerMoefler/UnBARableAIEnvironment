@@ -9,14 +9,118 @@ class EngineMode(str, Enum):
     TRAINING = "training"
     PLAY_AGAINST_HUMAN = "play_against_human"
 
+def _parse_unit_composition(
+    value: Any,
+    *,
+    config_path: str,
+) -> tuple[tuple[str, int], ...]:
+    """
+    Parse a JSON object such as:
+
+        {
+            "armpw": 4,
+            "armrock": 2
+        }
+
+    The tuple representation is immutable and preserves
+    the order from the JSON configuration.
+    """
+    if not isinstance(
+        value,
+        Mapping,
+    ):
+        raise ValueError(
+            f"{config_path} must be a JSON object "
+            "mapping unit names to counts."
+        )
+
+    if not value:
+        raise ValueError(
+            f"{config_path} must contain at least "
+            "one unit type."
+        )
+
+    composition: list[
+        tuple[str, int]
+    ] = []
+
+    for raw_unit_name, raw_count in (
+        value.items()
+    ):
+        if not isinstance(
+            raw_unit_name,
+            str,
+        ):
+            raise ValueError(
+                f"{config_path} contains a non-string "
+                f"unit name: {raw_unit_name!r}."
+            )
+
+        unit_name = raw_unit_name.strip()
+
+        if not unit_name:
+            raise ValueError(
+                f"{config_path} contains an empty "
+                "unit name."
+            )
+
+        if any(
+            character in unit_name
+            for character in "\n\r;:{},"
+        ):
+            raise ValueError(
+                "Invalid unit name in "
+                f"{config_path}: {unit_name!r}."
+            )
+
+        if (
+            not isinstance(raw_count, int)
+            or isinstance(raw_count, bool)
+        ):
+            raise ValueError(
+                f"{config_path}.{unit_name} must "
+                "be an integer."
+            )
+
+        if raw_count <= 0:
+            raise ValueError(
+                f"{config_path}.{unit_name} must "
+                "be greater than zero."
+            )
+
+        composition.append(
+            (
+                unit_name,
+                raw_count,
+            )
+        )
+
+    return tuple(
+        composition
+    )
 
 @dataclass(frozen=True)
 class StartScriptConfig:
     mode: EngineMode = EngineMode.TRAINING
+    own_units: tuple[
+        tuple[str, int],
+        ...
+    ] = (
+        (
+            "armpw",
+            3,
+        ),
+    )
 
-    number_of_agents: int = 3
-    number_of_enemies: int = 3
-    unit: str = "armpw"
+    enemy_units: tuple[
+        tuple[str, int],
+        ...
+    ] = (
+        (
+            "armpw",
+            3,
+        ),
+    )
     spawn_spacing: int = 80
 
     training_team_id: int = 0
@@ -29,12 +133,89 @@ class StartScriptConfig:
 
     human_player_name: str = "Human"
 
+    @property
+    def number_of_agents(
+        self,
+    ) -> int:
+        return sum(
+            count
+            for _, count
+            in self.own_units
+        )
+
+
+    @property
+    def number_of_enemies(
+        self,
+    ) -> int:
+        return sum(
+            count
+            for _, count
+            in self.enemy_units
+        )
+
+
+    @property
+    def own_unit_names(
+        self,
+    ) -> tuple[str, ...]:
+        return tuple(
+            unit_name
+            for unit_name, _
+            in self.own_units
+        )
+
+
+    @property
+    def enemy_unit_names(
+        self,
+    ) -> tuple[str, ...]:
+        return tuple(
+            unit_name
+            for unit_name, _
+            in self.enemy_units
+        )
+
+
     @classmethod
     def from_config(
         cls,
         config: Mapping[str, Any],
     ) -> "StartScriptConfig":
         engine_config = config.get("engine", {})
+        if not isinstance(
+            engine_config,
+            Mapping,
+        ):
+            raise ValueError(
+                "'engine' must be a JSON object."
+            )
+        units_config = engine_config.get(
+            "units"
+        )
+
+        if not isinstance(
+            units_config,
+            Mapping,
+        ):
+            raise ValueError(
+                "'engine.units' must be a JSON object "
+                "containing 'own' and 'enemy'."
+            )
+
+        own_units = _parse_unit_composition(
+            units_config.get(
+                "own"
+            ),
+            config_path="engine.units.own",
+        )
+
+        enemy_units = _parse_unit_composition(
+            units_config.get(
+                "enemy"
+            ),
+            config_path="engine.units.enemy",
+        )
         ai_config = engine_config.get("ai_options", {})
         human_config = engine_config.get("human_player", {})
 
@@ -56,28 +237,47 @@ class StartScriptConfig:
 
         startscript_config = cls(
             mode=mode,
-            number_of_agents=config["number_of_agents"],
-            number_of_enemies=config["number_of_enemies"],
-            unit=engine_config.get("unit", "armpw"),
-            spawn_spacing=engine_config.get(
-                "spawn_spacing",
-                80,
+            own_units=own_units,
+            enemy_units=enemy_units,
+            spawn_spacing=int(
+                engine_config.get(
+                    "spawn_spacing",
+                    80,
+                )
+            ),
+            training_team_id=int(
+                engine_config.get(
+                    "training_team_id",
+                    0,
+                )
+            ),
+            opponent_team_id=int(
+                engine_config.get(
+                    "opponent_team_id",
+                    1,
+                )
             ),
             self_play=config.get(
                 "self_play",
                 False,
             ),
-            update_interval_frames=ai_config.get(
-                "update_interval_frames",
-                2,
+            update_interval_frames=int(
+                ai_config.get(
+                    "update_interval_frames",
+                    2,
+                )
             ),
-            move_step_size=ai_config.get(
-                "move_step_size",
-                100.0,
+            move_step_size=float(
+                ai_config.get(
+                    "move_step_size",
+                    100.0,
+                )
             ),
-            first_update_frame=ai_config.get(
-                "first_update_frame",
-                2,
+            first_update_frame=int(
+                ai_config.get(
+                    "first_update_frame",
+                    2,
+                )
             ),
             human_player_name=human_config.get(
                 "name",
@@ -89,28 +289,88 @@ class StartScriptConfig:
         return startscript_config
 
     def validate(self) -> None:
-        if self.number_of_agents < 1:
-            raise ValueError(
-                "number_of_agents must be at least 1"
-            )
-
-        if self.number_of_enemies < 1:
-            raise ValueError(
-                "number_of_enemies must be at least 1"
-            )
-
         if not isinstance(self.self_play, bool):
             raise TypeError(
                 "self_play must be a boolean value"
             )
 
-        if not self.unit or not self.unit.strip():
-            raise ValueError("unit must not be empty")
-
-        if any(char in self.unit for char in "\n\r;:{}"):
+        if not self.own_units:
             raise ValueError(
-                f"Invalid unit name for startscript: {self.unit!r}"
+                "own_units must contain at least "
+                "one unit type."
             )
+
+        if not self.enemy_units:
+            raise ValueError(
+                "enemy_units must contain at least "
+                "one unit type."
+            )
+
+        if self.number_of_agents < 1:
+            raise ValueError(
+                "The own-unit composition must spawn "
+                "at least one unit."
+            )
+
+        if self.number_of_enemies < 1:
+            raise ValueError(
+                "The enemy-unit composition must spawn "
+                "at least one unit."
+            )
+
+        for composition_name, composition in (
+            (
+                "own_units",
+                self.own_units,
+            ),
+            (
+                "enemy_units",
+                self.enemy_units,
+            ),
+        ):
+            seen_unit_names: set[str] = set()
+
+            for unit_name, count in composition:
+                if (
+                    not isinstance(unit_name, str)
+                    or not unit_name.strip()
+                ):
+                    raise ValueError(
+                        f"{composition_name} contains "
+                        "an invalid unit name."
+                    )
+
+                if any(
+                    character in unit_name
+                    for character in "\n\r;:{},"
+                ):
+                    raise ValueError(
+                        f"Invalid unit name in "
+                        f"{composition_name}: "
+                        f"{unit_name!r}."
+                    )
+
+                if unit_name in seen_unit_names:
+                    raise ValueError(
+                        f"Duplicate unit name in "
+                        f"{composition_name}: "
+                        f"{unit_name!r}."
+                    )
+
+                seen_unit_names.add(
+                    unit_name
+                )
+
+                if (
+                    not isinstance(count, int)
+                    or isinstance(count, bool)
+                    or count <= 0
+                ):
+                    raise ValueError(
+                        f"Invalid count for "
+                        f"{composition_name}.{unit_name}: "
+                        f"{count!r}."
+                    ) 
 
         if self.spawn_spacing <= 0:
             raise ValueError(
@@ -308,12 +568,20 @@ class StartScriptBuilder:
             max_speed = "20"
             start_speed = "1"
 
-        agent_spawn = (
-            f"{self.cfg.unit}:{self.cfg.number_of_agents}"
+        agent_spawn = self._format_unit_spawn(
+            self.cfg.own_units
         )
 
-        enemy_spawn = (
-            f"{self.cfg.unit}:{self.cfg.number_of_enemies}"
+        enemy_spawn = self._format_unit_spawn(
+            self.cfg.enemy_units
+        )
+
+        agent_allowed = self._format_allowed_units(
+            self.cfg.own_units
+        )
+
+        enemy_allowed = self._format_allowed_units(
+            self.cfg.enemy_units
         )
 
         return f"""\
@@ -325,10 +593,10 @@ class StartScriptBuilder:
         deathmode = killall;
 
         rl_team1_spawn = {agent_spawn};
-        rl_team1_allowed = {self.cfg.unit};
+        rl_team1_allowed = {agent_allowed};
 
         rl_team2_spawn = {enemy_spawn};
-        rl_team2_allowed = {self.cfg.unit};
+        rl_team2_allowed = {enemy_allowed};
 
         rl_spawn_spacing = {self.cfg.spawn_spacing};
         rl_remove_initial = all;
@@ -406,4 +674,49 @@ class StartScriptBuilder:
     NoLuaIntro = 0;
 }}
 """
+        )
+
+    @staticmethod
+    def _format_unit_spawn(
+        composition: tuple[
+            tuple[str, int],
+            ...
+        ],
+    ) -> str:
+        """
+        Convert the composition to the RLStart spawn format.
+
+        Example:
+            (("armpw", 4), ("armrock", 2))
+
+        Result:
+            armpw:4|armrock:2
+        """
+        return "|".join(
+            f"{unit_name}:{count}"
+            for unit_name, count
+            in composition
+        )
+
+
+    @staticmethod
+    def _format_allowed_units(
+        composition: tuple[
+            tuple[str, int],
+            ...
+        ],
+    ) -> str:
+        """
+        Convert the composition to the RLStart allowlist format.
+
+        Example:
+            (("armpw", 4), ("armrock", 2))
+
+        Result:
+            armpw|armrock
+        """
+        return "|".join(
+            unit_name
+            for unit_name, _
+            in composition
         )

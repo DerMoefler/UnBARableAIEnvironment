@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from src.environment.environmentpool import EnvironmentPool
+from src.environment.startscript_builder import StartScriptConfig
 from src.train.mappo.obs_r_mappo import (
     PreparedStep,
     RMAPPOObservationAdapter,
@@ -567,12 +568,18 @@ def main(
 
         reference_team_id = unbarable_ai_team_ids[0]
 
-        number_of_agents = int(
-            config["number_of_agents"]
+        startscript_config = ( #TODO: delete this when engine pool comes
+            StartScriptConfig.from_config(
+                config
+            )
         )
 
-        number_of_enemies = int(
-            config["number_of_enemies"]
+        number_of_agents = (
+            startscript_config.number_of_agents #TODO: startscript config as a member of engine pool so you can read it from there
+        )
+
+        number_of_enemies = (
+            startscript_config.number_of_enemies #TODO: startscript config as a member of engine pool so you can read it from there
         )
 
         shared_max_enemy_slots = max(
