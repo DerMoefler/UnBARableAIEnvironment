@@ -42,14 +42,10 @@
 
         "units": {
             "own": {
-                "armpw": 4,
-                "armrock": 2,
-                "armham": 1
+                "armpw": 3
             },
             "enemy": {
-                "corak": 3,
-                "corstorm": 2,
-                "corthud": 2
+                "armpw": 3
             }
         },
 
