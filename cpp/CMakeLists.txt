@@ -75,6 +75,7 @@ if(UNBARABLEAI_BUILD_TESTS)
         tests/memory/shared_memory_posix_test.cpp
         tests/memory/partially_linked_list_information_test.cpp
         tests/memory/segment_information_test.cpp
+        tests/serialization/engine_information.cpp
         tests/serialization/layout_test.cpp
         tests/serialization/serialization_test.cpp
         tests/main.cpp

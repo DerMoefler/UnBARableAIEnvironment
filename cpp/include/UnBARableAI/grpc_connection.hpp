@@ -12,6 +12,7 @@ namespace UnBARableAINS {
  * into BarSharedMemory.
  */
 struct GrpcConnection {
+    bool operator==(const GrpcConnection& other) const = default;
     /// \brief Port of the gRPC server.
     std::uint16_t port;
 };
