@@ -369,12 +369,25 @@ def test_training_dataflow_one_combined_mappo_update(
 
             return self.train_info
 
-    config_path = Path(
-        "./experiments/3v3Test/"
-        "config.json"
-    )
 
     run_name = "dataflow_test"
+
+    test_experiment_directory = (
+        tmp_path
+        / "experiments"
+        / run_name
+    )
+
+    test_config_path = (
+        test_experiment_directory
+        / "config.json"
+    )
+
+    test_run_directory = (
+        test_experiment_directory
+        / "run"
+    )
+
 
     scenario = IntegrationScenario(
         name=run_name,
@@ -428,12 +441,6 @@ def test_training_dataflow_one_combined_mappo_update(
             "learning_rate": 1e-4,
             "gamma": 0.99,
         }
-    )
-
-    test_run_directory = (
-        tmp_path
-        / run_name
-        / "run"
     )
 
     original_save_checkpoint = (
@@ -498,6 +505,27 @@ def test_training_dataflow_one_combined_mappo_update(
                 training,
                 "_save_checkpoint",
                 save_checkpoint_to_tmp,
+            )
+        )
+
+        patches.enter_context(
+            patch.object(
+                training,
+                "resolve_experiment_paths",
+                return_value=(
+                    training.ExperimentPaths(
+                        run_name=run_name,
+                        experiment_directory=(
+                            test_experiment_directory
+                        ),
+                        config_path=(
+                            test_config_path
+                        ),
+                        run_directory=(
+                            test_run_directory
+                        ),
+                    )
+                ),
             )
         )
 
