@@ -1,5 +1,4 @@
 {
-    "run_name"              : "3v3Test",
     "device"                : "auto",
     "model_name"            : "r_mappo_latest.pt",
 
