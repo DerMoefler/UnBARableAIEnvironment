@@ -1,0 +1,29 @@
+#+title: Plan
+
+* Meetings
+** Meeting 1
+SCHEDULED: <2026-11-26 Thu 18:00>
+*** 10vs10 Pawns
+*** Verschiedene Units in Config eingeben
+*** Run-name beim Training angeben
+*** Build auf dem Server läuft
+*** Plakat Vorlage
+** Meeting 2
+SCHEDULED: <2026-11-30 Mon 12:00>
+*** 10vs11, 20vs23 Pawns
+*** 20vs20 mit verschiedenen Units
+*** Parallelisierung fertig oder abbruch
+** Meeting 3 vor Ort (hoffentlich mit Henseler)
+SCHEDULED: <2026-12-01 Tue 10:00>
+*** 100vs100 Pawns
+*** Vorschlag für Stand
+*** (Map mit Hügeln für neue Szenarios)
+** Meeting 4
+SCHEDULED: <2026-12-04 Fri 18:00>
+*** Fertiges, ausgedrucktes Plakat
+*** TBD Szenarios
+** Meeting 5 vor Ort
+SCHEDULED: <2026-12-07 Mon 9:45>
+*** Präsentation (mit Üben)
+*** TBD Szenarios
+*** Aufbauen
