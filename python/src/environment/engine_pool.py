@@ -223,7 +223,7 @@ class EngineSessionPool:
             return
 
 
-        self._wait_for_ready(slot_id, timeout=20.0)
+        self._wait_for_ready(slot_id, timeout=300.0)
 
         if engine_slot.state is SessionState.FAILED:
             return
@@ -245,7 +245,7 @@ class EngineSessionPool:
                     f"Actual state: {engine_slot.state.name}"
                 )
 
-        self._wait_for_ready(slot_id, timeout=20.0)
+        self._wait_for_ready(slot_id, timeout=300.0)
 
         with self._lock:
             if engine_slot.state == SessionState.FAILED:

@@ -29,7 +29,7 @@
         "mini_batch"            : 4,
         "episodes"              : 2,
         "number_of_environments": 2,
-        "number_of_engines"     : 3,
+        "number_of_engines"     : 2,
         "save_every_x_episode"  : 1,
         "maximum_steps"         : 1000,
         "mappo": {

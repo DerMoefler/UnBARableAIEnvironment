@@ -299,7 +299,7 @@ class BAR_Environment:
 
         # TODO check if we need to somehow check the team id or something?
         if self.session is None:
-            self.session = self.engine_pool.acquire(timeout=180.0)
+            self.session = self.engine_pool.acquire(timeout=300.0)
 
         self.logger.info(
             "Engine session started. Waiting for first "

@@ -15,7 +15,7 @@ class EnvironmentPool:
     def __init__(self, config_path: Path):
         with open(config_path,"r") as config_data:
             self.data = json.load(config_data)
-        self.maximum_steps = int(self.data.get("maximum_steps", 512))
+        self.maximum_steps = int(self.data["training"]["maximum_steps"])
         if self.maximum_steps <= 0:
             raise ValueError("maximum_steps must be greater than zero.")
         self.path = config_path
