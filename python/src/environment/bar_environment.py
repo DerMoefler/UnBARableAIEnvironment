@@ -28,7 +28,7 @@ class BAR_Environment:
         max_episode_steps: int = 512,
         reward_config: Optional[RewardConfig] = None,
         startscript_config: Optional[StartScriptConfig] = None,
-        run_name: Optional[str] = None,
+        experiment_directory: Path | None = None,
         environment_id: int = 0,
         environment_log_level: int = logging.INFO,
     ):
@@ -43,16 +43,16 @@ class BAR_Environment:
             f"environment{environment_id}"
         )
 
-        if run_name is not None:
+        if experiment_directory is not None:
             timestamp = datetime.now().strftime(
                 "%Y-%m-%d_%H-%M-%S"
             )
 
             self.logger = get_file_logger(
                 logger_name,
-                Path(
-                    f"src/train/experiments/{run_name}/"
-                    f"{run_name}_environment"
+                experiment_directory
+                / (
+                    f"environment_id_"
                     f"{environment_id}_{timestamp}.log"
                 ),
                 level=environment_log_level,
@@ -139,6 +139,10 @@ class BAR_Environment:
             config_path
         ).expanduser().resolve()
 
+        experiment_directory = (
+            config_path.parent
+        )
+
         if not config_path.is_file():
             raise FileNotFoundError(
                 "Environment configuration not found: "
@@ -162,17 +166,7 @@ class BAR_Environment:
                 "be a JSON object."
             )
 
-        run_name = config.get(
-            "run_name"
-        )
-
-        if (
-            not isinstance(run_name, str)
-            or not run_name.strip()
-        ):
-            raise ValueError(
-                "'run_name' must be a non-empty string."
-            )
+        
 
         if max_episode_steps is None:
             training_config = config.get(
@@ -328,7 +322,7 @@ class BAR_Environment:
             startscript_config=(
                 startscript_config
             ),
-            run_name=run_name,
+            experiment_directory=experiment_directory,
             environment_id=environment_id,
             environment_log_level=environment_log_level
         )

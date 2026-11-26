@@ -40,8 +40,8 @@ class IntegrationScenario:
 
 def load_base_config() -> dict[str, Any]:
     config_path = Path(
-        "src/train/experiments/3v3Test/"
-        "3v3Test.json"
+        "./experiments/3v3Test/"
+        "config.json"
     )
 
     if not config_path.is_file():
@@ -71,13 +71,11 @@ def create_scenario_config(
     *,
     base_config: dict[str, Any],
     scenario: IntegrationScenario,
-    run_name: str,
 ) -> dict[str, Any]:
     config = copy.deepcopy(
         base_config
     )
 
-    config["run_name"] = run_name
     config["device"] = "cpu"
 
     config["self_play"] = (

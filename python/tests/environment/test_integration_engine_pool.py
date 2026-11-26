@@ -35,14 +35,10 @@ def test_pool_starts_publishes_acquires_releases_and_closes_real_engines(tmp_pat
         load_base_config()
     )
 
-    run_name = (
-        "integration_engine_pool_normal_3v3"
-    )
 
     config = create_scenario_config(
         base_config=base_config,
         scenario=scenario,
-        run_name=run_name,
     )
 
     config_path = write_config(

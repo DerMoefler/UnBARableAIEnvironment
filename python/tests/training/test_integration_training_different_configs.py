@@ -62,7 +62,6 @@ SCENARIOS = (
 )
 def test_real_bar_training_scenarios(
     scenario: IntegrationScenario,
-    tmp_path: Path,
 ):
     """
     Full integration test.
@@ -91,14 +90,13 @@ def test_real_bar_training_scenarios(
     )
 
     experiment_directory = (
-        Path("src/train/experiments")
+        Path("./experiments")
         / run_name
     )
 
     config_path = (
-        tmp_path
-        / scenario.name
-        / "training_config.json"
+        experiment_directory
+        / "config.json"
     )
 
     base_config = load_base_config()
@@ -107,7 +105,6 @@ def test_real_bar_training_scenarios(
         create_scenario_config(
             base_config=base_config,
             scenario=scenario,
-            run_name=run_name,
         )
     )
 
@@ -165,7 +162,7 @@ def test_real_bar_training_scenarios(
             tracked_train_multiple,
         ):
             training.main(
-                config_path=config_path
+                run_name=run_name
             )
 
         # --------------------------------------------------------

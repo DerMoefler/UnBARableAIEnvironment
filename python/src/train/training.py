@@ -5,6 +5,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import argparse
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -27,10 +29,109 @@ logger = logging.getLogger(__name__)
 
 
 
+EXPERIMENTS_DIRECTORY = Path(
+    "./experiments"
+)
+
+
+@dataclass(frozen=True)
+class ExperimentPaths:
+    run_name: str
+    experiment_directory: Path
+    config_path: Path
+    run_directory: Path
+
 # ---------------------------------------------------------------------------
 # Training helpers
 # ---------------------------------------------------------------------------
 
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Train an R-MAPPO policy for one "
+            "configured BAR experiment."
+        )
+    )
+
+    parser.add_argument(
+        "run_name",
+        help=(
+            "Name of the experiment folder below "
+            "src/train/experiments, for example "
+            "'3v3Test'."
+        ),
+    )
+
+    return parser.parse_args()
+
+def resolve_experiment_paths(
+    run_name: str,
+) -> ExperimentPaths:
+    normalized_run_name = (
+        run_name.strip()
+    )
+
+    if not normalized_run_name:
+        raise ValueError(
+            "run_name must not be empty."
+        )
+
+    run_name_path = Path(
+        normalized_run_name
+    )
+
+    if (
+        run_name_path.name
+        != normalized_run_name
+    ):
+        raise ValueError(
+            "run_name must be a folder name "
+            "without path components: "
+            f"{run_name!r}."
+        )
+
+    if normalized_run_name in {
+        ".",
+        "..",
+    }:
+        raise ValueError(
+            "run_name must identify an experiment "
+            "folder."
+        )
+
+    experiment_directory = (
+        EXPERIMENTS_DIRECTORY
+        / normalized_run_name
+    )
+
+    if not experiment_directory.is_dir():
+        raise FileNotFoundError(
+            "Experiment directory not found: "
+            f"{experiment_directory}"
+        )
+
+    config_path = (
+        experiment_directory
+        / "config.json"
+    )
+
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            "Experiment configuration not found: "
+            f"{config_path}"
+        )
+
+    return ExperimentPaths(
+        run_name=normalized_run_name,
+        experiment_directory=(
+            experiment_directory
+        ),
+        config_path=config_path,
+        run_directory=(
+            experiment_directory
+            / "run"
+        ),
+    )
 
 def _make_rnn_state_arrays(
     num_agents: int,
@@ -185,13 +286,18 @@ def load_training_config(
 def configure_logging(
     config: dict[str, Any],
     timestamp: str,
+    *,
+    experiment_directory: Path,
 ) -> None:
     logging_config = config.get(
         "logging",
         {},
     )
 
-    if not isinstance(logging_config, dict):
+    if not isinstance(
+        logging_config,
+        dict,
+    ):
         raise ValueError(
             "'logging' must be a JSON object."
         )
@@ -211,21 +317,18 @@ def configure_logging(
 
     if not isinstance(level, int):
         raise ValueError(
-            f"Invalid logging level: {level_name!r}"
+            f"Invalid logging level: "
+            f"{level_name!r}"
         )
 
-    log_directory = (
-        Path("src/train/experiments")
-        / config["run_name"]
-    )
-
-    log_directory.mkdir(
+    experiment_directory.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    log_path = log_directory / (
-        f"{config['run_name']}_{timestamp}.log"
+    log_path = (
+        experiment_directory
+        / f"Training_{timestamp}.log"
     )
 
     logging.basicConfig(
@@ -246,7 +349,10 @@ def configure_logging(
         {},
     )
 
-    if not isinstance(module_levels, dict):
+    if not isinstance(
+        module_levels,
+        dict,
+    ):
         raise ValueError(
             "'logging.modules' must be "
             "a JSON object."
@@ -266,11 +372,14 @@ def configure_logging(
             None,
         )
 
-        if not isinstance(module_level, int):
+        if not isinstance(
+            module_level,
+            int,
+        ):
             raise ValueError(
                 "Invalid logging level "
-                f"{module_level_name!r} for module "
-                f"{module_name!r}."
+                f"{module_level_name!r} for "
+                f"module {module_name!r}."
             )
 
         logging.getLogger(
@@ -443,16 +552,23 @@ def _save_checkpoint(
 
 
 def main(
-    config_path: Path | None = None,
+    run_name: str,
 ) -> None:
-    if config_path is None:
-        config_path = Path(
-            "src/train/experiments/3v3Test/"
-            "3v3Test.json"
-        )
+    paths = resolve_experiment_paths(
+        run_name
+    )
+
+    (
+        config,
+        training_config,
+        mappo_config,
+    ) = load_training_config(
+        paths.config_path
+    )
+
 
     config, training_config, mappo_config = load_training_config(
-        config_path
+        paths.config_path
     )
 
     timestamp = datetime.now().strftime(
@@ -462,6 +578,9 @@ def main(
     configure_logging(
         config=config,
         timestamp=timestamp,
+        experiment_directory=(
+            paths.experiment_directory
+        ),
     )
 
     logger.info("Starting training")
@@ -480,9 +599,7 @@ def main(
     )
 
     run_directory = (
-        Path("src/train/experiments")
-        / config["run_name"]
-        / "run"
+        paths.run_directory
     )
 
     run_directory.mkdir(
@@ -512,17 +629,22 @@ def main(
 
     logger.info(
         "run_name=%s",
-        config["run_name"],
+        paths.run_name,
+    )
+
+    logger.info(
+        "config_path=%s",
+        paths.config_path,
     )
     logger.info(
         "run_directory=%s",
-        run_directory,
+        paths.run_directory,
     )
 
     success = False
 
     pool = EnvironmentPool(
-        config_path
+        paths.config_path
     )
 
     try:
@@ -1739,7 +1861,7 @@ def main(
         logger.exception(
             "Exception occurred during "
             "%s training.",
-            config["run_name"],
+            paths.run_name,
         )
         raise
 
@@ -1755,17 +1877,21 @@ def main(
             print(
                 "Simulated %s training "
                 "complete!"
-                % config["run_name"],
+                % paths.run_name,
                 flush=True,
             )
         else:
             print(
                 "Simulated %s training "
                 "aborted due to an error."
-                % config["run_name"],
+                % paths.run_name,
                 flush=True,
             )
 
 
 if __name__ == "__main__":
-    main()
+    arguments = parse_arguments()
+
+    main(
+        run_name=arguments.run_name,
+    )

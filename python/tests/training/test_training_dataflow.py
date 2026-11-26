@@ -370,10 +370,10 @@ def test_training_dataflow_one_combined_mappo_update(
             return self.train_info
 
     config_path = Path(
-        "src/train/experiments/3v3Test/"
-        "3v3Test.json"
+        "./experiments/3v3Test/"
+        "config.json"
     )
-    
+
     run_name = "dataflow_test"
 
     scenario = IntegrationScenario(
@@ -392,7 +392,6 @@ def test_training_dataflow_one_combined_mappo_update(
     config = create_scenario_config(
         base_config=base_config,
         scenario=scenario,
-        run_name=run_name,
     )
 
     config["model_name"] = (
@@ -503,7 +502,7 @@ def test_training_dataflow_one_combined_mappo_update(
         )
 
         training.main(
-            config_path=config_path
+            run_name=run_name
         )
 
     # ------------------------------------------------------------
