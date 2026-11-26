@@ -1,13 +1,21 @@
 #+title: Plan
+#+TODO: OPEN(o) REWORK(r) | RESOLVED(d) DROPPED(x)
+#+TAGS: ron(r) dorian(d) lukas(o) lennart(l)
 
 * Meetings
 ** Meeting 1
 SCHEDULED: <2026-11-26 Thu 18:00>
-*** 10vs10 Pawns
-*** Verschiedene Units in Config eingeben
-*** Run-name beim Training angeben
-*** Build auf dem Server läuft
+*** REWORK 10vs10 Pawns
+*** RESOLVED Verschiedene Units in Config eingeben
+*** REWORK Run-name beim Training angeben
+*** RESOLVED Build auf dem Server läuft
 *** Plakat Vorlage
+** Meeting 1.5
+SCHEDULED: <2026-11-28 Sa 13:15>
+*** OPEN 10vs10 Pawns :lennart:
+*** OPEN Run-name beim Training angeben :dorian:
+*** OPEN Truncated muss an Engine kommuniziert werden :ron:
+*** OPEN Tutorial für Connection und Internet, sshs keys und so :ron:
 ** Meeting 2
 SCHEDULED: <2026-11-30 Mon 12:00>
 *** 10vs11, 20vs23 Pawns
