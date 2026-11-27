@@ -8,11 +8,12 @@
 #include <type_traits>
 #include <utility>
 
-#include "serialize_information.h"
-#include "layout_update_context.hpp"
-#include "layout_value_recursion_context.hpp"
-#include "debug/type_name.hpp"
 #include "memory/shared_memory_types.h"
+#include "serialization/layout_value_recursion_context.hpp"
+#include "serialization/layout_update_context.hpp"
+#include "serialization/serialize_information.h"
+#include "serialization/trivial_serializable.hpp"
+#include "serialization/debug/type_name.hpp"
 #include "utility/string_view_helper.hpp"
 
 namespace UnBARableAINS {
@@ -83,9 +84,9 @@ public:
     }
 
     Layout(const S& value)
-        requires detail::FundamentalSerializable<S>
+        requires TrivialSerializable<S>
     {
-        m_inlinedSize = SI::c_serialized_size;
+        m_inlinedSize = getSerializableSize(std::type_identity<S>{});
         m_deepSize = m_inlinedSize;
     }
 
