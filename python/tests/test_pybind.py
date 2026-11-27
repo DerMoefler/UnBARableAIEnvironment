@@ -211,14 +211,13 @@ def test_units(
 def populated_shared_memory(test_units, action):
     """
     Creates a shared memory with:
-    0. EngineStatus = RUNNING
-    1. GrpcConnection with port 12345
-    2. Friendly Agent
-    3. Friendly Unit
-    4. Enemy 1
-    5. Enemy 2
-    6. Action
-    7. Action [= None]
+    0. EngineInformation (EngineStatus=RUNNING, GrpcConnection.port=12345, isTruncated=false)
+    1. Friendly Agent
+    2. Friendly Unit
+    3. Enemy 1
+    4. Enemy 2
+    5. Action
+    6. Action [= None]
 
     Die erste Unit bestimmt die eigene Team-ID.
     """
@@ -253,7 +252,7 @@ def populated_shared_memory(test_units, action):
 
         shared_memory.update_action(action_serializable_ids[0], action)
 
-        serializable_ids = [0, 1, *unit_serializable_ids, *action_serializable_ids]
+        serializable_ids = [0, *unit_serializable_ids, *action_serializable_ids]
 
         yield {
             "name": shared_memory_name,
@@ -468,9 +467,9 @@ def test_serializable_ids_follow_write_order(
         populated_shared_memory["serializable_ids"]
     )
 
-    assert serializable_ids == [0, 1, 2, 3, 4, 5, 6, 7], (
+    assert serializable_ids == [0, 1, 2, 3, 4, 5, 6], (
         "Unerwartete Serializable-ID-Reihenfolge. "
-        "Erwartet [0, 1, 2, 3, 4, 5, 6, 7], "
+        "Erwartet [0, 1, 2, 3, 4, 5, 6], "
         f"erhalten {serializable_ids!r}"
     )
 
