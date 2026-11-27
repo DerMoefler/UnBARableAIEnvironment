@@ -464,7 +464,21 @@ private:
         layout->visitNodesByInlining(funcBase, funcRecursive);
     }
 
+    template <serialization::TrivialSerializable S>
+    S readImpl(const serialization::Layout<S>* layout) const {
+        constexpr std::size_t serializableSize =
+            serialization::getSerializableSize(std::type_identity<S>{});
+
+        assert(layout->getSegmentId().has_value() && "Layout must have an ID here.");
+        const auto serialized = m_sharedMemoryImpl.readSegment(layout->getSegmentId().value());
+        assert(serialized.size() == serializableSize && "Wrong size for Serializable.");
+        const std::span<const std::byte, serializableSize> serializedView{serialized.data(),
+                                                                          serializableSize};
+        return serialization::deserialize<S>(serializedView);
+    }
+
     template <serialization::Serializable S>
+        requires(not serialization::TrivialSerializable<S>)
     S readImpl(const serialization::Layout<S>* layout) const {
         using Layout = serialization::Layout<S>;
         using SI = typename Layout::SI;
