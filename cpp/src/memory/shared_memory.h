@@ -125,6 +125,8 @@ public:
         m_idAllocator.setUsedIds(
             std::set<id::id_t>(serializableIds.begin(), serializableIds.end()));
         change |= oldAllocator != m_idAllocator;
+        SPDLOG_LOGGER_DEBUG(detail::shmLogger, "Updated shared-memory \"{}\". Changes detected: {}",
+                            getName(), change);
         return change;
     }
 
@@ -161,7 +163,8 @@ public:
      * \throws std::out_of_range if serializableId is outside of the range.
      */
     ValueVariant read(id::id_t serializableId) const {
-        // std::cout << "SharedMemory::read\n";
+        SPDLOG_LOGGER_TRACE(detail::shmLogger, "Attempting to read Serializable with ID={}",
+                            serializableId);
         const LayoutVariant& layout = getLayoutVariant(serializableId);
 
         return std::visit([&](auto&& layout) -> ValueVariant { return readImpl(&layout); }, layout);
@@ -464,12 +467,12 @@ private:
         using Context = ShmReadContext<ValueType, T>;
 
         if constexpr (Context::c_is_fully_deserializable) {
-            // std::cout << "SharedMemory::readImpl: Fully deserializable\n";
+            SPDLOG_LOGGER_TRACE(detail::shmLogger, "(Base Case) Fully deserializable");
             Context context{layout, m_sharedMemoryImpl, {}};
             return context.deserialize();
         }
         else {
-            // std::cout << "SharedMemory::readImpl: Not fully deserializable (recursing)\n";
+            SPDLOG_LOGGER_TRACE(detail::shmLogger, "(Recursive Case) Not fully deserializable");
             using ConstructibleFields = typename Context::ConstructibleFields;
             using ConstructibleValueTypes = typename Context::ConstructibleValueTypes;
             using ConstructiblesTuple = typename Context::ConstructiblesTuple;
