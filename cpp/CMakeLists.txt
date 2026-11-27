@@ -78,6 +78,7 @@ if(UNBARABLEAI_BUILD_TESTS)
         tests/serialization/engine_information.cpp
         tests/serialization/layout_test.cpp
         tests/serialization/serialization_test.cpp
+        tests/serialization/trivial_serializable_test.cpp
         tests/main.cpp
     )
 

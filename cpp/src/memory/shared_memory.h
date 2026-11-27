@@ -346,7 +346,6 @@ private:
     LayoutVariant buildLayout(const id::id_t mainSegmentId, const id::id_t typeIndex) {
         if (typeIndex == i + 1) {
             using Serializable = std::tuple_element_t<i, std::tuple<SupportedTypes...>>;
-            Serializable value{};
             serialization::Layout<Serializable> layout{};
             layout.template update<ShmContext>(ShmLayoutUpdateContext<Serializable, T>{
                 &layout, m_sharedMemoryImpl, mainSegmentId});

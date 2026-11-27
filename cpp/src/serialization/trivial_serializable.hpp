@@ -35,7 +35,7 @@ struct IsFieldConstantSize_MF {
     /// \brief Implemenation.
     static consteval bool impl(void) {
         if constexpr (MultiField<F>) {
-            return true;
+            return false;
         }
         else if constexpr (ConstSize<UnderlyingType>) {
             return true;
