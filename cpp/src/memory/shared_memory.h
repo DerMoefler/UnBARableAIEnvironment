@@ -350,8 +350,13 @@ private:
         if (typeIndex == i + 1) {
             using Serializable = std::tuple_element_t<i, std::tuple<SupportedTypes...>>;
             serialization::Layout<Serializable> layout{};
-            layout.template update<ShmContext>(ShmLayoutUpdateContext<Serializable, T>{
-                &layout, m_sharedMemoryImpl, mainSegmentId});
+            if constexpr (serialization::TrivialSerializable<Serializable>) {
+                layout.setSegmentId(mainSegmentId);
+            }
+            else {
+                layout.template update<ShmContext>(ShmLayoutUpdateContext<Serializable, T>{
+                    &layout, m_sharedMemoryImpl, mainSegmentId});
+            }
             return layout;
         }
         if constexpr (i + 1 < sizeof...(SupportedTypes)) {
