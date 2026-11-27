@@ -8,30 +8,27 @@
 #include <vector>
 #include <utility>
 
-#include "action.h"
-#include "engine_status.h"
-#include "grpc_connection.hpp"
 #include "serialization/serialize_information.h"
 #include "serialization/trivial_serializable.hpp"
-#include "unit_data.h"
+#include "UnBARableAI/action.h"
+#include "UnBARableAI/engine_information.hpp"
+#include "UnBARableAI/engine_status.h"
+#include "UnBARableAI/grpc_connection.hpp"
+#include "UnBARableAI/unit_data.h"
 
 #include <memory/shared_memory.h>
 #include <memory/shared_memory_types.h>
 #include <memory/shared_memory_posix.h>
 
 #include <serialization/action.tpp>
+#include <serialization/engine_information.tpp>
 #include <serialization/enum.tpp>
 #include <serialization/floating_point.tpp>
 #include <serialization/grpc_connection.tpp>
 #include <serialization/optional.tpp>
 #include <serialization/unit_data.tpp>
-// The optional include must be after UnitData and
 
 #include <utility/typelist.h>
-
-static_assert(
-    UnBARableAINS::serialization::Serializable<std::optional<UnBARableAINS::GrpcConnection>>,
-    "Doesnt work");
 
 namespace UnBARableAINS::memory {
 
@@ -40,11 +37,10 @@ namespace UnBARableAINS::memory {
  *
  * The expected order of UnitData objects in shared memory is:
  *
- * 0. EngineStatus
- * 1. gRpcConnection
- * 2. All units belonging to the own team.
- * 3. All currently visible enemy units.
- * 4. Actions for ally units.
+ * 0. EngineInformation
+ * 1. All units belonging to the own team.
+ * 2. All currently visible enemy units.
+ * 3. Actions for ally units.
  *
  * The team_id of the first stored UnitData object is interpreted as
  * the own team ID.
@@ -74,8 +70,7 @@ public:
      * of the named types.
      * \note We use std::optional UnitDatas and Actions rather than the plain types.
      */
-    using Impl =
-        SharedMemory<SharedMemoryPosix, EngineStatus, GrpcConnection, UnitDataOpt, ActionOpt>;
+    using Impl = SharedMemory<SharedMemoryPosix, EngineInformation, UnitDataOpt, ActionOpt>;
 
     /// \brief Type alias for the ValueVariant of the implementation, i.e.
     /// std::variant<SupportedTypes...>
@@ -87,10 +82,7 @@ public:
     using SerializableId = memory::id_t;
 
     /// \brief SerializableId for the EngineStatus.
-    static constexpr SerializableId c_engine_status_id = 0;
-
-    /// \brief SerializableId for the gRpcConnection.
-    static constexpr SerializableId c_grpc_connection_id = 1;
+    static constexpr SerializableId c_engine_information_id = 0;
 
     /**
      * \brief Creates a new POSIX shared-memory region with EngineStatus, GrpcConnection and empty
@@ -347,6 +339,8 @@ private:
      * constructed through create() or open().
      */
     explicit BarSharedMemory(Impl impl);
+
+    EngineInformation getEngineInformation(void) const;
 
     /**
      * \brief Helper method to throw (and log an error) for invalid ids.

@@ -1,6 +1,7 @@
 #include "../../include/UnBARableAI/bar_shared_memory.h"
 
 #include <format>
+#include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <stdexcept>
@@ -8,6 +9,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+
 #include "UnBARableAI/grpc_connection.hpp"
 
 static auto logger = spdlog::stdout_color_mt("BarSharedMemory");
@@ -21,23 +23,22 @@ BarSharedMemory BarSharedMemory::create(const std::string_view name, const Engin
                                         const GrpcConnection& connection,
                                         const std::size_t initialNumAllyUnits,
                                         const std::size_t initialNumEnemyUnits) {
-    const std::size_t numSerializables = 2 + initialNumAllyUnits * 2 + initialNumEnemyUnits;
+    const std::size_t numSerializables = 1 + initialNumAllyUnits * 2 + initialNumEnemyUnits;
     auto impl = Impl::create(name, numSerializables);
     // 0. Engine Status
-    const auto engineStatusId = impl.write<EngineStatus>(status);
-    throwOnInvalidId(c_engine_status_id, engineStatusId, "EngineStatus");
-    // 1 .Connection
-    const auto connectionId = impl.write<GrpcConnection>(connection);
-    throwOnInvalidId(c_grpc_connection_id, connectionId, "GrpcConnection");
-    // 2. Ally units
+    const EngineInformation information = {
+        .engineStatus = status, .grpcConnection = connection, .isTruncated = false};
+    const auto engineInformationId = impl.write<EngineInformation>(information);
+    throwOnInvalidId(c_engine_information_id, engineInformationId, "EngineInformation");
+    // 1. Ally units
     for (std::size_t i = 0; i < initialNumAllyUnits; i++) {
         impl.write<UnitDataOpt>(std::nullopt);
     }
-    // 3. Enemy units
+    // 2. Enemy units
     for (std::size_t i = 0; i < initialNumEnemyUnits; i++) {
         impl.write<UnitDataOpt>(std::nullopt);
     }
-    // 4. Actions
+    // 3. Actions
     for (std::size_t i = 0; i < initialNumAllyUnits; i++) {
         impl.write<ActionOpt>(std::nullopt);
     }
@@ -48,6 +49,7 @@ BarSharedMemory BarSharedMemory::create(const std::string_view name, const Engin
 
 BarSharedMemory BarSharedMemory::open(const std::string_view name) {
     BarSharedMemory result{Impl::open(name)};
+    SPDLOG_LOGGER_DEBUG(logger, "Shared-memory implementation opened successfully");
 
     auto throwOnSerializablesCountMismtach = []<typename T, typename Allocator>(
                                                  const std::vector<T, Allocator>& vector,
@@ -60,15 +62,10 @@ BarSharedMemory BarSharedMemory::open(const std::string_view name) {
         }
     };
 
-    std::vector<SerializableId> statusIds{};
-    const auto statuses = result.readAll<EngineStatus>(&statusIds);
-    throwOnSerializablesCountMismtach(statuses, "EngineStatus");
-    throwOnInvalidId(c_engine_status_id, statusIds.at(0), "EngineStatus");
-
-    std::vector<SerializableId> connectionIds{};
-    const auto connections = result.readAll<GrpcConnection>(&connectionIds);
-    throwOnSerializablesCountMismtach(connections, "GrpcConnection");
-    throwOnInvalidId(c_grpc_connection_id, connectionIds.at(0), "GrpcConnection");
+    std::vector<SerializableId> informationIds{};
+    const auto informations = result.readAll<EngineInformation>(&informationIds);
+    throwOnSerializablesCountMismtach(informations, "EngineInformation");
+    throwOnInvalidId(c_engine_information_id, informationIds.at(0), "EngineStatus");
 
     SPDLOG_LOGGER_INFO(logger, "Opened BarSharedMemory \"{}\"", name);
     return result;
@@ -116,15 +113,24 @@ auto BarSharedMemory::getEmptyUnitSlot(const std::set<SerializableId>& excludeId
 }
 
 void BarSharedMemory::updateEngineStatus(const EngineStatus status) {
-    m_sharedMemory.updateSerializable(c_engine_status_id, status);
+    auto information = getEngineInformation();
+    if (information.engineStatus == status) {
+        SPDLOG_LOGGER_DEBUG(logger, "Status is already set to {}, skipping write.",
+                            magic_enum::enum_name(status));
+        return;
+    }
+    information.engineStatus = status;
+    m_sharedMemory.updateSerializable(c_engine_information_id, information);
 }
 
 EngineStatus BarSharedMemory::getEngineStatus(void) const {
-    return std::get<EngineStatus>(m_sharedMemory.read(c_engine_status_id));
+    const auto information = getEngineInformation();
+    return information.engineStatus;
 }
 
 GrpcConnection BarSharedMemory::getGrpcConnection(void) const {
-    return std::get<GrpcConnection>(m_sharedMemory.read(c_grpc_connection_id));
+    const auto information = getEngineInformation();
+    return information.grpcConnection;
 }
 
 int BarSharedMemory::getOwnTeamId() { return resolveOwnTeamId(); }
@@ -154,6 +160,12 @@ int BarSharedMemory::resolveOwnTeamId() {
     }
 
     throw std::runtime_error("Cannot determine own team ID because all UnitDataOpts are empty.");
+}
+
+EngineInformation BarSharedMemory::getEngineInformation(void) const {
+    const auto result = m_sharedMemory.read(c_engine_information_id);
+    SPDLOG_LOGGER_TRACE(logger, "Read EngineInformation from shared-memory");
+    return std::get<EngineInformation>(result);
 }
 
 void BarSharedMemory::throwOnInvalidId(const SerializableId expectedId,
