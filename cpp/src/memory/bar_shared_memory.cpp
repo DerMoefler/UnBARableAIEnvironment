@@ -133,6 +133,22 @@ GrpcConnection BarSharedMemory::getGrpcConnection(void) const {
     return information.grpcConnection;
 }
 
+void BarSharedMemory::setTruncated(const bool isTruncated) {
+    auto information = getEngineInformation();
+    if (information.isTruncated == isTruncated) {
+        SPDLOG_LOGGER_DEBUG(logger, "isTruncated is already set to {}, skipping write.",
+                            isTruncated);
+        return;
+    }
+    information.isTruncated = isTruncated;
+    m_sharedMemory.updateSerializable(c_engine_information_id, information);
+}
+
+bool BarSharedMemory::isTruncated(void) const {
+    const auto information = getEngineInformation();
+    return information.isTruncated;
+}
+
 int BarSharedMemory::getOwnTeamId() { return resolveOwnTeamId(); }
 
 int BarSharedMemory::resolveOwnTeamId() {

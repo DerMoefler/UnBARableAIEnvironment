@@ -25,6 +25,21 @@ TEST(BarSharedMemoryTest, UpdateEngineSession) {
     BarSharedMemory::remove(name);
 }
 
+TEST(BarSharedMemoryTest, Truncated) {
+    constexpr std::string_view name = "/shm-bar-update-engine-session";
+    constexpr EngineStatus status = EngineStatus::RUNNING;
+    constexpr GrpcConnection connection{50000};
+    constexpr std::size_t numAllyUnits = 3;
+    constexpr std::size_t numEnemyUnits = 3;
+
+    auto shm = BarSharedMemory::create(name, status, connection, numAllyUnits, numEnemyUnits);
+    EXPECT_FALSE(shm.isTruncated());
+    shm.setTruncated(true);
+    EXPECT_TRUE(shm.isTruncated());
+
+    BarSharedMemory::remove(name);
+}
+
 TEST(BarSharedMemoryTest, InitialObservation) {
     constexpr std::string_view name = "/shm-bar-initial-observation";
     constexpr EngineStatus status = EngineStatus::RUNNING;

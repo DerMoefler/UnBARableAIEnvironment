@@ -238,6 +238,15 @@ public:
     GrpcConnection getGrpcConnection(void) const;
 
     /**
+     * \brief Update the isTruncated flag in the shared-memory.
+     * \param isTruncated Value for the flag.
+     */
+    void setTruncated(const bool isTruncated);
+
+    /// \brief Getter for isTruncated flag.
+    bool isTruncated(void) const;
+
+    /**
      * \brief Reads all stored values of the requested type.
      * \tparam T supported serializable value type
      * \param[out] ids Optional output parameter containing the ids of the read Serializables. Must
